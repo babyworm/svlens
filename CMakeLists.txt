@@ -33,6 +33,7 @@ add_executable(slang-connect
     src/DanglingChecker.cpp
     src/UndrivenChecker.cpp
     src/CheckerRunner.cpp
+    src/WaiverFilter.cpp
 )
 
 target_include_directories(slang-connect PRIVATE src)

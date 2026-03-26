@@ -1,0 +1,8 @@
+waivers:
+  - pattern: "*.o_debug*"
+    type: DANGLING_OUTPUT
+    reason: "Debug ports intentionally unconnected"
+
+  - pattern: "top.u_test_*"
+    type: "*"
+    reason: "Test infrastructure"

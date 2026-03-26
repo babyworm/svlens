@@ -5,12 +5,17 @@ add_executable(slang-connect-tests
     test_undriven_checker.cpp
     test_checker_runner.cpp
     test_waiver_filter.cpp
+    test_reports.cpp
     ${CMAKE_SOURCE_DIR}/src/WidthChecker.cpp
     ${CMAKE_SOURCE_DIR}/src/TypeChecker.cpp
     ${CMAKE_SOURCE_DIR}/src/DanglingChecker.cpp
     ${CMAKE_SOURCE_DIR}/src/UndrivenChecker.cpp
     ${CMAKE_SOURCE_DIR}/src/CheckerRunner.cpp
     ${CMAKE_SOURCE_DIR}/src/WaiverFilter.cpp
+    ${CMAKE_SOURCE_DIR}/src/JsonReport.cpp
+    ${CMAKE_SOURCE_DIR}/src/MarkdownReport.cpp
+    ${CMAKE_SOURCE_DIR}/src/CsvReport.cpp
+    ${CMAKE_SOURCE_DIR}/src/TableReport.cpp
 )
 target_include_directories(slang-connect-tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(slang-connect-tests PRIVATE Catch2::Catch2WithMain slang::slang fmt::fmt yaml-cpp::yaml-cpp)

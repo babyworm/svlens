@@ -34,6 +34,10 @@ add_executable(slang-connect
     src/UndrivenChecker.cpp
     src/CheckerRunner.cpp
     src/WaiverFilter.cpp
+    src/JsonReport.cpp
+    src/MarkdownReport.cpp
+    src/CsvReport.cpp
+    src/TableReport.cpp
 )
 
 target_include_directories(slang-connect PRIVATE src)

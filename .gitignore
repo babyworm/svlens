@@ -1,3 +1,4 @@
 build/
+connect_reports/
 .cache/
 compile_commands.json

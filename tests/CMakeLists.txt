@@ -3,6 +3,8 @@ add_executable(slang-connect-tests
     test_type_checker.cpp
     test_dangling_checker.cpp
     test_undriven_checker.cpp
+    test_protocol_checker.cpp
+    test_convention_checker.cpp
     test_checker_runner.cpp
     test_waiver_filter.cpp
     test_reports.cpp
@@ -12,6 +14,8 @@ add_executable(slang-connect-tests
     ${CMAKE_SOURCE_DIR}/src/TypeChecker.cpp
     ${CMAKE_SOURCE_DIR}/src/DanglingChecker.cpp
     ${CMAKE_SOURCE_DIR}/src/UndrivenChecker.cpp
+    ${CMAKE_SOURCE_DIR}/src/ProtocolChecker.cpp
+    ${CMAKE_SOURCE_DIR}/src/ConventionChecker.cpp
     ${CMAKE_SOURCE_DIR}/src/CheckerRunner.cpp
     ${CMAKE_SOURCE_DIR}/src/WaiverFilter.cpp
     ${CMAKE_SOURCE_DIR}/src/JsonReport.cpp

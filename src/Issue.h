@@ -13,7 +13,9 @@ struct Issue {
         WIDTH_MISMATCH,
         TYPE_MISMATCH,
         DANGLING_OUTPUT,
-        UNDRIVEN_INPUT
+        UNDRIVEN_INPUT,
+        PROTOCOL_INCOMPLETE,
+        CONVENTION
     };
 
     enum class Severity {
@@ -34,6 +36,8 @@ struct Issue {
             case Type::TYPE_MISMATCH:   return "TYPE_MISMATCH";
             case Type::DANGLING_OUTPUT: return "DANGLING_OUTPUT";
             case Type::UNDRIVEN_INPUT:  return "UNDRIVEN_INPUT";
+            case Type::PROTOCOL_INCOMPLETE: return "PROTOCOL_INCOMPLETE";
+            case Type::CONVENTION:     return "CONVENTION";
         }
         return "UNKNOWN";
     }

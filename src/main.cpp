@@ -1,9 +1,11 @@
 #include "CheckerRunner.h"
 #include "ConnectionExtractor.h"
+#include "ConventionChecker.h"
 #include "CsvReport.h"
 #include "DanglingChecker.h"
 #include "JsonReport.h"
 #include "MarkdownReport.h"
+#include "ProtocolChecker.h"
 #include "ReportGenerator.h"
 #include "TableReport.h"
 #include "TypeChecker.h"
@@ -38,6 +40,9 @@ static void printUsage() {
         "  --no-check-type         Disable type mismatch checking\n"
         "  --no-check-dangling     Disable dangling output checking\n"
         "  --no-check-undriven     Disable undriven input checking\n"
+        "  --check-protocol        Enable protocol completeness checking\n"
+        "  --check-convention      Enable naming convention checking\n"
+        "  --convention <file>     Custom convention rules (YAML, optional)\n"
         "  --depth <n>             Hierarchy depth (default: unlimited, -1)\n\n"
         "Filtering:\n"
         "  --ignore-tie-off        Ignore tie-off connections\n"
@@ -56,6 +61,9 @@ struct CliOptions {
     bool checkType = true;
     bool checkDangling = true;
     bool checkUndriven = true;
+    bool checkProtocol = false;
+    bool checkConvention = false;
+    std::string conventionFile;
     bool ignoreTieOff = false;
     bool ignoreNc = false;
     bool showHelp = false;
@@ -97,6 +105,13 @@ static CliOptions parseCustomArgs(int argc, const char* const* argv,
             opts.checkDangling = false;
         } else if (arg == "--no-check-undriven") {
             opts.checkUndriven = false;
+        } else if (arg == "--check-protocol") {
+            opts.checkProtocol = true;
+        } else if (arg == "--check-convention") {
+            opts.checkConvention = true;
+        } else if (arg == "--convention") {
+            if (i + 1 >= argc) { fmt::print(stderr, "Error: --convention requires a value\n"); return opts; }
+            opts.conventionFile = argv[++i];
         } else if (arg == "--ignore-tie-off") {
             opts.ignoreTieOff = true;
         } else if (arg == "--ignore-nc") {
@@ -174,6 +189,10 @@ int main(int argc, char* argv[]) {
         runner.addChecker(std::make_unique<connect::DanglingChecker>());
     if (opts.checkUndriven)
         runner.addChecker(std::make_unique<connect::UndrivenChecker>());
+    if (opts.checkProtocol)
+        runner.addChecker(std::make_unique<connect::ProtocolChecker>());
+    if (opts.checkConvention)
+        runner.addChecker(std::make_unique<connect::ConventionChecker>());
 
     auto issues = runner.runAll(graph);
 

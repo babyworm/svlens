@@ -33,6 +33,8 @@ add_executable(slang-connect
     src/TypeChecker.cpp
     src/DanglingChecker.cpp
     src/UndrivenChecker.cpp
+    src/ProtocolChecker.cpp
+    src/ConventionChecker.cpp
     src/CheckerRunner.cpp
     src/WaiverFilter.cpp
     src/JsonReport.cpp

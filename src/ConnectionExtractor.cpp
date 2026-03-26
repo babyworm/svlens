@@ -8,6 +8,7 @@
 #include "slang/ast/expressions/MiscExpressions.h"
 #include "slang/ast/expressions/ConversionExpression.h"
 #include "slang/ast/expressions/AssignmentExpressions.h"
+#include "slang/ast/expressions/SelectExpressions.h"
 #include "slang/ast/types/Type.h"
 
 namespace connect {
@@ -40,6 +41,16 @@ std::string ConnectionExtractor::extractNetName(const slang::ast::Expression* ex
                 // For output port connections, the left side is the external net
                 auto& assign = current->as<slang::ast::AssignmentExpression>();
                 current = &assign.left();
+                continue;
+            }
+            case slang::ast::ExpressionKind::RangeSelect: {
+                auto& sel = current->as<slang::ast::RangeSelectExpression>();
+                current = &sel.value();
+                continue;
+            }
+            case slang::ast::ExpressionKind::ElementSelect: {
+                auto& sel = current->as<slang::ast::ElementSelectExpression>();
+                current = &sel.value();
                 continue;
             }
             case slang::ast::ExpressionKind::EmptyArgument:

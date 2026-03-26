@@ -28,6 +28,11 @@ FetchContent_MakeAvailable(Catch2)
 
 add_executable(slang-connect
     src/main.cpp
+    src/WidthChecker.cpp
+    src/TypeChecker.cpp
+    src/DanglingChecker.cpp
+    src/UndrivenChecker.cpp
+    src/CheckerRunner.cpp
 )
 
 target_include_directories(slang-connect PRIVATE src)

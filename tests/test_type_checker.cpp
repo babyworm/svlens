@@ -1,0 +1,48 @@
+#include <catch2/catch_test_macros.hpp>
+#include "TypeChecker.h"
+
+using namespace connect;
+using slang::ast::ArgumentDirection;
+
+static PortInfo makePort(const std::string& inst, const std::string& name,
+                         ArgumentDirection dir, uint32_t width, bool isSigned) {
+    PortInfo p;
+    p.instancePath = inst; p.portName = name; p.direction = dir;
+    p.width = width; p.isSigned = isSigned;
+    return p;
+}
+
+TEST_CASE("TypeChecker: same signedness produces no issues") {
+    ConnectionGraph graph;
+    graph.connections.push_back({
+        makePort("top.u_a", "o_data", ArgumentDirection::Out, 16, true),
+        makePort("top.u_b", "i_data", ArgumentDirection::In, 16, true)
+    });
+    TypeChecker checker;
+    REQUIRE(checker.check(graph).empty());
+}
+
+TEST_CASE("TypeChecker: signed to unsigned is ERROR") {
+    ConnectionGraph graph;
+    graph.connections.push_back({
+        makePort("top.u_a", "o_coeff", ArgumentDirection::Out, 16, true),
+        makePort("top.u_b", "i_data", ArgumentDirection::In, 16, false)
+    });
+    TypeChecker checker;
+    auto issues = checker.check(graph);
+    REQUIRE(issues.size() == 1);
+    CHECK(issues[0].type == Issue::Type::TYPE_MISMATCH);
+    CHECK(issues[0].severity == Issue::Severity::ERROR);
+}
+
+TEST_CASE("TypeChecker: unsigned to signed is ERROR") {
+    ConnectionGraph graph;
+    graph.connections.push_back({
+        makePort("top.u_a", "o_data", ArgumentDirection::Out, 16, false),
+        makePort("top.u_b", "i_coeff", ArgumentDirection::In, 16, true)
+    });
+    TypeChecker checker;
+    auto issues = checker.check(graph);
+    REQUIRE(issues.size() == 1);
+    CHECK(issues[0].severity == Issue::Severity::ERROR);
+}

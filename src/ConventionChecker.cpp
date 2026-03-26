@@ -13,7 +13,7 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
     for (auto& port : graph.allPorts) {
         if (port.direction == slang::ast::ArgumentDirection::In) {
             if (!rules_.inputPrefix.empty() &&
-                port.portName.substr(0, rules_.inputPrefix.size()) != rules_.inputPrefix) {
+                !port.portName.starts_with(rules_.inputPrefix)) {
                 Issue issue;
                 issue.type = Issue::Type::CONVENTION;
                 issue.severity = Issue::Severity::INFO;
@@ -25,7 +25,7 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
             }
         } else if (port.direction == slang::ast::ArgumentDirection::Out) {
             if (!rules_.outputPrefix.empty() &&
-                port.portName.substr(0, rules_.outputPrefix.size()) != rules_.outputPrefix) {
+                !port.portName.starts_with(rules_.outputPrefix)) {
                 Issue issue;
                 issue.type = Issue::Type::CONVENTION;
                 issue.severity = Issue::Severity::INFO;
@@ -42,7 +42,7 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
     std::set<std::string> checkedInstances;
     for (auto& port : graph.allPorts) {
         const auto& path = port.instancePath;
-        if (checkedInstances.count(path))
+        if (checkedInstances.contains(path))
             continue;
         checkedInstances.insert(path);
 
@@ -54,7 +54,7 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
         }
 
         if (!rules_.instancePrefix.empty() &&
-            instName.substr(0, rules_.instancePrefix.size()) != rules_.instancePrefix) {
+            !instName.starts_with(rules_.instancePrefix)) {
             Issue issue;
             issue.type = Issue::Type::CONVENTION;
             issue.severity = Issue::Severity::INFO;

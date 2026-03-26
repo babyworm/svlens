@@ -183,7 +183,9 @@ void ConnectionExtractor::visitInstance(const slang::ast::InstanceSymbol& instan
 
 std::string ConnectionExtractor::findCanonical(const std::string& key) const {
     std::string current = key;
-    while (netAliases_.count(current))
+    size_t maxIter = netAliases_.size() + 1;
+    size_t iter = 0;
+    while (netAliases_.count(current) && iter++ < maxIter)
         current = netAliases_.at(current);
     return current;
 }

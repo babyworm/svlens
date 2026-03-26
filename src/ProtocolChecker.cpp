@@ -84,14 +84,16 @@ bool ProtocolChecker::matchesSuffix(const std::string& portName, const std::stri
     if (portName.size() < signal.size())
         return false;
     // Case-insensitive suffix match
-    auto portIt = portName.rbegin();
-    auto sigIt = signal.rbegin();
-    for (; sigIt != signal.rend(); ++portIt, ++sigIt) {
-        if (std::toupper(static_cast<unsigned char>(*portIt)) !=
-            std::toupper(static_cast<unsigned char>(*sigIt))) {
-            return false;
-        }
-    }
+    std::string upperPort = portName;
+    std::string upperSignal = signal;
+    for (auto& c : upperPort) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    for (auto& c : upperSignal) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+
+    auto pos = upperPort.rfind(upperSignal);
+    if (pos == std::string::npos) return false;
+    if (pos + upperSignal.size() != upperPort.size()) return false;
+    // Must be at start or preceded by underscore separator
+    if (pos > 0 && upperPort[pos - 1] != '_') return false;
     return true;
 }
 

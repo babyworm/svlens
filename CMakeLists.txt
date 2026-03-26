@@ -26,8 +26,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Catch2)
 
-add_executable(slang-connect
-    src/main.cpp
+# Library target (shared between main executable and tests)
+add_library(slang-connect-lib OBJECT
     src/ConnectionExtractor.cpp
     src/WidthChecker.cpp
     src/TypeChecker.cpp
@@ -42,9 +42,13 @@ add_executable(slang-connect
     src/CsvReport.cpp
     src/TableReport.cpp
 )
+target_include_directories(slang-connect-lib PUBLIC src)
+target_link_libraries(slang-connect-lib PUBLIC slang::slang fmt::fmt yaml-cpp::yaml-cpp)
 
-target_include_directories(slang-connect PRIVATE src)
-target_link_libraries(slang-connect PRIVATE slang::slang fmt::fmt yaml-cpp::yaml-cpp)
+add_executable(slang-connect src/main.cpp)
+target_link_libraries(slang-connect PRIVATE slang-connect-lib)
+
+install(TARGETS slang-connect RUNTIME DESTINATION bin)
 
 enable_testing()
 add_subdirectory(tests)

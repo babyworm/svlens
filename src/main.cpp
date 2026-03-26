@@ -45,8 +45,6 @@ static void printUsage() {
         "  --convention <file>     Custom convention rules (YAML, optional)\n"
         "  --depth <n>             Hierarchy depth (default: unlimited, -1)\n\n"
         "Filtering:\n"
-        "  --ignore-tie-off        Ignore tie-off connections\n"
-        "  --ignore-nc             Ignore no-connect ports\n"
         "  --waiver <file>         YAML waiver file\n\n"
         "All other options (e.g. -I, -D, --std, -f) are passed to slang.\n");
 }
@@ -113,8 +111,10 @@ static CliOptions parseCustomArgs(int argc, const char* const* argv,
             if (i + 1 >= argc) { fmt::print(stderr, "Error: --convention requires a value\n"); return opts; }
             opts.conventionFile = argv[++i];
         } else if (arg == "--ignore-tie-off") {
+            // Parsed but not yet implemented - reserved for future use
             opts.ignoreTieOff = true;
         } else if (arg == "--ignore-nc") {
+            // Parsed but not yet implemented - reserved for future use
             opts.ignoreNc = true;
         } else {
             // Pass through to slang (SV files, -I, -D, --std, -f, etc.)
@@ -191,8 +191,12 @@ int main(int argc, char* argv[]) {
         runner.addChecker(std::make_unique<connect::UndrivenChecker>());
     if (opts.checkProtocol)
         runner.addChecker(std::make_unique<connect::ProtocolChecker>());
-    if (opts.checkConvention)
+    if (opts.checkConvention) {
+        if (!opts.conventionFile.empty()) {
+            fmt::print(stderr, "Warning: --convention file loading not yet implemented, using defaults\n");
+        }
         runner.addChecker(std::make_unique<connect::ConventionChecker>());
+    }
 
     auto issues = runner.runAll(graph);
 

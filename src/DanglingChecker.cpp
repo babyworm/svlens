@@ -10,8 +10,10 @@ std::vector<Issue> DanglingChecker::check(const ConnectionGraph& graph) const {
         connectedSources.insert(conn.source.fullPath());
 
     for (auto& port : graph.allPorts) {
-        if (port.direction != slang::ast::ArgumentDirection::Out) continue;
-        if (connectedSources.count(port.fullPath())) continue;
+        if (port.direction != slang::ast::ArgumentDirection::Out &&
+            port.direction != slang::ast::ArgumentDirection::InOut)
+            continue;
+        if (connectedSources.contains(port.fullPath())) continue;
         Issue issue;
         issue.type = Issue::Type::DANGLING_OUTPUT;
         issue.severity = Issue::Severity::WARN;

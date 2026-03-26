@@ -21,6 +21,7 @@ private:
         std::string pattern;
         std::string type;
         std::string reason;
+        std::string source;
     };
     std::vector<WaiverRule> rules_;
     static bool globMatch(const std::string& pattern, const std::string& text);

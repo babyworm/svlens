@@ -1,4 +1,10 @@
 build/
+build*/
 connect_reports/
 .cache/
 compile_commands.json
+.omc/
+.DS_Store
+.vscode/
+.idea/
+CMakeUserPresets.json

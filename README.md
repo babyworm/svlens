@@ -19,6 +19,7 @@ cmake --build build
 slang-connect design.sv --top my_top
 slang-connect -f filelist.f --top soc_top --format json -o reports/
 slang-connect design.sv --top my_top --no-check-dangling --waiver waivers.yaml
+slang-connect design.sv --top my_top --check-protocol --check-convention
 ```
 
 ## Checks
@@ -29,6 +30,8 @@ slang-connect design.sv --top my_top --no-check-dangling --waiver waivers.yaml
 | Type Mismatch | signed/unsigned mismatch | ON |
 | Dangling Output | Unconnected output ports | ON |
 | Undriven Input | Input ports with no driver | ON |
+| Protocol Completeness | Missing AXI/AHB/APB signals | OFF (`--check-protocol`) |
+| Convention | Port/instance naming violations | OFF (`--check-convention`) |
 
 ## Output Formats
 

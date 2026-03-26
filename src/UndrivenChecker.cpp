@@ -10,8 +10,10 @@ std::vector<Issue> UndrivenChecker::check(const ConnectionGraph& graph) const {
         drivenDests.insert(conn.dest.fullPath());
 
     for (auto& port : graph.allPorts) {
-        if (port.direction != slang::ast::ArgumentDirection::In) continue;
-        if (drivenDests.count(port.fullPath())) continue;
+        if (port.direction != slang::ast::ArgumentDirection::In &&
+            port.direction != slang::ast::ArgumentDirection::InOut)
+            continue;
+        if (drivenDests.contains(port.fullPath())) continue;
         Issue issue;
         issue.type = Issue::Type::UNDRIVEN_INPUT;
         issue.severity = Issue::Severity::ERROR;

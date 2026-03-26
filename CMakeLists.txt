@@ -28,6 +28,7 @@ FetchContent_MakeAvailable(Catch2)
 
 add_executable(slang-connect
     src/main.cpp
+    src/ConnectionExtractor.cpp
     src/WidthChecker.cpp
     src/TypeChecker.cpp
     src/DanglingChecker.cpp

@@ -1,0 +1,4 @@
+waivers:
+  - pattern: "*.o_debug_a"
+    type: DANGLING_OUTPUT
+    reason: "Debug port A waived"

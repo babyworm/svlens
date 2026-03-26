@@ -9,6 +9,7 @@ add_executable(slang-connect-tests
     test_waiver_filter.cpp
     test_reports.cpp
     test_extractor.cpp
+    test_integration_advanced.cpp
     ${CMAKE_SOURCE_DIR}/src/ConnectionExtractor.cpp
     ${CMAKE_SOURCE_DIR}/src/WidthChecker.cpp
     ${CMAKE_SOURCE_DIR}/src/TypeChecker.cpp
@@ -26,6 +27,7 @@ add_executable(slang-connect-tests
 target_include_directories(slang-connect-tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(slang-connect-tests PRIVATE Catch2::Catch2WithMain slang::slang fmt::fmt yaml-cpp::yaml-cpp)
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/test_waivers.yaml DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/waiver_integration.yaml DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/sv DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 include(CTest)
 include(Catch)

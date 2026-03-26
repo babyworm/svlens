@@ -4,6 +4,7 @@
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "slang/ast/symbols/PortSymbols.h"
+#include "slang/ast/symbols/MemberSymbols.h"
 #include "slang/ast/symbols/VariableSymbols.h"
 #include "slang/ast/expressions/MiscExpressions.h"
 #include "slang/ast/expressions/ConversionExpression.h"
@@ -66,6 +67,7 @@ ConnectionGraph ConnectionExtractor::extract() {
     graph_ = ConnectionGraph{};
     graph_.topModule = topModule_;
     netMap_.clear();
+    netAliases_.clear();
 
     auto& root = compilation_.getRoot();
 
@@ -136,29 +138,75 @@ void ConnectionExtractor::visitInstance(const slang::ast::InstanceSymbol& instan
                 // Build net key: scope path + net name
                 std::string netKey = parentPath + "::" + netName;
 
-                bool isDriver = (port.direction == slang::ast::ArgumentDirection::Out ||
-                                 port.direction == slang::ast::ArgumentDirection::InOut);
-
-                netMap_[netKey].push_back({pinfo, isDriver});
+                if (port.direction == slang::ast::ArgumentDirection::InOut) {
+                    netMap_[netKey].push_back({pinfo, true});   // driver
+                    netMap_[netKey].push_back({pinfo, false});  // load
+                } else {
+                    bool isDriver = (port.direction == slang::ast::ArgumentDirection::Out);
+                    netMap_[netKey].push_back({pinfo, isDriver});
+                }
             }
 
             // Recurse into child instance
             visitInstance(childInst, childPath);
         }
     }
+
+    // Process continuous assign statements to create net aliases
+    for (auto& member : body.members()) {
+        if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
+            auto& assignSym = member.as<slang::ast::ContinuousAssignSymbol>();
+            auto& assignExpr = assignSym.getAssignment();
+            if (assignExpr.kind != slang::ast::ExpressionKind::Assignment)
+                continue;
+
+            auto& assign = assignExpr.as<slang::ast::AssignmentExpression>();
+            std::string lhsName = extractNetName(&assign.left());
+            std::string rhsName = extractNetName(&assign.right());
+            if (lhsName.empty() || rhsName.empty())
+                continue;
+
+            std::string lhsKey = parentPath + "::" + lhsName;
+            std::string rhsKey = parentPath + "::" + rhsName;
+
+            if (lhsKey == rhsKey)
+                continue;
+
+            // Record alias: lhsKey and rhsKey refer to the same net
+            std::string lhsCanon = findCanonical(lhsKey);
+            std::string rhsCanon = findCanonical(rhsKey);
+            if (lhsCanon != rhsCanon)
+                netAliases_[rhsCanon] = lhsCanon;
+        }
+    }
+}
+
+std::string ConnectionExtractor::findCanonical(const std::string& key) const {
+    std::string current = key;
+    while (netAliases_.count(current))
+        current = netAliases_.at(current);
+    return current;
 }
 
 void ConnectionExtractor::resolveConnections() {
+    // Group all bindings by their canonical net key
+    std::unordered_map<std::string, std::vector<NetBinding*>> canonicalGroups;
     for (auto& [netKey, bindings] : netMap_) {
+        std::string canon = findCanonical(netKey);
+        for (auto& b : bindings)
+            canonicalGroups[canon].push_back(&b);
+    }
+
+    for (auto& [canon, bindings] : canonicalGroups) {
         // Collect drivers and loads
         std::vector<const PortInfo*> drivers;
         std::vector<const PortInfo*> loads;
 
-        for (auto& binding : bindings) {
-            if (binding.isDriver) {
-                drivers.push_back(&binding.port);
+        for (auto* binding : bindings) {
+            if (binding->isDriver) {
+                drivers.push_back(&binding->port);
             } else {
-                loads.push_back(&binding.port);
+                loads.push_back(&binding->port);
             }
         }
 

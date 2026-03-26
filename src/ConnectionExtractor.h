@@ -30,12 +30,17 @@ private:
     int maxDepth_;
     ConnectionGraph graph_;
 
+    std::string findCanonical(const std::string& key) const;
+
     // net_key (scope + net_name) -> list of (PortInfo, isDriver)
     struct NetBinding {
         PortInfo port;
         bool isDriver;
     };
     std::unordered_map<std::string, std::vector<NetBinding>> netMap_;
+
+    // net alias map: key -> parent key (union-find without path compression)
+    mutable std::unordered_map<std::string, std::string> netAliases_;
 };
 
 } // namespace connect

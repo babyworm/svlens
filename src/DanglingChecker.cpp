@@ -16,7 +16,10 @@ std::vector<Issue> DanglingChecker::check(const ConnectionGraph& graph) const {
         issue.type = Issue::Type::DANGLING_OUTPUT;
         issue.severity = Issue::Severity::WARN;
         issue.port = port;
-        issue.detail = fmt::format("{}[{}:0] — not connected", port.fullPath(), port.width - 1);
+        if (port.width <= 1)
+            issue.detail = fmt::format("{} — not connected", port.fullPath());
+        else
+            issue.detail = fmt::format("{}[{}:0] — not connected", port.fullPath(), port.width - 1);
         issues.push_back(std::move(issue));
     }
     return issues;

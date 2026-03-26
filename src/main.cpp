@@ -73,16 +73,22 @@ static CliOptions parseCustomArgs(int argc, const char* const* argv,
 
         if (arg == "--help" || arg == "-h") {
             opts.showHelp = true;
-        } else if (arg == "--top" && i + 1 < argc) {
+        } else if (arg == "--top") {
+            if (i + 1 >= argc) { fmt::print(stderr, "Error: --top requires a value\n"); return opts; }
             opts.topModule = argv[++i];
-        } else if ((arg == "-o" || arg == "--output") && i + 1 < argc) {
+        } else if (arg == "-o" || arg == "--output") {
+            if (i + 1 >= argc) { fmt::print(stderr, "Error: {} requires a value\n", arg); return opts; }
             opts.outputDir = argv[++i];
-        } else if (arg == "--format" && i + 1 < argc) {
+        } else if (arg == "--format") {
+            if (i + 1 >= argc) { fmt::print(stderr, "Error: --format requires a value\n"); return opts; }
             opts.format = argv[++i];
-        } else if (arg == "--waiver" && i + 1 < argc) {
+        } else if (arg == "--waiver") {
+            if (i + 1 >= argc) { fmt::print(stderr, "Error: --waiver requires a value\n"); return opts; }
             opts.waiverFile = argv[++i];
-        } else if (arg == "--depth" && i + 1 < argc) {
-            opts.depth = std::atoi(argv[++i]);
+        } else if (arg == "--depth") {
+            if (i + 1 >= argc) { fmt::print(stderr, "Error: --depth requires a value\n"); return opts; }
+            try { opts.depth = std::stoi(argv[++i]); }
+            catch (...) { fmt::print(stderr, "Error: --depth requires an integer value\n"); return opts; }
         } else if (arg == "--no-check-width") {
             opts.checkWidth = false;
         } else if (arg == "--no-check-type") {

@@ -8,3 +8,4 @@ compile_commands.json
 .vscode/
 .idea/
 CMakeUserPresets.json
+.omx/

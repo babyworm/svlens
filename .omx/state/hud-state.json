@@ -1,5 +1,0 @@
-{
-  "last_turn_at": "2026-03-26T18:29:59.176Z",
-  "turn_count": 2,
-  "last_agent_output": "**Findings**\n1. `CRITICAL` The extractor does not preserve connectivity across hierarchy boundaries,"
-}

@@ -131,6 +131,9 @@ void ConnectionExtractor::visitInstance(const slang::ast::InstanceSymbol& instan
                     continue;
                 }
 
+                // Port has a non-empty expression — mark as connected
+                graph_.connectedPorts.insert(pinfo.fullPath());
+
                 std::string netName = extractNetName(expr);
                 if (netName.empty())
                     continue;

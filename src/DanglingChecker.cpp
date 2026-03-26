@@ -14,6 +14,8 @@ std::vector<Issue> DanglingChecker::check(const ConnectionGraph& graph) const {
             port.direction != slang::ast::ArgumentDirection::InOut)
             continue;
         if (connectedSources.contains(port.fullPath())) continue;
+        // Port connected to a local wire (not another instance) is not dangling
+        if (graph.connectedPorts.contains(port.fullPath())) continue;
         Issue issue;
         issue.type = Issue::Type::DANGLING_OUTPUT;
         issue.severity = Issue::Severity::WARN;

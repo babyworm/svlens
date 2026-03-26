@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace connect {
@@ -30,6 +31,7 @@ struct Connection {
 struct ConnectionGraph {
     std::vector<Connection> connections;
     std::vector<PortInfo> allPorts;
+    std::unordered_set<std::string> connectedPorts; // ports with non-empty expressions
     std::string topModule;
 };
 

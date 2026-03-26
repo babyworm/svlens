@@ -14,6 +14,8 @@ std::vector<Issue> UndrivenChecker::check(const ConnectionGraph& graph) const {
             port.direction != slang::ast::ArgumentDirection::InOut)
             continue;
         if (drivenDests.contains(port.fullPath())) continue;
+        // Port connected to a local wire (not another instance) is not undriven
+        if (graph.connectedPorts.contains(port.fullPath())) continue;
         Issue issue;
         issue.type = Issue::Type::UNDRIVEN_INPUT;
         issue.severity = Issue::Severity::ERROR;

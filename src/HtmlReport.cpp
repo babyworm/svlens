@@ -17,6 +17,21 @@ std::string replaceAll(std::string str, const std::string& from, const std::stri
     return str;
 }
 
+std::string escapeHtml(const std::string& s) {
+    std::string result;
+    result.reserve(s.size());
+    for (char c : s) {
+        switch (c) {
+            case '&':  result += "&amp;"; break;
+            case '<':  result += "&lt;"; break;
+            case '>':  result += "&gt;"; break;
+            case '"':  result += "&quot;"; break;
+            default:   result += c;
+        }
+    }
+    return result;
+}
+
 } // anonymous namespace
 
 void HtmlReportGenerator::generate(const ReportData& data, std::ostream& out) const {
@@ -26,7 +41,7 @@ void HtmlReportGenerator::generate(const ReportData& data, std::ostream& out) co
     jsonGen.generate(data, jsonStream);
 
     std::string html(HTML_TEMPLATE);
-    html = replaceAll(html, "{{TOP_MODULE}}", data.topModule);
+    html = replaceAll(html, "{{TOP_MODULE}}", escapeHtml(data.topModule));
     html = replaceAll(html, "{{JSON_DATA}}", jsonStream.str());
 
     out << html;

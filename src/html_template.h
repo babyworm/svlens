@@ -145,15 +145,18 @@ renderIssues();
     nodeId++;
   });
 
-  // Build severity map for connections
+  // Build severity map for connections (escalate only, never downgrade)
+  const sevRank = { INFO: 1, WARN: 2, ERROR: 3 };
   const connSev = new Map();
   DATA.issues.forEach(iss => {
     if (iss.source && iss.dest) {
       const srcInst = iss.source.instance;
       const dstInst = iss.dest.instance;
       const key = srcInst + '->' + dstInst;
-      const cur = connSev.get(key) || 'OK';
-      if (iss.severity === 'ERROR' || cur !== 'ERROR') connSev.set(key, iss.severity);
+      const cur = connSev.get(key);
+      if (!cur || (sevRank[iss.severity] || 0) > (sevRank[cur] || 0)) {
+        connSev.set(key, iss.severity);
+      }
     }
   });
 
@@ -167,7 +170,7 @@ renderIssues();
     const key = sInst + '->' + dInst;
     if (!edgeGroups.has(key)) edgeGroups.set(key, { from: sInst, to: dInst, labels: [], status: 'OK' });
     const g = edgeGroups.get(key);
-    const portPart = sParts.pop().replace(/\[.*/, '') + ' -> ' + dParts.pop().replace(/\[.*/, '');
+    const portPart = sParts.at(-1).replace(/\[.*/, '') + ' -> ' + dParts.at(-1).replace(/\[.*/, '');
     g.labels.push(portPart + (c.status !== 'OK' ? ' [' + c.status + ']' : ''));
     if (c.status !== 'OK') g.status = c.status;
   });

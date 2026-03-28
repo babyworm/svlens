@@ -259,7 +259,16 @@ function esc(s) {
       panes.forEach(function(p) { p.classList.remove('active'); });
       btn.classList.add('active');
       document.getElementById('pane-' + btn.dataset.tab).classList.add('active');
-      if (btn.dataset.tab === 'graph' && !graphInit) { graphInit = true; initGraph(); }
+      if (btn.dataset.tab === 'graph' && !graphInit) {
+        graphInit = true;
+        if (typeof vis === 'undefined') {
+          document.getElementById('pane-graph').innerHTML = '<div class="no-data" style="padding-top:80px">Graph requires vis-network.js (CDN unreachable or offline).</div>';
+        } else {
+          try { initGraph(); } catch(e) {
+            document.getElementById('pane-graph').innerHTML = '<div class="no-data" style="padding-top:80px">Graph init failed: ' + e.message + '</div>';
+          }
+        }
+      }
     });
   });
 })();
@@ -1442,7 +1451,9 @@ function initGraph() {
 })();
 
 // Init graph if it's the active tab on load (it's not, but just in case)
-if (document.querySelector('.tab-btn.active').dataset.tab === 'graph') { initGraph(); }
+if (document.querySelector('.tab-btn.active').dataset.tab === 'graph') {
+  if (typeof vis !== 'undefined') { try { initGraph(); } catch(e) {} }
+}
 </script>
 </body>
 </html>

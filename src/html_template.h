@@ -312,7 +312,7 @@ function esc(s) {
     if (m.errors) issues += m.errors + 'E ';
     if (m.warnings) issues += m.warnings + 'W';
     if (!issues) issues = '-';
-    h += '<div class="health-bar-row" data-instance="' + esc(m.instance) + '" onclick="switchToDetails(\'' + esc(m.instance) + '\')">';
+    h += '<div class="health-bar-row" data-instance="' + esc(m.instance) + '" style="cursor:pointer">';
     h += '<div class="health-bar-name" title="' + esc(m.instance) + '">' + esc(m.name) + '</div>';
     h += '<div class="health-bar-track"><div class="health-bar-fill" style="width:' + w + '%;background:' + c + '"></div></div>';
     h += '<div class="health-bar-score" style="color:' + c + '">' + pct(m.score) + '%</div>';
@@ -350,6 +350,13 @@ function esc(s) {
   h += '</div>'; // overview-sections
 
   pane.innerHTML = h;
+
+  // Wire up health bar click → switchToDetails (no inline onclick)
+  pane.querySelectorAll('.health-bar-row').forEach(function(row) {
+    row.addEventListener('click', function() {
+      switchToDetails(row.dataset.instance);
+    });
+  });
 
   function statCard(val, label, color) {
     return '<div class="stat-card"><div class="stat-val" style="color:' + color + '">' + val + '</div><div class="stat-label">' + label + '</div></div>';

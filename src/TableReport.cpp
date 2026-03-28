@@ -111,13 +111,17 @@ void TableReportGenerator::generate(const ReportData& data, std::ostream& out) c
     if (!analysis.coupling.empty()) {
         out << "\n=== Coupling Summary ===\n";
 
-        bool first = true;
-        for (const auto& edge : analysis.coupling) {
-            std::string label = first ? "  (highest)" : "";
+        constexpr size_t maxShow = 5;
+        for (size_t i = 0; i < std::min(maxShow, analysis.coupling.size()); ++i) {
+            const auto& edge = analysis.coupling[i];
+            std::string label = (i == 0) ? "  (highest)" : "";
             out << fmt::format("  {} \xe2\x86\x94 {}    {} signals{}\n",
                                edge.srcModule, edge.dstModule,
                                edge.connectionCount, label);
-            first = false;
+        }
+        if (analysis.coupling.size() > maxShow) {
+            out << fmt::format("  ... and {} more pairs\n",
+                               analysis.coupling.size() - maxShow);
         }
     }
 }

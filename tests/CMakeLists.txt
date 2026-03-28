@@ -15,6 +15,7 @@ add_executable(slang-connect-tests
     test_graph_diff.cpp
     test_expect_checker.cpp
     test_clock_reset.cpp
+    test_interface_grouper.cpp
 )
 target_link_libraries(slang-connect-tests PRIVATE slang-connect-lib Catch2::Catch2WithMain)
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/test_waivers.yaml DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

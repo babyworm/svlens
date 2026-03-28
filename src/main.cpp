@@ -7,6 +7,7 @@
 #include "DotReport.h"
 #include "ExpectChecker.h"
 #include "GraphDiff.h"
+#include "InterfaceGrouper.h"
 #include "HtmlReport.h"
 #include "JsonReport.h"
 #include "MarkdownReport.h"
@@ -318,6 +319,25 @@ int main(int argc, char* argv[]) {
             htmlGen.generate(reportData, ofs);
         } else {
             fmt::print(stderr, "Error: cannot write to {}\n", path);
+        }
+    }
+
+    // --- Phase 6.3: Interface summary ---
+    if (opts.format == "table" || opts.format == "all") {
+        connect::InterfaceGrouper grouper;
+        auto groups = grouper.classify(reportData.graph);
+        if (!groups.empty()) {
+            fmt::print("\n=== Interface Summary ===\n");
+            for (const auto& g : groups) {
+                // Extract short instance name (after last dot)
+                auto dotPos = g.instancePath.rfind('.');
+                std::string shortName = (dotPos != std::string::npos)
+                    ? g.instancePath.substr(dotPos + 1) : g.instancePath;
+                fmt::print("  {:16s}: {} {} ({} signals, prefix: {})\n",
+                           shortName, g.protocol, g.role,
+                           g.matchedPorts.size(), g.prefix);
+            }
+            fmt::print("\n");
         }
     }
 

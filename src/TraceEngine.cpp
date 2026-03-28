@@ -8,14 +8,18 @@
 
 namespace connect {
 
-TraceEngine::TraceEngine(const ConnectionGraph& graph) : graph_(graph) {}
+TraceEngine::TraceEngine(const ConnectionGraph& graph) : graph_(graph) {
+    // Build adjacency indices for O(degree) BFS
+    for (const auto& conn : graph_.connections) {
+        fwdIndex_[conn.source.instancePath].push_back(&conn);
+        revIndex_[conn.dest.instancePath].push_back(&conn);
+    }
+}
 
 std::vector<TraceHop> TraceEngine::traceFanOut(const std::string& portPattern,
                                                 int maxDepth) const {
     std::vector<TraceHop> result;
-    std::unordered_set<std::string> visited; // connection keys to prevent cycles
-
-    // BFS queue: (instance path to expand from, current depth)
+    std::unordered_set<std::string> visited;
     std::queue<std::pair<std::string, int>> frontier;
 
     // Seed: find all connections where source.fullPath() matches the pattern
@@ -29,21 +33,19 @@ std::vector<TraceHop> TraceEngine::traceFanOut(const std::string& portPattern,
         }
     }
 
-    // BFS expansion
+    // BFS expansion using forward index
     while (!frontier.empty()) {
         auto [instancePath, depth] = frontier.front();
         frontier.pop();
+        if (depth > maxDepth) continue;
 
-        if (depth > maxDepth)
-            continue;
-
-        for (const auto& conn : graph_.connections) {
-            if (conn.source.instancePath == instancePath) {
-                std::string key = conn.source.fullPath() + "->" + conn.dest.fullPath();
-                if (visited.insert(key).second) {
-                    result.push_back({conn, depth});
-                    frontier.push({conn.dest.instancePath, depth + 1});
-                }
+        auto it = fwdIndex_.find(instancePath);
+        if (it == fwdIndex_.end()) continue;
+        for (const auto* conn : it->second) {
+            std::string key = conn->source.fullPath() + "->" + conn->dest.fullPath();
+            if (visited.insert(key).second) {
+                result.push_back({*conn, depth});
+                frontier.push({conn->dest.instancePath, depth + 1});
             }
         }
     }
@@ -55,7 +57,6 @@ std::vector<TraceHop> TraceEngine::traceFanIn(const std::string& portPattern,
                                                int maxDepth) const {
     std::vector<TraceHop> result;
     std::unordered_set<std::string> visited;
-
     std::queue<std::pair<std::string, int>> frontier;
 
     // Seed: find all connections where dest.fullPath() matches the pattern
@@ -69,21 +70,19 @@ std::vector<TraceHop> TraceEngine::traceFanIn(const std::string& portPattern,
         }
     }
 
-    // BFS expansion: go backward
+    // BFS expansion using reverse index
     while (!frontier.empty()) {
         auto [instancePath, depth] = frontier.front();
         frontier.pop();
+        if (depth > maxDepth) continue;
 
-        if (depth > maxDepth)
-            continue;
-
-        for (const auto& conn : graph_.connections) {
-            if (conn.dest.instancePath == instancePath) {
-                std::string key = conn.source.fullPath() + "->" + conn.dest.fullPath();
-                if (visited.insert(key).second) {
-                    result.push_back({conn, depth});
-                    frontier.push({conn.source.instancePath, depth + 1});
-                }
+        auto it = revIndex_.find(instancePath);
+        if (it == revIndex_.end()) continue;
+        for (const auto* conn : it->second) {
+            std::string key = conn->source.fullPath() + "->" + conn->dest.fullPath();
+            if (visited.insert(key).second) {
+                result.push_back({*conn, depth});
+                frontier.push({conn->source.instancePath, depth + 1});
             }
         }
     }

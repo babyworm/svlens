@@ -3,6 +3,7 @@
 #include "ConnectionGraph.h"
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace connect {
@@ -32,6 +33,9 @@ public:
 
 private:
     const ConnectionGraph& graph_;
+    // Adjacency indices for O(degree) BFS instead of O(E)
+    std::unordered_map<std::string, std::vector<const Connection*>> fwdIndex_; // srcInst -> conns
+    std::unordered_map<std::string, std::vector<const Connection*>> revIndex_; // dstInst -> conns
 };
 
 } // namespace connect

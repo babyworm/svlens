@@ -1,4 +1,5 @@
 #include "WaiverFilter.h"
+#include "GlobUtil.h"
 #include <fmt/core.h>
 #include <yaml-cpp/yaml.h>
 
@@ -20,24 +21,6 @@ WaiverFilter::WaiverFilter(const std::string& yamlPath) {
         fmt::print(stderr, "Warning: failed to load waiver file '{}': {}\n",
                    yamlPath, e.what());
     }
-}
-
-bool WaiverFilter::globMatch(const std::string& pattern, const std::string& text) {
-    size_t pi = 0, ti = 0;
-    size_t starP = std::string::npos, starT = 0;
-    while (ti < text.size()) {
-        if (pi < pattern.size() && (pattern[pi] == text[ti] || pattern[pi] == '?')) {
-            ++pi; ++ti;
-        } else if (pi < pattern.size() && pattern[pi] == '*') {
-            starP = pi++; starT = ti;
-        } else if (starP != std::string::npos) {
-            pi = starP + 1; ti = ++starT;
-        } else {
-            return false;
-        }
-    }
-    while (pi < pattern.size() && pattern[pi] == '*') ++pi;
-    return pi == pattern.size();
 }
 
 WaiverFilter::WaiverResult WaiverFilter::apply(const std::vector<Issue>& issues) const {

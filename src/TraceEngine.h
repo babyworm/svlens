@@ -32,8 +32,6 @@ public:
 
 private:
     const ConnectionGraph& graph_;
-
-    static bool globMatch(const std::string& pattern, const std::string& text);
 };
 
 } // namespace connect

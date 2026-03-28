@@ -18,8 +18,6 @@ public:
 private:
     std::vector<ExpectRule> expected_;
     std::vector<ExpectRule> forbidden_;
-
-    static bool globMatch(const std::string& pattern, const std::string& text);
 };
 
 } // namespace connect

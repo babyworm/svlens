@@ -1,4 +1,5 @@
 #include "TraceEngine.h"
+#include "GlobUtil.h"
 
 #include <fmt/core.h>
 #include <queue>
@@ -8,35 +9,6 @@
 namespace connect {
 
 TraceEngine::TraceEngine(const ConnectionGraph& graph) : graph_(graph) {}
-
-bool TraceEngine::globMatch(const std::string& pattern, const std::string& text) {
-    // Simple glob: '*' matches any sequence of characters (including dots)
-    size_t pi = 0, ti = 0;
-    size_t starP = std::string::npos, starT = 0;
-
-    while (ti < text.size()) {
-        if (pi < pattern.size() && (pattern[pi] == text[ti] || pattern[pi] == '?')) {
-            ++pi;
-            ++ti;
-        } else if (pi < pattern.size() && pattern[pi] == '*') {
-            starP = pi;
-            starT = ti;
-            ++pi;
-        } else if (starP != std::string::npos) {
-            pi = starP + 1;
-            ++starT;
-            ti = starT;
-        } else {
-            return false;
-        }
-    }
-
-    while (pi < pattern.size() && pattern[pi] == '*') {
-        ++pi;
-    }
-
-    return pi == pattern.size();
-}
 
 std::vector<TraceHop> TraceEngine::traceFanOut(const std::string& portPattern,
                                                 int maxDepth) const {

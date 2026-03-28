@@ -4,6 +4,7 @@
 #include "CsvReport.h"
 #include "DanglingChecker.h"
 #include "DotReport.h"
+#include "GraphDiff.h"
 #include "HtmlReport.h"
 #include "JsonReport.h"
 #include "MarkdownReport.h"
@@ -46,6 +47,8 @@ static void printUsage() {
         "  --check-convention      Enable naming convention checking\n"
         "  --convention <file>     Custom convention rules (YAML, optional)\n"
         "  --depth <n>             Hierarchy depth (default: unlimited, -1)\n\n"
+        "Comparison:\n"
+        "  --diff <file>           Compare against a baseline JSON report\n\n"
         "Filtering:\n"
         "  --waiver <file>         YAML waiver file\n\n"
         "All other options (e.g. -I, -D, --std, -f) are passed to slang.\n");
@@ -64,6 +67,7 @@ struct CliOptions {
     bool checkProtocol = false;
     bool checkConvention = false;
     std::string conventionFile;
+    std::string diffFile;
     bool ignoreTieOff = false;
     bool ignoreNc = false;
     bool showHelp = false;
@@ -112,6 +116,9 @@ static CliOptions parseCustomArgs(int argc, const char* const* argv,
         } else if (arg == "--convention") {
             if (i + 1 >= argc) { fmt::print(stderr, "Error: --convention requires a value\n"); return opts; }
             opts.conventionFile = argv[++i];
+        } else if (arg == "--diff") {
+            if (i + 1 >= argc) { fmt::print(stderr, "Error: --diff requires a value\n"); return opts; }
+            opts.diffFile = argv[++i];
         } else if (arg == "--ignore-tie-off") {
             // Parsed but not yet implemented - reserved for future use
             opts.ignoreTieOff = true;
@@ -298,6 +305,49 @@ int main(int argc, char* argv[]) {
             htmlGen.generate(reportData, ofs);
         } else {
             fmt::print(stderr, "Error: cannot write to {}\n", path);
+        }
+    }
+
+    // --- Phase 6.5: Diff mode ---
+    if (!opts.diffFile.empty()) {
+        try {
+            auto baseline = connect::loadDiffInputFromJson(opts.diffFile);
+
+            connect::DiffInput current;
+            for (const auto& conn : reportData.graph.connections) {
+                std::string status = "OK";
+                for (const auto& issue : reportData.active) {
+                    if (issue.connection.has_value() &&
+                        issue.connection->source.fullPath() == conn.source.fullPath() &&
+                        issue.connection->dest.fullPath() == conn.dest.fullPath()) {
+                        status = connect::Issue::typeToString(issue.type);
+                        break;
+                    }
+                }
+                current.connections.push_back({conn.source.fullPath(), conn.dest.fullPath(), status});
+            }
+
+            auto diff = connect::computeDiff(baseline, current);
+
+            if (diff.empty()) {
+                fmt::print("\nDiff: no connectivity changes vs baseline.\n");
+            } else {
+                fmt::print("\n=== Connectivity Diff vs {} ===\n", opts.diffFile);
+                for (const auto& c : diff.added) {
+                    fmt::print("  + ADDED:   {} -> {}  [{}]\n", c.source, c.dest, c.status);
+                }
+                for (const auto& c : diff.removed) {
+                    fmt::print("  - REMOVED: {} -> {}  [was: {}]\n", c.source, c.dest, c.status);
+                }
+                for (const auto& c : diff.changed) {
+                    fmt::print("  ~ CHANGED: {} -> {}  status: {} -> {}\n",
+                               c.source, c.dest, c.oldStatus, c.newStatus);
+                }
+                fmt::print("  Total: +{} -{} ~{}\n",
+                           diff.added.size(), diff.removed.size(), diff.changed.size());
+            }
+        } catch (const std::exception& e) {
+            fmt::print(stderr, "Error loading diff baseline: {}\n", e.what());
         }
     }
 

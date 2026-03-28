@@ -47,8 +47,13 @@ std::string ConnectionExtractor::extractNetName(const slang::ast::Expression* ex
             }
             case slang::ast::ExpressionKind::RangeSelect: {
                 auto& sel = current->as<slang::ast::RangeSelectExpression>();
-                // Preserve range info in suffix for distinct net keys
-                suffix = "[range]" + suffix;
+                // Extract range bounds for distinct net keys
+                std::string lStr = "?", rStr = "?";
+                if (auto* lv = sel.left().getConstant(); lv && *lv)
+                    lStr = lv->toString();
+                if (auto* rv = sel.right().getConstant(); rv && *rv)
+                    rStr = rv->toString();
+                suffix = "[" + lStr + ":" + rStr + "]" + suffix;
                 current = &sel.value();
                 continue;
             }

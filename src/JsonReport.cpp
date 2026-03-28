@@ -90,6 +90,7 @@ void JsonReportGenerator::generate(const ReportData& data, std::ostream& out) co
         out << fmt::format("    \"overall_score\": {:.2f},\n", analysis.overallScore);
         out << fmt::format("    \"total_ports\": {},\n", analysis.totalPorts);
         out << fmt::format("    \"total_connections\": {},\n", analysis.totalConnections);
+        out << fmt::format("    \"total_issues\": {},\n", analysis.totalIssues);
 
         // Module health
         out << "    \"module_health\": [\n";

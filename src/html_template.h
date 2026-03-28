@@ -122,12 +122,12 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 /* --- Heatmap tab --- */
 .heatmap-wrapper { padding: 24px; overflow: auto; height: 100%; }
 .heatmap-title { font-size: 14px; color: var(--text-secondary); margin-bottom: 14px; }
-.heatmap-grid-container { display: inline-block; }
-.heatmap-row { display: flex; align-items: center; }
-.heatmap-label-y { min-width: 120px; width: 120px; height: 36px; line-height: 36px; text-align: right; padding-right: 10px; font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; box-sizing: border-box; font-family: monospace; margin: 1px 0; }
-.heatmap-label-x { font-size: 11px; color: var(--text-secondary); text-align: center; writing-mode: vertical-lr; transform: rotate(180deg); padding-bottom: 6px; height: 100px; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
-.heatmap-cell { width: 36px; height: 36px; margin: 1px; border-radius: 3px; cursor: pointer; transition: transform 0.1s, box-shadow 0.15s; display: flex; align-items: center; justify-content: center; font-size: 10px; color: transparent; flex-shrink: 0; box-sizing: border-box; }
-.heatmap-cell:hover { transform: scale(1.15); box-shadow: 0 0 8px rgba(52,152,219,0.5); color: #fff; z-index: 1; }
+.hm-table { border-collapse: separate; border-spacing: 2px; }
+.hm-table td, .hm-table th { padding: 0; vertical-align: middle; }
+.hm-table .hm-ylbl { width: 120px; max-width: 120px; text-align: right; padding-right: 10px; font-size: 11px; font-family: monospace; font-weight: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 36px; }
+.hm-table .hm-xlbl { font-size: 11px; color: var(--text-secondary); font-weight: normal; writing-mode: vertical-lr; transform: rotate(180deg); height: 100px; text-align: left; padding-bottom: 6px; white-space: nowrap; overflow: hidden; width: 36px; }
+.heatmap-cell { width: 36px; height: 36px; border-radius: 3px; cursor: pointer; transition: transform 0.1s, box-shadow 0.15s; text-align: center; font-size: 10px; color: transparent; }
+.heatmap-cell:hover { transform: scale(1.15); box-shadow: 0 0 8px rgba(52,152,219,0.5); color: #fff; z-index: 1; position: relative; }
 .heatmap-tooltip { position: fixed; background: #111; color: #fff; padding: 6px 10px; border-radius: 5px; font-size: 12px; pointer-events: none; z-index: 100; display: none; border: 1px solid var(--border); }
 .heatmap-legend { display: flex; align-items: center; gap: 6px; margin-top: 14px; font-size: 11px; color: var(--text-secondary); }
 .heatmap-legend-bar { width: 120px; height: 12px; border-radius: 3px; }
@@ -1088,25 +1088,25 @@ function initGraph() {
     h += '</div>';
 
     h += '<div class="heatmap-title">Double-click a module label to drill down \u00B7 Click a cell for connection details</div>';
-    h += '<div class="heatmap-grid-container">';
+    h += '<table class="hm-table">';
 
     // Header row
-    h += '<div class="heatmap-row"><div class="heatmap-label-y"></div>';
+    h += '<tr><th class="hm-ylbl"></th>';
     children.forEach(function(c) {
       var sn = shortName(c);
       var drillIcon = hasChildren(c) ? ' \u25BC' : '';
-      h += '<div class="heatmap-label-x" title="' + esc(c) + '">' + esc(sn) + drillIcon + '</div>';
+      h += '<th class="hm-xlbl" title="' + esc(c) + '">' + esc(sn) + drillIcon + '</th>';
     });
-    h += '</div>';
+    h += '</tr>';
 
     // Data rows
     for (var ri = 0; ri < n; ri++) {
-      h += '<div class="heatmap-row">';
+      h += '<tr>';
       var sn = shortName(children[ri]);
       var drillIcon = hasChildren(children[ri]) ? ' \u25B6' : '';
       var hlth = getHealth(children[ri]);
       var lblColor = hlth > 0.8 ? 'var(--accent-green)' : hlth > 0.6 ? 'var(--accent-yellow)' : 'var(--accent-red)';
-      h += '<div class="heatmap-label-y hm-ylabel" data-path="' + esc(children[ri]) + '" title="' + esc(children[ri]) + ' (score: ' + Math.round(hlth * 100) + '%)" style="color:' + lblColor + ';cursor:' + (hasChildren(children[ri]) ? 'pointer' : 'default') + '">' + esc(sn) + drillIcon + '</div>';
+      h += '<th class="hm-ylbl hm-ylabel" data-path="' + esc(children[ri]) + '" title="' + esc(children[ri]) + ' (score: ' + Math.round(hlth * 100) + '%)" style="color:' + lblColor + ';cursor:' + (hasChildren(children[ri]) ? 'pointer' : 'default') + '">' + esc(sn) + drillIcon + '</th>';
 
       for (var ci = 0; ci < n; ci++) {
         var val = matrix[ri][ci];
@@ -1116,24 +1116,22 @@ function initGraph() {
         if (val === 0) {
           bg = isSelf ? '#1a1a2e' : '#0d1b2a';
         } else if (isSelf) {
-          // Self-connections: purple/teal tone
           var pr = Math.round(80 + opacity * 75);
           var pg = Math.round(40 + opacity * 60);
           var pb = Math.round(120 + opacity * 80);
           bg = 'rgb(' + pr + ',' + pg + ',' + pb + ')';
         } else {
-          // Cross-module: blue tone
           var cr = Math.round(52 + opacity * 52);
           var cg = Math.round(30 + opacity * 122);
           var cb = Math.round(60 + opacity * 159);
           bg = 'rgb(' + cr + ',' + cg + ',' + cb + ')';
         }
         var border = isSelf ? 'border:1px solid rgba(155,89,182,0.4)' : '';
-        h += '<div class="heatmap-cell" data-src="' + esc(children[ri]) + '" data-dst="' + esc(children[ci]) + '" data-val="' + val + '" data-self="' + (isSelf ? '1' : '0') + '" style="background:' + bg + ';' + border + '">' + (val > 0 ? val : '') + '</div>';
+        h += '<td class="heatmap-cell" data-src="' + esc(children[ri]) + '" data-dst="' + esc(children[ci]) + '" data-val="' + val + '" data-self="' + (isSelf ? '1' : '0') + '" style="background:' + bg + ';' + border + '">' + (val > 0 ? val : '') + '</td>';
       }
-      h += '</div>';
+      h += '</tr>';
     }
-    h += '</div>';
+    h += '</table>';
 
     // Legend
     h += '<div style="display:flex;gap:24px;margin-top:14px;flex-wrap:wrap">';

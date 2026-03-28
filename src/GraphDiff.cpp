@@ -1,9 +1,9 @@
 #include "GraphDiff.h"
 
-#include <fstream>
 #include <map>
-#include <sstream>
 #include <stdexcept>
+
+#include <yaml-cpp/yaml.h>
 
 namespace connect {
 
@@ -17,41 +17,6 @@ std::string stripWidth(const std::string& s) {
     if (pos == std::string::npos)
         return s;
     return s.substr(0, pos);
-}
-
-// Trim leading/trailing whitespace.
-std::string trim(const std::string& s) {
-    size_t start = s.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos)
-        return "";
-    size_t end = s.find_last_not_of(" \t\r\n");
-    return s.substr(start, end - start + 1);
-}
-
-// Extract the string value following a JSON key like "source": "value".
-// Looks for the pattern `"key": "value"` and returns value.
-std::string extractJsonString(const std::string& line, const std::string& key) {
-    std::string needle = "\"" + key + "\"";
-    auto pos = line.find(needle);
-    if (pos == std::string::npos)
-        return "";
-
-    // Find the colon after the key
-    pos = line.find(':', pos + needle.size());
-    if (pos == std::string::npos)
-        return "";
-
-    // Find the opening quote of the value
-    auto qStart = line.find('"', pos + 1);
-    if (qStart == std::string::npos)
-        return "";
-
-    // Find the closing quote
-    auto qEnd = line.find('"', qStart + 1);
-    if (qEnd == std::string::npos)
-        return "";
-
-    return line.substr(qStart + 1, qEnd - qStart - 1);
 }
 
 } // anonymous namespace
@@ -94,51 +59,30 @@ DiffResult computeDiff(const DiffInput& baseline, const DiffInput& current) {
 }
 
 DiffInput loadDiffInputFromJson(const std::string& jsonPath) {
-    std::ifstream file(jsonPath);
-    if (!file.is_open()) {
+    // yaml-cpp can parse JSON natively (JSON is a subset of YAML).
+    // YAML::LoadFile throws YAML::BadFile on missing files; wrap it to
+    // preserve the std::runtime_error contract expected by callers.
+    YAML::Node root;
+    try {
+        root = YAML::LoadFile(jsonPath);
+    } catch (const YAML::BadFile&) {
         throw std::runtime_error("Cannot open file: " + jsonPath);
     }
 
     DiffInput input;
-    std::string content((std::istreambuf_iterator<char>(file)),
-                        std::istreambuf_iterator<char>());
 
-    // Find the "connections" array
-    auto connPos = content.find("\"connections\"");
-    if (connPos == std::string::npos)
+    if (!root["connections"] || !root["connections"].IsSequence())
         return input;
 
-    // Find the opening bracket of the array
-    auto arrStart = content.find('[', connPos);
-    if (arrStart == std::string::npos)
-        return input;
+    for (const auto& conn : root["connections"]) {
+        std::string source = conn["source"].as<std::string>("");
+        std::string dest   = conn["dest"].as<std::string>("");
+        std::string status = conn["status"].as<std::string>("OK");
 
-    // Parse each object in the array by finding { ... } blocks
-    size_t pos = arrStart + 1;
-    while (pos < content.size()) {
-        auto objStart = content.find('{', pos);
-        if (objStart == std::string::npos)
-            break;
+        if (source.empty() || dest.empty())
+            continue;
 
-        auto objEnd = content.find('}', objStart);
-        if (objEnd == std::string::npos)
-            break;
-
-        std::string obj = content.substr(objStart, objEnd - objStart + 1);
-
-        std::string source = extractJsonString(obj, "source");
-        std::string dest = extractJsonString(obj, "dest");
-        std::string status = extractJsonString(obj, "status");
-
-        if (!source.empty() && !dest.empty()) {
-            input.connections.push_back({
-                stripWidth(source),
-                stripWidth(dest),
-                status
-            });
-        }
-
-        pos = objEnd + 1;
+        input.connections.push_back({stripWidth(source), stripWidth(dest), status});
     }
 
     return input;

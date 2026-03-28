@@ -11,6 +11,7 @@ add_executable(slang-connect-tests
     test_extractor.cpp
     test_integration_advanced.cpp
     test_dot_report.cpp
+    test_html_report.cpp
 )
 target_link_libraries(slang-connect-tests PRIVATE slang-connect-lib Catch2::Catch2WithMain)
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/test_waivers.yaml DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

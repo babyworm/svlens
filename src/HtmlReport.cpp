@@ -26,6 +26,7 @@ std::string escapeHtml(const std::string& s) {
             case '<':  result += "&lt;"; break;
             case '>':  result += "&gt;"; break;
             case '"':  result += "&quot;"; break;
+            case '\'': result += "&#39;"; break;
             default:   result += c;
         }
     }

@@ -1260,14 +1260,22 @@ function initGraph() {
           }
         });
         mh += '</table></div></div>';
-        // After inserting, wire up click-to-expand for issue rows
-        mh += '<script>document.querySelectorAll(".hm-sig-row").forEach(function(row,i){';
-        mh += 'row.addEventListener("click",function(){';
-        mh += 'var d=document.getElementById("hm-detail-"+i);';
-        mh += 'if(d)d.style.display=d.style.display==="none"?"table-row":"none";});});<\/script>';
         var ov = document.createElement('div');
         ov.innerHTML = mh;
-        document.body.appendChild(ov.firstChild);
+        var modalEl = ov.firstChild;
+        document.body.appendChild(modalEl);
+        // Wire up click-to-expand for issue rows (after DOM insertion)
+        modalEl.querySelectorAll('.hm-sig-row').forEach(function(row, i) {
+          row.addEventListener('click', function() {
+            var d = modalEl.querySelector('#hm-detail-' + i);
+            if (d) d.style.display = d.style.display === 'none' ? 'table-row' : 'none';
+          });
+        });
+        // Escape key to close modal
+        var onEsc = function(e) {
+          if (e.key === 'Escape') { modalEl.remove(); document.removeEventListener('keydown', onEsc); }
+        };
+        document.addEventListener('keydown', onEsc);
       });
     });
   }

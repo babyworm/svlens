@@ -18,6 +18,7 @@ std::string escapeJson(const std::string& s) {
             case '\t': result += "\\t"; break;
             case '\b': result += "\\b"; break;
             case '\f': result += "\\f"; break;
+            case '<':  result += "\\u003c"; break;
             default:
                 if (c < 0x20)
                     result += fmt::format("\\u{:04x}", c);

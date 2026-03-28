@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include "HtmlReport.h"
+#include "AnalysisEngine.h"
 #include <sstream>
 
 using namespace connect;
@@ -77,6 +78,53 @@ TEST_CASE("HtmlReport: empty graph produces valid HTML") {
     CHECK_THAT(html, ContainsSubstring("<!DOCTYPE html>"));
     CHECK_THAT(html, ContainsSubstring("</html>"));
     CHECK_THAT(html, ContainsSubstring("empty_top"));
+}
+
+TEST_CASE("HtmlReport: analysis data is embedded when present") {
+    auto data = makeHtmlTestData();
+
+    // Run the AnalysisEngine to populate the analysis field
+    AnalysisEngine analysisEngine;
+    data.analysis = analysisEngine.analyze(data);
+
+    std::ostringstream out;
+    HtmlReportGenerator gen;
+    gen.generate(data, out);
+    auto html = out.str();
+
+    // The JSON should contain analysis data
+    CHECK_THAT(html, ContainsSubstring("overall_score"));
+    CHECK_THAT(html, ContainsSubstring("module_health"));
+}
+
+TEST_CASE("HtmlReport: no unreplaced placeholders") {
+    auto data = makeHtmlTestData();
+    std::ostringstream out;
+    HtmlReportGenerator gen;
+    gen.generate(data, out);
+    auto html = out.str();
+
+    // All {{...}} placeholders should have been replaced
+    CHECK(html.find("{{") == std::string::npos);
+}
+
+TEST_CASE("HtmlReport: special characters in module name are escaped") {
+    ReportData data;
+    data.topModule = "mod<>&\"test";
+    std::ostringstream out;
+    HtmlReportGenerator gen;
+    gen.generate(data, out);
+    auto html = out.str();
+
+    CHECK_THAT(html, ContainsSubstring("<!DOCTYPE html>"));
+    CHECK_THAT(html, ContainsSubstring("</html>"));
+
+    // The HTML-escaped module name should appear in the title/header
+    // Raw < > & " should NOT appear unescaped in the TOP_MODULE placeholder spots
+    CHECK_THAT(html, ContainsSubstring("&lt;"));
+    CHECK_THAT(html, ContainsSubstring("&gt;"));
+    CHECK_THAT(html, ContainsSubstring("&amp;"));
+    CHECK_THAT(html, ContainsSubstring("&quot;"));
 }
 
 TEST_CASE("HtmlReport: contains severity color styling") {

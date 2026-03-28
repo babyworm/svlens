@@ -147,6 +147,76 @@ TEST_CASE("ClockResetAnalyzer: output ports are not classified", "[ClockReset]")
     CHECK(topo.warnings.empty());
 }
 
+TEST_CASE("ClockResetAnalyzer: InOut direction port with clock name is not classified", "[ClockReset]") {
+    ConnectionGraph graph;
+    graph.topModule = "top";
+
+    // InOut port named clk -- should NOT be classified (only In ports are)
+    graph.allPorts.push_back(makePort("top.u_pad", "clk", ArgumentDirection::InOut));
+
+    ClockResetAnalyzer analyzer;
+    auto topo = analyzer.analyze(graph);
+
+    CHECK(topo.clockGroups.empty());
+    CHECK(topo.resetGroups.empty());
+    CHECK(topo.warnings.empty());
+}
+
+TEST_CASE("ClockResetAnalyzer: ambiguous clk_rst_n matches clock not reset", "[ClockReset]") {
+    // isClockPort checks "clk" first; isResetPort is in the else-if branch.
+    // A port named "clk_rst_n" contains both "clk" and "rst" words.
+    // Since isClockPort is checked first in analyze(), it should be classified as clock.
+
+    CHECK(ClockResetAnalyzer::isClockPort("clk_rst_n"));  // contains "clk"
+    CHECK(ClockResetAnalyzer::isResetPort("clk_rst_n"));  // contains "rst"
+
+    // But in the analyzer, the else-if means clock wins
+    ConnectionGraph graph;
+    graph.topModule = "top";
+    graph.allPorts.push_back(makePort("top.u_dut", "clk_rst_n", ArgumentDirection::In));
+
+    ClockResetAnalyzer analyzer;
+    auto topo = analyzer.analyze(graph);
+
+    // Should appear in clock groups, NOT reset groups
+    CHECK(topo.clockGroups.count("clk_rst_n") == 1);
+    CHECK(topo.resetGroups.count("clk_rst_n") == 0);
+    // Instance has clock but no reset -> warning
+    CHECK(topo.warnings.size() == 1);
+}
+
+TEST_CASE("ClockResetAnalyzer: exact name 'reset' is classified as reset", "[ClockReset]") {
+    CHECK(ClockResetAnalyzer::isResetPort("reset"));
+
+    ConnectionGraph graph;
+    graph.topModule = "top";
+    graph.allPorts.push_back(makePort("top.u_core", "reset", ArgumentDirection::In));
+    graph.allPorts.push_back(makePort("top.u_core", "clk", ArgumentDirection::In));
+
+    ClockResetAnalyzer analyzer;
+    auto topo = analyzer.analyze(graph);
+
+    CHECK(topo.resetGroups.count("reset") == 1);
+    CHECK(topo.resetGroups.at("reset").size() == 1);
+}
+
+TEST_CASE("ClockResetAnalyzer: uppercase CLOCK is classified as clock", "[ClockReset]") {
+    CHECK(ClockResetAnalyzer::isClockPort("CLOCK"));
+    CHECK(ClockResetAnalyzer::isClockPort("SYS_CLOCK"));
+    CHECK(ClockResetAnalyzer::isClockPort("CLOCK_200MHZ"));
+
+    ConnectionGraph graph;
+    graph.topModule = "top";
+    graph.allPorts.push_back(makePort("top.u_dut", "CLOCK", ArgumentDirection::In));
+    graph.allPorts.push_back(makePort("top.u_dut", "RST_N", ArgumentDirection::In));
+
+    ClockResetAnalyzer analyzer;
+    auto topo = analyzer.analyze(graph);
+
+    CHECK(topo.clockGroups.count("CLOCK") == 1);
+    CHECK(topo.warnings.empty()); // has both clock and reset
+}
+
 TEST_CASE("ClockResetAnalyzer: top-module ports are skipped", "[ClockReset]") {
     ConnectionGraph graph;
     graph.topModule = "chip_top";

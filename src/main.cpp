@@ -36,7 +36,7 @@ namespace fs = std::filesystem;
 
 static void printUsage() {
     fmt::print(
-        "slang-connect v0.1.0 -- Module interconnect verification\n\n"
+        "slang-connect v0.2.0 -- Module interconnect verification and analysis\n\n"
         "Usage: slang-connect [OPTIONS] <SV_FILES...>\n\n"
         "Required:\n"
         "  --top <module>          Top-level module\n\n"

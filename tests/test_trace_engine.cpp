@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include "TraceEngine.h"
 
+#include <set>
+
 using namespace connect;
 using slang::ast::ArgumentDirection;
 
@@ -127,6 +129,120 @@ TEST_CASE("TraceEngine cycle detection prevents infinite loops", "[TraceEngine]"
     REQUIRE(hops.size() == 2);
     CHECK(hops[0].connection.source.fullPath() == "top.a.o_data");
     CHECK(hops[1].connection.source.fullPath() == "top.b.o_data");
+}
+
+TEST_CASE("TraceEngine fan-out branching diamond graph", "[TraceEngine]") {
+    ConnectionGraph graph;
+    graph.topModule = "top";
+
+    // A -> B
+    PortInfo a_out = makePort("top.a", "o_data", ArgumentDirection::Out, 8);
+    PortInfo b_in  = makePort("top.b", "i_data", ArgumentDirection::In, 8);
+    // B -> C
+    PortInfo b_out1 = makePort("top.b", "o_left", ArgumentDirection::Out, 8);
+    PortInfo c_in   = makePort("top.c", "i_data", ArgumentDirection::In, 8);
+    // B -> D
+    PortInfo b_out2 = makePort("top.b", "o_right", ArgumentDirection::Out, 8);
+    PortInfo d_in   = makePort("top.d", "i_data", ArgumentDirection::In, 8);
+
+    graph.connections.push_back({a_out, b_in});
+    graph.connections.push_back({b_out1, c_in});
+    graph.connections.push_back({b_out2, d_in});
+    graph.allPorts = {a_out, b_in, b_out1, c_in, b_out2, d_in};
+
+    TraceEngine engine(graph);
+    auto hops = engine.traceFanOut("top.a.o_data");
+
+    REQUIRE(hops.size() == 3);
+
+    // Depth 0: A -> B
+    CHECK(hops[0].depth == 0);
+    CHECK(hops[0].connection.source.fullPath() == "top.a.o_data");
+    CHECK(hops[0].connection.dest.fullPath() == "top.b.i_data");
+
+    // Depth 1: B -> C and B -> D (order may vary, check both present)
+    CHECK(hops[1].depth == 1);
+    CHECK(hops[2].depth == 1);
+
+    std::set<std::string> depth1Dests;
+    depth1Dests.insert(hops[1].connection.dest.fullPath());
+    depth1Dests.insert(hops[2].connection.dest.fullPath());
+    CHECK(depth1Dests.count("top.c.i_data") == 1);
+    CHECK(depth1Dests.count("top.d.i_data") == 1);
+}
+
+TEST_CASE("TraceEngine formatTrace fan-in direction", "[TraceEngine]") {
+    auto graph = makeTraceTestGraph();
+    TraceEngine engine(graph);
+
+    auto hops = engine.traceFanIn("soc_top.u_mem.i_addr");
+    std::string output = TraceEngine::formatTrace(hops, "soc_top.u_mem.i_addr", false);
+
+    CHECK(output.find("Fan-In Trace") != std::string::npos);
+    CHECK(output.find("<-") != std::string::npos);
+    // Fan-in should NOT use "->" arrows
+    // (the "->" substring can appear in width mismatch annotations like "32b→16b",
+    //  but the plain ASCII " -> " with spaces should not)
+    CHECK(output.find(" -> ") == std::string::npos);
+}
+
+TEST_CASE("TraceEngine formatTrace empty hops", "[TraceEngine]") {
+    std::vector<TraceHop> empty;
+    std::string output = TraceEngine::formatTrace(empty, "nonexistent", true);
+
+    CHECK(output.find("no connections found") != std::string::npos);
+}
+
+TEST_CASE("TraceEngine formatTrace width mismatch annotation", "[TraceEngine]") {
+    // Create a single hop where source width != dest width
+    ConnectionGraph graph;
+    graph.topModule = "top";
+
+    PortInfo src = makePort("top.a", "o_data", ArgumentDirection::Out, 32);
+    PortInfo dst = makePort("top.b", "i_data", ArgumentDirection::In, 16);
+
+    graph.connections.push_back({src, dst});
+    graph.allPorts = {src, dst};
+
+    TraceEngine engine(graph);
+    auto hops = engine.traceFanOut("top.a.o_data");
+    REQUIRE(hops.size() == 1);
+
+    std::string output = TraceEngine::formatTrace(hops, "top.a.o_data", true);
+
+    // Warning symbol (UTF-8 for U+26A0)
+    CHECK(output.find("\xe2\x9a\xa0") != std::string::npos);
+    // Width info
+    CHECK(output.find("32b") != std::string::npos);
+    CHECK(output.find("16b") != std::string::npos);
+}
+
+TEST_CASE("TraceEngine glob wildcard matches all output ports", "[TraceEngine]") {
+    ConnectionGraph graph;
+    graph.topModule = "soc_top";
+
+    // cpu has two output ports going to different destinations
+    PortInfo cpu_out1 = makePort("soc_top.u_cpu", "o_addr", ArgumentDirection::Out, 32);
+    PortInfo bus_in1  = makePort("soc_top.u_bus", "i_addr", ArgumentDirection::In, 32);
+    PortInfo cpu_out2 = makePort("soc_top.u_cpu", "o_data", ArgumentDirection::Out, 16);
+    PortInfo mem_in   = makePort("soc_top.u_mem", "i_data", ArgumentDirection::In, 16);
+
+    graph.connections.push_back({cpu_out1, bus_in1});
+    graph.connections.push_back({cpu_out2, mem_in});
+    graph.allPorts = {cpu_out1, bus_in1, cpu_out2, mem_in};
+
+    TraceEngine engine(graph);
+    auto hops = engine.traceFanOut("soc_top.u_cpu.*");
+
+    // Should match both output ports of u_cpu as seeds
+    REQUIRE(hops.size() >= 2);
+
+    std::set<std::string> sources;
+    for (const auto& h : hops) {
+        if (h.depth == 0) sources.insert(h.connection.source.fullPath());
+    }
+    CHECK(sources.count("soc_top.u_cpu.o_addr") == 1);
+    CHECK(sources.count("soc_top.u_cpu.o_data") == 1);
 }
 
 TEST_CASE("TraceEngine formatTrace produces correct output", "[TraceEngine]") {

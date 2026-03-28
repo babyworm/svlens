@@ -198,6 +198,82 @@ TEST_CASE("DotReport: multiple connections between same instances are grouped") 
     CHECK(edgeCount == 1);
 }
 
+TEST_CASE("DotReport: special characters in module name are escaped") {
+    ReportData data;
+    data.topModule = "my\"mod\\ule";
+
+    PortInfo src;
+    src.instancePath = "my\"mod\\ule.u_a"; src.portName = "o_x";
+    src.direction = ArgumentDirection::Out; src.width = 1; src.isSigned = false;
+
+    PortInfo dst;
+    dst.instancePath = "my\"mod\\ule.u_b"; dst.portName = "i_x";
+    dst.direction = ArgumentDirection::In; dst.width = 1; dst.isSigned = false;
+
+    data.graph.connections.push_back({src, dst});
+
+    std::ostringstream out;
+    DotReportGenerator gen;
+    gen.generate(data, out);
+    auto dot = out.str();
+
+    // The raw unescaped quote should not appear in the digraph name
+    // DOT escaping: \" must appear, but bare " must not break the syntax
+    // Count unescaped quotes: after the "digraph" keyword, all quotes in the
+    // label should be preceded by backslash
+    CHECK_THAT(dot, ContainsSubstring("digraph"));
+    // The escaped version should be present
+    CHECK_THAT(dot, ContainsSubstring("\\\""));
+    CHECK_THAT(dot, ContainsSubstring("\\\\"));
+}
+
+TEST_CASE("DotReport: self-connection same instance") {
+    ReportData data;
+    data.topModule = "top";
+
+    PortInfo src;
+    src.instancePath = "top.u_loop"; src.portName = "o_fb";
+    src.direction = ArgumentDirection::Out; src.width = 4; src.isSigned = false;
+
+    PortInfo dst;
+    dst.instancePath = "top.u_loop"; dst.portName = "i_fb";
+    dst.direction = ArgumentDirection::In; dst.width = 4; dst.isSigned = false;
+
+    data.graph.connections.push_back({src, dst});
+
+    std::ostringstream out;
+    DotReportGenerator gen;
+    gen.generate(data, out);
+    auto dot = out.str();
+
+    // Should still produce valid DOT (self-edge)
+    CHECK_THAT(dot, ContainsSubstring("digraph"));
+    CHECK_THAT(dot, ContainsSubstring("u_loop"));
+    // Self-edge: u_loop -> u_loop
+    CHECK_THAT(dot, ContainsSubstring("u_loop -> u_loop"));
+}
+
+TEST_CASE("DotReport: single module with ports but no connections") {
+    ReportData data;
+    data.topModule = "top";
+
+    // allPorts has entries but connections is empty
+    PortInfo p;
+    p.instancePath = "top.u_lonely"; p.portName = "i_data";
+    p.direction = ArgumentDirection::In; p.width = 8; p.isSigned = false;
+    data.graph.allPorts.push_back(p);
+    // No connections added
+
+    std::ostringstream out;
+    DotReportGenerator gen;
+    gen.generate(data, out);
+    auto dot = out.str();
+
+    CHECK_THAT(dot, ContainsSubstring("digraph"));
+    // No edges should be present (no "->")
+    CHECK(dot.find("->") == std::string::npos);
+}
+
 TEST_CASE("DotReport: empty graph produces minimal valid DOT") {
     ReportData data;
     data.topModule = "empty_top";

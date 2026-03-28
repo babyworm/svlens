@@ -123,10 +123,10 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 .heatmap-wrapper { padding: 24px; overflow: auto; height: 100%; }
 .heatmap-title { font-size: 14px; color: var(--text-secondary); margin-bottom: 14px; }
 .heatmap-grid-container { display: inline-block; }
-.heatmap-row { display: flex; }
-.heatmap-label-y { min-width: 120px; width: 120px; text-align: right; padding-right: 10px; font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; justify-content: flex-end; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; box-sizing: border-box; font-family: monospace; }
+.heatmap-row { display: flex; align-items: center; }
+.heatmap-label-y { min-width: 120px; width: 120px; height: 36px; line-height: 36px; text-align: right; padding-right: 10px; font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; box-sizing: border-box; font-family: monospace; margin: 1px 0; }
 .heatmap-label-x { font-size: 11px; color: var(--text-secondary); text-align: center; writing-mode: vertical-lr; transform: rotate(180deg); padding-bottom: 6px; height: 100px; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
-.heatmap-cell { width: 36px; height: 36px; margin: 1px; border-radius: 3px; cursor: pointer; transition: transform 0.1s, box-shadow 0.15s; display: flex; align-items: center; justify-content: center; font-size: 10px; color: transparent; flex-shrink: 0; }
+.heatmap-cell { width: 36px; height: 36px; margin: 1px; border-radius: 3px; cursor: pointer; transition: transform 0.1s, box-shadow 0.15s; display: flex; align-items: center; justify-content: center; font-size: 10px; color: transparent; flex-shrink: 0; box-sizing: border-box; }
 .heatmap-cell:hover { transform: scale(1.15); box-shadow: 0 0 8px rgba(52,152,219,0.5); color: #fff; z-index: 1; }
 .heatmap-tooltip { position: fixed; background: #111; color: #fff; padding: 6px 10px; border-radius: 5px; font-size: 12px; pointer-events: none; z-index: 100; display: none; border: 1px solid var(--border); }
 .heatmap-legend { display: flex; align-items: center; gap: 6px; margin-top: 14px; font-size: 11px; color: var(--text-secondary); }
@@ -949,132 +949,268 @@ function initGraph() {
 }
 
 // =============================================
-//   TAB 3: HEATMAP
+//   TAB 3: HEATMAP (Hierarchical)
 // =============================================
 (function() {
   var pane = document.getElementById('pane-heatmap');
-  if (!analysis || !analysis.coupling || analysis.coupling.length === 0) {
+  var tooltip = document.getElementById('hm-tooltip');
+  var topMod = DATA.top;
+
+  if (!analysis || !DATA.connections || DATA.connections.length === 0) {
     pane.innerHTML = '<div class="no-data">No coupling data available for heatmap.</div>';
     return;
   }
 
-  // Collect unique module names
-  var nameSet = {};
-  analysis.module_health.forEach(function(m) { nameSet[m.name] = true; });
-  analysis.coupling.forEach(function(c) { nameSet[c.source] = true; nameSet[c.dest] = true; });
-  var modules = Object.keys(nameSet).sort();
-  var n = modules.length;
-  var modIdx = {};
-  modules.forEach(function(m, i) { modIdx[m] = i; });
+  // Parse all connections into (srcInst, dstInst) pairs
+  var connPairs = [];
+  DATA.connections.forEach(function(c) {
+    var sp = c.source.replace(/\[.*?\]/g, '').split('.');
+    var dp = c.dest.replace(/\[.*?\]/g, '').split('.');
+    var sInst = sp.slice(0, -1).join('.');
+    var dInst = dp.slice(0, -1).join('.');
+    if (sInst && dInst) connPairs.push({s: sInst, d: dInst, src: c.source, dst: c.dest, status: c.status});
+  });
 
-  // Build matrix
-  var matrix = [];
-  for (var i = 0; i < n; i++) { matrix[i] = []; for (var j = 0; j < n; j++) matrix[i][j] = 0; }
-  var maxVal = 0;
-  analysis.coupling.forEach(function(c) {
-    var si = modIdx[c.source];
-    var di = modIdx[c.dest];
-    if (si !== undefined && di !== undefined) {
-      matrix[si][di] += c.connections;
-      matrix[di][si] += c.connections;
-      maxVal = Math.max(maxVal, matrix[si][di], matrix[di][si]);
+  // Build hierarchy tree: parent -> Set of direct children
+  var childrenOf = {};
+  var allPaths = new Set();
+  connPairs.forEach(function(p) { allPaths.add(p.s); allPaths.add(p.d); });
+  if (analysis.module_health) analysis.module_health.forEach(function(m) { allPaths.add(m.instance); });
+
+  allPaths.forEach(function(path) {
+    var parts = path.split('.');
+    for (var i = 1; i < parts.length; i++) {
+      var parent = parts.slice(0, i).join('.');
+      var child = parts.slice(0, i + 1).join('.');
+      if (!childrenOf[parent]) childrenOf[parent] = new Set();
+      childrenOf[parent].add(child);
     }
   });
 
-  var h = '<div class="heatmap-wrapper">';
-  h += '<div class="heatmap-title">Module-to-Module Connection Heatmap (hover for count, click for details)</div>';
-  h += '<div class="heatmap-grid-container">';
-
-  // Header row with X labels
-  h += '<div class="heatmap-row"><div class="heatmap-label-y"></div>';
-  modules.forEach(function(m) {
-    h += '<div class="heatmap-label-x" title="' + esc(m) + '">' + esc(m) + '</div>';
-  });
-  h += '</div>';
-
-  // Data rows
-  for (var ri = 0; ri < n; ri++) {
-    h += '<div class="heatmap-row">';
-    h += '<div class="heatmap-label-y" title="' + esc(modules[ri]) + '">' + esc(modules[ri]) + '</div>';
-    for (var ci = 0; ci < n; ci++) {
-      var val = matrix[ri][ci];
-      var opacity = maxVal > 0 ? (val / maxVal) : 0;
-      var bg;
-      if (val === 0) {
-        bg = '#0d1b2a';
-      } else {
-        var r = Math.round(52 + opacity * (52));
-        var g = Math.round(30 + opacity * (122));
-        var b = Math.round(60 + opacity * (159));
-        bg = 'rgb(' + r + ',' + g + ',' + b + ')';
-      }
-      h += '<div class="heatmap-cell" data-src="' + esc(modules[ri]) + '" data-dst="' + esc(modules[ci]) + '" data-val="' + val + '" style="background:' + bg + '">' + (val > 0 ? val : '') + '</div>';
-    }
-    h += '</div>';
+  function getChildren(scope) {
+    return childrenOf[scope] ? Array.from(childrenOf[scope]).sort() : [];
   }
 
-  h += '</div>'; // grid-container
+  function hasChildren(scope) {
+    return childrenOf[scope] && childrenOf[scope].size > 0;
+  }
 
-  // Legend
-  h += '<div class="heatmap-legend"><span>0</span>';
-  h += '<div class="heatmap-legend-bar" style="background:linear-gradient(to right, #0d1b2a, #3498db)"></div>';
-  h += '<span>' + maxVal + '</span> connections</div>';
+  function isDescendant(path, scope) {
+    return path === scope || path.indexOf(scope + '.') === 0;
+  }
 
-  h += '</div>'; // heatmap-wrapper
-  pane.innerHTML = h;
+  function shortName(fullPath) {
+    var parts = fullPath.split('.');
+    return parts[parts.length - 1];
+  }
 
-  // Tooltip
-  var tooltip = document.getElementById('hm-tooltip');
-  pane.querySelectorAll('.heatmap-cell').forEach(function(cell) {
-    cell.addEventListener('mouseenter', function(e) {
-      var val = cell.dataset.val;
-      if (parseInt(val) === 0) { tooltip.style.display = 'none'; return; }
-      tooltip.innerHTML = '<strong>' + esc(cell.dataset.src) + ' &harr; ' + esc(cell.dataset.dst) + '</strong><br>' + val + ' connections';
-      tooltip.style.display = 'block';
-      tooltip.style.left = (e.clientX + 12) + 'px';
-      tooltip.style.top = (e.clientY - 10) + 'px';
+  // Count connections between two sub-trees
+  function countBetween(scopeA, scopeB) {
+    var count = 0;
+    connPairs.forEach(function(p) {
+      if ((isDescendant(p.s, scopeA) && isDescendant(p.d, scopeB)) ||
+          (isDescendant(p.s, scopeB) && isDescendant(p.d, scopeA))) count++;
     });
-    cell.addEventListener('mousemove', function(e) {
-      tooltip.style.left = (e.clientX + 12) + 'px';
-      tooltip.style.top = (e.clientY - 10) + 'px';
+    return count;
+  }
+
+  // Find signals between two sub-trees
+  function signalsBetween(scopeA, scopeB) {
+    var sigs = [];
+    connPairs.forEach(function(p) {
+      if ((isDescendant(p.s, scopeA) && isDescendant(p.d, scopeB)) ||
+          (isDescendant(p.s, scopeB) && isDescendant(p.d, scopeA))) {
+        var sp = p.src.replace(/\[.*?\]/g, '').split('.').pop();
+        var dp = p.dst.replace(/\[.*?\]/g, '').split('.').pop();
+        sigs.push({src: sp, dst: dp, status: p.status});
+      }
     });
-    cell.addEventListener('mouseleave', function() { tooltip.style.display = 'none'; });
-    cell.addEventListener('click', function() {
-      var src = cell.dataset.src;
-      var dst = cell.dataset.dst;
-      var val = parseInt(cell.dataset.val);
-      if (val === 0) return;
-      // Find actual connections between these modules
-      var signals = [];
-      DATA.connections.forEach(function(c) {
-        var sp = c.source.replace(/\[.*/, '').split('.');
-        var dp = c.dest.replace(/\[.*/, '').split('.');
-        var sInst = sp.slice(0, -1).join('.');
-        var dInst = dp.slice(0, -1).join('.');
-        var sName = sInst.split('.').pop();
-        var dName = dInst.split('.').pop();
-        if ((sName === src && dName === dst) || (sName === dst && dName === src)) {
-          signals.push({ src: sp.pop(), dst: dp.pop(), status: c.status });
+    return sigs;
+  }
+
+  // Health score lookup
+  var healthMap = {};
+  if (analysis.module_health) analysis.module_health.forEach(function(m) { healthMap[m.instance] = m.score; });
+
+  function getHealth(scope) {
+    if (healthMap[scope] !== undefined) return healthMap[scope];
+    var children = getChildren(scope);
+    if (children.length === 0) return 1.0;
+    var sum = 0;
+    children.forEach(function(c) { sum += getHealth(c); });
+    return sum / children.length;
+  }
+
+  // Current scope for drill-down
+  var currentScope = topMod;
+
+  function renderHeatmap(scope) {
+    currentScope = scope;
+    var children = getChildren(scope);
+    if (children.length === 0) {
+      pane.innerHTML = '<div class="no-data">No sub-modules at this level.</div>';
+      return;
+    }
+    var n = children.length;
+
+    // Build matrix
+    var matrix = [];
+    var maxVal = 0;
+    for (var i = 0; i < n; i++) {
+      matrix[i] = [];
+      for (var j = 0; j < n; j++) {
+        var val = countBetween(children[i], children[j]);
+        if (i === j) val = Math.floor(val / 2); // self-connections counted twice
+        matrix[i][j] = val;
+        maxVal = Math.max(maxVal, val);
+      }
+    }
+
+    // Breadcrumb
+    var crumbs = [];
+    var parts = scope.split('.');
+    for (var bi = 0; bi < parts.length; bi++) {
+      crumbs.push({name: parts[bi], path: parts.slice(0, bi + 1).join('.')});
+    }
+
+    var h = '<div class="heatmap-wrapper">';
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">';
+    h += '<span style="font-size:12px;color:var(--text-secondary)">Scope:</span>';
+    crumbs.forEach(function(cr, idx) {
+      if (idx > 0) h += '<span style="color:var(--text-secondary);font-size:11px">\u25B6</span>';
+      var isLast = idx === crumbs.length - 1;
+      if (isLast) {
+        h += '<span style="font-size:13px;font-weight:600;color:var(--accent-blue)">' + esc(cr.name) + '</span>';
+      } else {
+        h += '<span class="hm-crumb" data-scope="' + esc(cr.path) + '" style="font-size:13px;color:var(--accent-blue);cursor:pointer;text-decoration:underline">' + esc(cr.name) + '</span>';
+      }
+    });
+    h += '</div>';
+
+    h += '<div class="heatmap-title">Double-click a module label to drill down \u00B7 Click a cell for connection details</div>';
+    h += '<div class="heatmap-grid-container">';
+
+    // Header row
+    h += '<div class="heatmap-row"><div class="heatmap-label-y"></div>';
+    children.forEach(function(c) {
+      var sn = shortName(c);
+      var drillIcon = hasChildren(c) ? ' \u25BC' : '';
+      h += '<div class="heatmap-label-x" title="' + esc(c) + '">' + esc(sn) + drillIcon + '</div>';
+    });
+    h += '</div>';
+
+    // Data rows
+    for (var ri = 0; ri < n; ri++) {
+      h += '<div class="heatmap-row">';
+      var sn = shortName(children[ri]);
+      var drillIcon = hasChildren(children[ri]) ? ' \u25B6' : '';
+      var hlth = getHealth(children[ri]);
+      var lblColor = hlth > 0.8 ? 'var(--accent-green)' : hlth > 0.6 ? 'var(--accent-yellow)' : 'var(--accent-red)';
+      h += '<div class="heatmap-label-y hm-ylabel" data-path="' + esc(children[ri]) + '" title="' + esc(children[ri]) + ' (score: ' + Math.round(hlth * 100) + '%)" style="color:' + lblColor + ';cursor:' + (hasChildren(children[ri]) ? 'pointer' : 'default') + '">' + esc(sn) + drillIcon + '</div>';
+
+      for (var ci = 0; ci < n; ci++) {
+        var val = matrix[ri][ci];
+        var isSelf = (ri === ci);
+        var opacity = maxVal > 0 ? (val / maxVal) : 0;
+        var bg;
+        if (val === 0) {
+          bg = isSelf ? '#1a1a2e' : '#0d1b2a';
+        } else if (isSelf) {
+          // Self-connections: purple/teal tone
+          var pr = Math.round(80 + opacity * 75);
+          var pg = Math.round(40 + opacity * 60);
+          var pb = Math.round(120 + opacity * 80);
+          bg = 'rgb(' + pr + ',' + pg + ',' + pb + ')';
+        } else {
+          // Cross-module: blue tone
+          var cr = Math.round(52 + opacity * 52);
+          var cg = Math.round(30 + opacity * 122);
+          var cb = Math.round(60 + opacity * 159);
+          bg = 'rgb(' + cr + ',' + cg + ',' + cb + ')';
         }
-      });
-      var html = '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:200;display:flex;align-items:center;justify-content:center" onclick="this.remove()">';
-      html += '<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:24px;max-width:500px;width:90%;max-height:70vh;overflow-y:auto" onclick="event.stopPropagation()">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
-      html += '<h3 style="margin:0;font-size:16px">' + esc(src) + ' \u2194 ' + esc(dst) + '</h3>';
-      html += '<span style="cursor:pointer;font-size:20px;color:var(--text-secondary)" onclick="this.closest(\'div[style*=fixed]\').remove()">\u2715</span></div>';
-      html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">' + signals.length + ' signal(s)</div>';
-      html += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
-      html += '<tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px;color:var(--accent-blue)">Source Port</th><th style="text-align:left;padding:6px;color:var(--accent-blue)">Dest Port</th><th style="text-align:left;padding:6px;color:var(--accent-blue)">Status</th></tr>';
-      signals.forEach(function(s) {
-        var sColor = s.status === 'OK' ? 'var(--accent-green)' : 'var(--accent-red)';
-        html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td style="padding:6px">' + esc(s.src) + '</td><td style="padding:6px">' + esc(s.dst) + '</td><td style="padding:6px;color:' + sColor + '">' + esc(s.status) + '</td></tr>';
-      });
-      html += '</table></div></div>';
-      var overlay = document.createElement('div');
-      overlay.innerHTML = html;
-      document.body.appendChild(overlay.firstChild);
+        var border = isSelf ? 'border:1px solid rgba(155,89,182,0.4)' : '';
+        h += '<div class="heatmap-cell" data-src="' + esc(children[ri]) + '" data-dst="' + esc(children[ci]) + '" data-val="' + val + '" data-self="' + (isSelf ? '1' : '0') + '" style="background:' + bg + ';' + border + '">' + (val > 0 ? val : '') + '</div>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+
+    // Legend
+    h += '<div style="display:flex;gap:24px;margin-top:14px;flex-wrap:wrap">';
+    h += '<div class="heatmap-legend"><span>0</span>';
+    h += '<div class="heatmap-legend-bar" style="background:linear-gradient(to right, #0d1b2a, #3498db)"></div>';
+    h += '<span>' + maxVal + '</span> cross-module</div>';
+    h += '<div class="heatmap-legend"><span>0</span>';
+    h += '<div class="heatmap-legend-bar" style="background:linear-gradient(to right, #1a1a2e, #9b59b6)"></div>';
+    h += '<span>' + maxVal + '</span> internal (self)</div>';
+    h += '</div>';
+
+    h += '</div>';
+    pane.innerHTML = h;
+
+    // Breadcrumb click
+    pane.querySelectorAll('.hm-crumb').forEach(function(el) {
+      el.addEventListener('click', function() { renderHeatmap(el.dataset.scope); });
     });
-  });
+
+    // Y-label double-click for drill-down
+    pane.querySelectorAll('.hm-ylabel').forEach(function(el) {
+      el.addEventListener('dblclick', function() {
+        var path = el.dataset.path;
+        if (hasChildren(path)) renderHeatmap(path);
+      });
+    });
+
+    // Cell tooltip
+    pane.querySelectorAll('.heatmap-cell').forEach(function(cell) {
+      cell.addEventListener('mouseenter', function(e) {
+        var val = parseInt(cell.dataset.val);
+        if (val === 0) { tooltip.style.display = 'none'; return; }
+        var isSelf = cell.dataset.self === '1';
+        var label = isSelf ? '<em>internal connections</em>' : esc(shortName(cell.dataset.src)) + ' \u2194 ' + esc(shortName(cell.dataset.dst));
+        tooltip.innerHTML = '<strong>' + label + '</strong><br>' + val + ' connection' + (val > 1 ? 's' : '');
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.clientX + 12) + 'px';
+        tooltip.style.top = (e.clientY - 10) + 'px';
+      });
+      cell.addEventListener('mousemove', function(e) {
+        tooltip.style.left = (e.clientX + 12) + 'px';
+        tooltip.style.top = (e.clientY - 10) + 'px';
+      });
+      cell.addEventListener('mouseleave', function() { tooltip.style.display = 'none'; });
+
+      // Cell click: show signal details
+      cell.addEventListener('click', function() {
+        var srcScope = cell.dataset.src;
+        var dstScope = cell.dataset.dst;
+        var val = parseInt(cell.dataset.val);
+        if (val === 0) return;
+        var isSelf = cell.dataset.self === '1';
+        var signals = signalsBetween(srcScope, dstScope);
+        var title = isSelf ? esc(shortName(srcScope)) + ' internal' : esc(shortName(srcScope)) + ' \u2194 ' + esc(shortName(dstScope));
+
+        var mh = '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:200;display:flex;align-items:center;justify-content:center" onclick="this.remove()">';
+        mh += '<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:24px;max-width:550px;width:90%;max-height:70vh;overflow-y:auto" onclick="event.stopPropagation()">';
+        mh += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
+        mh += '<h3 style="margin:0;font-size:16px">' + title + '</h3>';
+        mh += '<span style="cursor:pointer;font-size:20px;color:var(--text-secondary)" onclick="this.closest(\'div[style*=fixed]\').remove()">\u2715</span></div>';
+        if (isSelf) mh += '<div style="font-size:12px;color:#9b59b6;margin-bottom:8px">\u25C6 Internal connections within sub-hierarchy</div>';
+        mh += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">' + signals.length + ' signal(s)</div>';
+        mh += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+        mh += '<tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px;color:var(--accent-blue)">Source</th><th style="text-align:left;padding:6px;color:var(--accent-blue)">Dest</th><th style="text-align:left;padding:6px;color:var(--accent-blue)">Status</th></tr>';
+        signals.forEach(function(s) {
+          var sColor = s.status === 'OK' ? 'var(--accent-green)' : 'var(--accent-red)';
+          mh += '<tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td style="padding:6px">' + esc(s.src) + '</td><td style="padding:6px">' + esc(s.dst) + '</td><td style="padding:6px;color:' + sColor + '">' + esc(s.status) + '</td></tr>';
+        });
+        mh += '</table></div></div>';
+        var ov = document.createElement('div');
+        ov.innerHTML = mh;
+        document.body.appendChild(ov.firstChild);
+      });
+    });
+  }
+
+  renderHeatmap(topMod);
 })();
 
 // =============================================

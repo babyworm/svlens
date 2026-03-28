@@ -1092,17 +1092,46 @@ function initGraph() {
     }
     var n = children.length;
 
-    // Build matrix
+    // Resolve instance to its direct child of current scope
+    var childIdx = {};
+    for (var ci2 = 0; ci2 < n; ci2++) childIdx[children[ci2]] = ci2;
+
+    function resolveToChild(instPath) {
+      for (var k = 0; k < n; k++) {
+        if (isDescendant(instPath, children[k])) return k;
+      }
+      return -1;
+    }
+
+    // Single-pass O(C) matrix build + issue detection
     var matrix = [];
-    var maxVal = 0;
+    var issueMatrix = []; // {errors, warns} per cell
     for (var i = 0; i < n; i++) {
       matrix[i] = [];
-      for (var j = 0; j < n; j++) {
-        var val = countBetween(children[i], children[j]);
-        if (i === j) val = Math.floor(val / 2); // self-connections counted twice
-        matrix[i][j] = val;
-        maxVal = Math.max(maxVal, val);
+      issueMatrix[i] = [];
+      for (var j = 0; j < n; j++) { matrix[i][j] = 0; issueMatrix[i][j] = {errors:0, warns:0}; }
+    }
+    connPairs.forEach(function(p) {
+      var si = resolveToChild(p.s);
+      var di = resolveToChild(p.d);
+      if (si < 0 || di < 0) return;
+      matrix[si][di]++;
+      if (si !== di) matrix[di][si]++;
+      if (p.status !== 'OK') {
+        var srcPath = p.src.replace(/\[.*?\]/g, '');
+        var isErr = false;
+        if (issueByPort[srcPath]) issueByPort[srcPath].forEach(function(iss) {
+          if (iss.severity === 'ERROR') isErr = true;
+        });
+        if (isErr) { issueMatrix[si][di].errors++; if (si !== di) issueMatrix[di][si].errors++; }
+        else { issueMatrix[si][di].warns++; if (si !== di) issueMatrix[di][si].warns++; }
       }
+    });
+    // Fix self-connection double counting
+    var maxVal = 0;
+    for (var i = 0; i < n; i++) {
+      matrix[i][i] = Math.floor(matrix[i][i] / 2);
+      for (var j = 0; j < n; j++) maxVal = Math.max(maxVal, matrix[i][j]);
     }
 
     // Breadcrumb
@@ -1166,7 +1195,7 @@ function initGraph() {
           bg = 'rgb(' + cr + ',' + cg + ',' + cb + ')';
         }
         var border = isSelf ? 'border:1px solid rgba(155,89,182,0.4)' : '';
-        var issueInfo = (val > 0 && !isSelf) ? hasIssuesBetween(children[ri], children[ci]) : {errors:0, warns:0};
+        var issueInfo = (val > 0 && !isSelf) ? issueMatrix[ri][ci] : {errors:0, warns:0};
         var cellIcon = '';
         if (issueInfo.errors > 0) cellIcon = '<span style="position:absolute;top:1px;right:2px;font-size:8px;color:#e74c3c">\u25CF</span>';
         else if (issueInfo.warns > 0) cellIcon = '<span style="position:absolute;top:1px;right:2px;font-size:8px;color:#f39c12">\u25CF</span>';

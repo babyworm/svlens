@@ -156,63 +156,48 @@ static CliOptions parseCustomArgs(int argc, const char* const* argv,
     return opts;
 }
 
-int main(int argc, char* argv[]) {
-    // --- Phase 1: Parse our custom args ---
-    std::vector<const char*> slangArgs;
-    auto opts = parseCustomArgs(argc, argv, slangArgs);
-
-    if (opts.showHelp) {
-        printUsage();
-        return 0;
-    }
-
-    if (opts.topModule.empty()) {
-        fmt::print(stderr, "Error: --top <module> is required\n");
-        printUsage();
-        return 1;
-    }
-
-    // Validate format
-    if (opts.format != "json" && opts.format != "md" && opts.format != "csv" &&
-        opts.format != "table" && opts.format != "dot" && opts.format != "html" &&
-        opts.format != "all") {
-        fmt::print(stderr, "Error: invalid format '{}'. Use json|md|csv|table|dot|html|all\n",
-                   opts.format);
-        return 1;
-    }
-
-    // --- Phase 2: slang compilation via Driver ---
+// ---------------------------------------------------------------------------
+// Helper: compile sources via slang Driver and extract connectivity graph
+// ---------------------------------------------------------------------------
+static bool runCompilation(const std::vector<const char*>& slangArgs,
+                           const CliOptions& opts,
+                           connect::ConnectionGraph& graph) {
     slang::driver::Driver driver;
     driver.addStandardArgs();
 
     if (!driver.parseCommandLine(static_cast<int>(slangArgs.size()), slangArgs.data())) {
         fmt::print(stderr, "Error: failed to parse command line\n");
-        return 1;
+        return false;
     }
     if (!driver.processOptions()) {
         fmt::print(stderr, "Error: failed to process options\n");
-        return 1;
+        return false;
     }
     if (!driver.parseAllSources()) {
         fmt::print(stderr, "Error: failed to parse sources\n");
-        return 1;
+        return false;
     }
 
     auto compilation = driver.createCompilation();
     if (!compilation) {
         fmt::print(stderr, "Error: failed to create compilation\n");
-        return 1;
+        return false;
     }
 
-    // --- Phase 3: Extract connections ---
     connect::ConnectionExtractor extractor(*compilation, opts.topModule, opts.depth);
-    auto graph = extractor.extract();
+    graph = extractor.extract();
 
     if (graph.allPorts.empty()) {
         fmt::print(stderr, "Warning: no ports found for top module '{}'\n", opts.topModule);
     }
+    return true;
+}
 
-    // --- Phase 4: Run checkers ---
+// ---------------------------------------------------------------------------
+// Helper: configure and run all enabled checkers
+// ---------------------------------------------------------------------------
+static std::vector<connect::Issue> runCheckers(const CliOptions& opts,
+                                               const connect::ConnectionGraph& graph) {
     connect::CheckerRunner runner;
     if (opts.checkWidth)
         runner.addChecker(std::make_unique<connect::WidthChecker>());
@@ -233,12 +218,219 @@ int main(int argc, char* argv[]) {
     if (!opts.expectFile.empty())
         runner.addChecker(std::make_unique<connect::ExpectChecker>(opts.expectFile));
 
-    auto issues = runner.runAll(graph);
+    return runner.runAll(graph);
+}
+
+// ---------------------------------------------------------------------------
+// Helper: write a single report format to a file
+// ---------------------------------------------------------------------------
+template <typename Generator>
+static void writeReportFile(const std::string& outputDir, const std::string& filename,
+                            const connect::ReportData& data) {
+    fs::create_directories(outputDir);
+    std::string path = (fs::path(outputDir) / filename).string();
+    std::ofstream ofs(path);
+    if (ofs) {
+        Generator gen;
+        gen.generate(data, ofs);
+    } else {
+        fmt::print(stderr, "Error: cannot write to {}\n", path);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: generate all requested report outputs
+// ---------------------------------------------------------------------------
+static void generateReports(const CliOptions& opts, const connect::ReportData& data) {
+    if (opts.format == "table" || opts.format == "all") {
+        connect::TableReportGenerator tableGen;
+        tableGen.generate(data, std::cout);
+    }
+    if (opts.format == "json" || opts.format == "all")
+        writeReportFile<connect::JsonReportGenerator>(opts.outputDir, "connect_report.json", data);
+    if (opts.format == "md" || opts.format == "all")
+        writeReportFile<connect::MarkdownReportGenerator>(opts.outputDir, "connect_report.md", data);
+    if (opts.format == "csv" || opts.format == "all")
+        writeReportFile<connect::CsvReportGenerator>(opts.outputDir, "connection_matrix.csv", data);
+    if (opts.format == "dot" || opts.format == "all")
+        writeReportFile<connect::DotReportGenerator>(opts.outputDir, "connectivity.dot", data);
+    if (opts.format == "html" || opts.format == "all")
+        writeReportFile<connect::HtmlReportGenerator>(opts.outputDir, "connect_report.html", data);
+}
+
+// ---------------------------------------------------------------------------
+// Helper: print interface summary (table/all only)
+// ---------------------------------------------------------------------------
+static void printInterfaceSummary(const CliOptions& opts, const connect::ReportData& data) {
+    if (opts.format != "table" && opts.format != "all")
+        return;
+
+    connect::InterfaceGrouper grouper;
+    auto groups = grouper.classify(data.graph);
+    if (!groups.empty()) {
+        fmt::print("\n=== Interface Summary ===\n");
+        for (const auto& g : groups) {
+            auto dotPos = g.instancePath.rfind('.');
+            std::string shortName = (dotPos != std::string::npos)
+                ? g.instancePath.substr(dotPos + 1) : g.instancePath;
+            fmt::print("  {:16s}: {} {} ({} signals, prefix: {})\n",
+                       shortName, g.protocol, g.role,
+                       g.matchedPorts.size(), g.prefix);
+        }
+        fmt::print("\n");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: run diff against a baseline JSON report
+// ---------------------------------------------------------------------------
+static void runDiffMode(const CliOptions& opts, const connect::ReportData& data) {
+    if (opts.diffFile.empty())
+        return;
+
+    try {
+        auto baseline = connect::loadDiffInputFromJson(opts.diffFile);
+
+        connect::DiffInput current;
+        for (const auto& conn : data.graph.connections) {
+            std::string status = "OK";
+            for (const auto& issue : data.active) {
+                if (issue.connection.has_value() &&
+                    issue.connection->source.fullPath() == conn.source.fullPath() &&
+                    issue.connection->dest.fullPath() == conn.dest.fullPath()) {
+                    status = connect::Issue::typeToString(issue.type);
+                    break;
+                }
+            }
+            current.connections.push_back({conn.source.fullPath(), conn.dest.fullPath(), status});
+        }
+
+        auto diff = connect::computeDiff(baseline, current);
+
+        if (diff.empty()) {
+            fmt::print("\nDiff: no connectivity changes vs baseline.\n");
+        } else {
+            fmt::print("\n=== Connectivity Diff vs {} ===\n", opts.diffFile);
+            for (const auto& c : diff.added) {
+                fmt::print("  + ADDED:   {} -> {}  [{}]\n", c.source, c.dest, c.status);
+            }
+            for (const auto& c : diff.removed) {
+                fmt::print("  - REMOVED: {} -> {}  [was: {}]\n", c.source, c.dest, c.status);
+            }
+            for (const auto& c : diff.changed) {
+                fmt::print("  ~ CHANGED: {} -> {}  status: {} -> {}\n",
+                           c.source, c.dest, c.oldStatus, c.newStatus);
+            }
+            fmt::print("  Total: +{} -{} ~{}\n",
+                       diff.added.size(), diff.removed.size(), diff.changed.size());
+        }
+    } catch (const std::exception& e) {
+        fmt::print(stderr, "Error loading diff baseline: {}\n", e.what());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: print clock/reset topology analysis
+// ---------------------------------------------------------------------------
+static void printClockResetTopology(const connect::ReportData& data) {
+    connect::ClockResetAnalyzer crAnalyzer;
+    auto topo = crAnalyzer.analyze(data.graph);
+
+    fmt::print("\n=== Clock Topology ===\n");
+    for (const auto& [portName, instances] : topo.clockGroups) {
+        fmt::print("  {} ->", portName);
+        for (size_t i = 0; i < instances.size(); ++i) {
+            const auto& inst = instances[i];
+            auto dotPos = inst.rfind('.');
+            std::string shortName = (dotPos != std::string::npos)
+                ? inst.substr(dotPos + 1) : inst;
+            if (i > 0) fmt::print(",");
+            fmt::print(" {}", shortName);
+        }
+        fmt::print("\n");
+    }
+
+    fmt::print("\n=== Reset Topology ===\n");
+    for (const auto& [portName, instances] : topo.resetGroups) {
+        fmt::print("  {} ->", portName);
+        for (size_t i = 0; i < instances.size(); ++i) {
+            const auto& inst = instances[i];
+            auto dotPos = inst.rfind('.');
+            std::string shortName = (dotPos != std::string::npos)
+                ? inst.substr(dotPos + 1) : inst;
+            if (i > 0) fmt::print(",");
+            fmt::print(" {}", shortName);
+        }
+        fmt::print("\n");
+    }
+
+    if (!topo.warnings.empty()) {
+        fmt::print("\n=== Clock/Reset Warnings ===\n");
+        for (const auto& inst : topo.warnings) {
+            auto dotPos = inst.rfind('.');
+            std::string shortName = (dotPos != std::string::npos)
+                ? inst.substr(dotPos + 1) : inst;
+            fmt::print("  \u26a0 {} ({}): has clock input but no reset port detected\n",
+                       inst, shortName);
+        }
+    }
+    fmt::print("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Helper: run signal fan-out / fan-in tracing
+// ---------------------------------------------------------------------------
+static void runSignalTrace(const CliOptions& opts, const connect::ReportData& data) {
+    if (opts.traceSignal.empty())
+        return;
+
+    connect::TraceEngine traceEngine(data.graph);
+
+    auto fanOutHops = traceEngine.traceFanOut(opts.traceSignal);
+    fmt::print("\n{}", connect::TraceEngine::formatTrace(
+        fanOutHops, opts.traceSignal, true));
+
+    auto fanInHops = traceEngine.traceFanIn(opts.traceSignal);
+    fmt::print("\n{}", connect::TraceEngine::formatTrace(
+        fanInHops, opts.traceSignal, false));
+}
+
+// ===========================================================================
+int main(int argc, char* argv[]) {
+    // --- Phase 1: Parse CLI args ---
+    std::vector<const char*> slangArgs;
+    auto opts = parseCustomArgs(argc, argv, slangArgs);
+
+    if (opts.showHelp) {
+        printUsage();
+        return 0;
+    }
+
+    if (opts.topModule.empty()) {
+        fmt::print(stderr, "Error: --top <module> is required\n");
+        printUsage();
+        return 1;
+    }
+
+    if (opts.format != "json" && opts.format != "md" && opts.format != "csv" &&
+        opts.format != "table" && opts.format != "dot" && opts.format != "html" &&
+        opts.format != "all") {
+        fmt::print(stderr, "Error: invalid format '{}'. Use json|md|csv|table|dot|html|all\n",
+                   opts.format);
+        return 1;
+    }
+
+    // --- Phase 2+3: Compile and extract connections ---
+    connect::ConnectionGraph graph;
+    if (!runCompilation(slangArgs, opts, graph))
+        return 1;
+
+    // --- Phase 4: Run checkers ---
+    auto issues = runCheckers(opts, graph);
 
     // --- Phase 5: Apply waivers ---
     std::vector<connect::Issue> active;
     std::vector<connect::Issue> waived;
-
     if (!opts.waiverFile.empty()) {
         connect::WaiverFilter filter(opts.waiverFile);
         auto result = filter.apply(issues);
@@ -248,218 +440,20 @@ int main(int argc, char* argv[]) {
         active = std::move(issues);
     }
 
-    // --- Phase 6: Generate reports ---
-    connect::ReportData reportData{
-        opts.topModule,
-        std::move(graph),
-        active,
-        waived
-    };
-
-    // Run analysis engine and attach results
+    // --- Phase 6: Build report data and generate outputs ---
+    connect::ReportData reportData{opts.topModule, std::move(graph), active, waived};
     connect::AnalysisEngine analysisEngine;
     reportData.analysis = analysisEngine.analyze(reportData);
 
-    bool needFileOutput = (opts.format != "table");
+    generateReports(opts, reportData);
+    printInterfaceSummary(opts, reportData);
+    runDiffMode(opts, reportData);
 
-    if (needFileOutput) {
-        fs::create_directories(opts.outputDir);
-    }
+    if (opts.checkClockReset)
+        printClockResetTopology(reportData);
 
-    // Table to stdout
-    if (opts.format == "table" || opts.format == "all") {
-        connect::TableReportGenerator tableGen;
-        tableGen.generate(reportData, std::cout);
-    }
-
-    // JSON to file
-    if (opts.format == "json" || opts.format == "all") {
-        fs::create_directories(opts.outputDir);
-        std::string path = (fs::path(opts.outputDir) / "connect_report.json").string();
-        std::ofstream ofs(path);
-        if (ofs) {
-            connect::JsonReportGenerator jsonGen;
-            jsonGen.generate(reportData, ofs);
-        } else {
-            fmt::print(stderr, "Error: cannot write to {}\n", path);
-        }
-    }
-
-    // Markdown to file
-    if (opts.format == "md" || opts.format == "all") {
-        fs::create_directories(opts.outputDir);
-        std::string path = (fs::path(opts.outputDir) / "connect_report.md").string();
-        std::ofstream ofs(path);
-        if (ofs) {
-            connect::MarkdownReportGenerator mdGen;
-            mdGen.generate(reportData, ofs);
-        } else {
-            fmt::print(stderr, "Error: cannot write to {}\n", path);
-        }
-    }
-
-    // CSV to file
-    if (opts.format == "csv" || opts.format == "all") {
-        fs::create_directories(opts.outputDir);
-        std::string path = (fs::path(opts.outputDir) / "connection_matrix.csv").string();
-        std::ofstream ofs(path);
-        if (ofs) {
-            connect::CsvReportGenerator csvGen;
-            csvGen.generate(reportData, ofs);
-        } else {
-            fmt::print(stderr, "Error: cannot write to {}\n", path);
-        }
-    }
-
-    // DOT to file
-    if (opts.format == "dot" || opts.format == "all") {
-        fs::create_directories(opts.outputDir);
-        std::string path = (fs::path(opts.outputDir) / "connectivity.dot").string();
-        std::ofstream ofs(path);
-        if (ofs) {
-            connect::DotReportGenerator dotGen;
-            dotGen.generate(reportData, ofs);
-        } else {
-            fmt::print(stderr, "Error: cannot write to {}\n", path);
-        }
-    }
-
-    // HTML to file
-    if (opts.format == "html" || opts.format == "all") {
-        fs::create_directories(opts.outputDir);
-        std::string path = (fs::path(opts.outputDir) / "connect_report.html").string();
-        std::ofstream ofs(path);
-        if (ofs) {
-            connect::HtmlReportGenerator htmlGen;
-            htmlGen.generate(reportData, ofs);
-        } else {
-            fmt::print(stderr, "Error: cannot write to {}\n", path);
-        }
-    }
-
-    // --- Phase 6.3: Interface summary ---
-    if (opts.format == "table" || opts.format == "all") {
-        connect::InterfaceGrouper grouper;
-        auto groups = grouper.classify(reportData.graph);
-        if (!groups.empty()) {
-            fmt::print("\n=== Interface Summary ===\n");
-            for (const auto& g : groups) {
-                // Extract short instance name (after last dot)
-                auto dotPos = g.instancePath.rfind('.');
-                std::string shortName = (dotPos != std::string::npos)
-                    ? g.instancePath.substr(dotPos + 1) : g.instancePath;
-                fmt::print("  {:16s}: {} {} ({} signals, prefix: {})\n",
-                           shortName, g.protocol, g.role,
-                           g.matchedPorts.size(), g.prefix);
-            }
-            fmt::print("\n");
-        }
-    }
-
-    // --- Phase 6.5: Diff mode ---
-    if (!opts.diffFile.empty()) {
-        try {
-            auto baseline = connect::loadDiffInputFromJson(opts.diffFile);
-
-            connect::DiffInput current;
-            for (const auto& conn : reportData.graph.connections) {
-                std::string status = "OK";
-                for (const auto& issue : reportData.active) {
-                    if (issue.connection.has_value() &&
-                        issue.connection->source.fullPath() == conn.source.fullPath() &&
-                        issue.connection->dest.fullPath() == conn.dest.fullPath()) {
-                        status = connect::Issue::typeToString(issue.type);
-                        break;
-                    }
-                }
-                current.connections.push_back({conn.source.fullPath(), conn.dest.fullPath(), status});
-            }
-
-            auto diff = connect::computeDiff(baseline, current);
-
-            if (diff.empty()) {
-                fmt::print("\nDiff: no connectivity changes vs baseline.\n");
-            } else {
-                fmt::print("\n=== Connectivity Diff vs {} ===\n", opts.diffFile);
-                for (const auto& c : diff.added) {
-                    fmt::print("  + ADDED:   {} -> {}  [{}]\n", c.source, c.dest, c.status);
-                }
-                for (const auto& c : diff.removed) {
-                    fmt::print("  - REMOVED: {} -> {}  [was: {}]\n", c.source, c.dest, c.status);
-                }
-                for (const auto& c : diff.changed) {
-                    fmt::print("  ~ CHANGED: {} -> {}  status: {} -> {}\n",
-                               c.source, c.dest, c.oldStatus, c.newStatus);
-                }
-                fmt::print("  Total: +{} -{} ~{}\n",
-                           diff.added.size(), diff.removed.size(), diff.changed.size());
-            }
-        } catch (const std::exception& e) {
-            fmt::print(stderr, "Error loading diff baseline: {}\n", e.what());
-        }
-    }
-
-    // --- Phase 6.7: Clock/Reset topology ---
-    if (opts.checkClockReset) {
-        connect::ClockResetAnalyzer crAnalyzer;
-        auto topo = crAnalyzer.analyze(reportData.graph);
-
-        fmt::print("\n=== Clock Topology ===\n");
-        for (const auto& [portName, instances] : topo.clockGroups) {
-            fmt::print("  {} ->", portName);
-            for (size_t i = 0; i < instances.size(); ++i) {
-                // Extract short instance name (after last dot)
-                const auto& inst = instances[i];
-                auto dotPos = inst.rfind('.');
-                std::string shortName = (dotPos != std::string::npos)
-                    ? inst.substr(dotPos + 1) : inst;
-                if (i > 0) fmt::print(",");
-                fmt::print(" {}", shortName);
-            }
-            fmt::print("\n");
-        }
-
-        fmt::print("\n=== Reset Topology ===\n");
-        for (const auto& [portName, instances] : topo.resetGroups) {
-            fmt::print("  {} ->", portName);
-            for (size_t i = 0; i < instances.size(); ++i) {
-                const auto& inst = instances[i];
-                auto dotPos = inst.rfind('.');
-                std::string shortName = (dotPos != std::string::npos)
-                    ? inst.substr(dotPos + 1) : inst;
-                if (i > 0) fmt::print(",");
-                fmt::print(" {}", shortName);
-            }
-            fmt::print("\n");
-        }
-
-        if (!topo.warnings.empty()) {
-            fmt::print("\n=== Clock/Reset Warnings ===\n");
-            for (const auto& inst : topo.warnings) {
-                auto dotPos = inst.rfind('.');
-                std::string shortName = (dotPos != std::string::npos)
-                    ? inst.substr(dotPos + 1) : inst;
-                fmt::print("  \u26a0 {} ({}): has clock input but no reset port detected\n",
-                           inst, shortName);
-            }
-        }
-        fmt::print("\n");
-    }
-
-    // --- Phase 6.9: Signal tracing ---
-    if (!opts.traceSignal.empty()) {
-        connect::TraceEngine traceEngine(reportData.graph);
-
-        auto fanOutHops = traceEngine.traceFanOut(opts.traceSignal);
-        fmt::print("\n{}", connect::TraceEngine::formatTrace(
-            fanOutHops, opts.traceSignal, true));
-
-        auto fanInHops = traceEngine.traceFanIn(opts.traceSignal);
-        fmt::print("\n{}", connect::TraceEngine::formatTrace(
-            fanInHops, opts.traceSignal, false));
-    }
+    runSignalTrace(opts, reportData);
 
     // --- Phase 7: Exit code ---
-    int issueCount = static_cast<int>(active.size());
-    return std::min(issueCount, 255);
+    return std::min(static_cast<int>(active.size()), 255);
 }

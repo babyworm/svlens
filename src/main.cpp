@@ -29,6 +29,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -291,17 +292,20 @@ static void runDiffMode(const CliOptions& opts, const connect::ReportData& data)
     try {
         auto baseline = connect::loadDiffInputFromJson(opts.diffFile);
 
+        // Build issue status lookup: O(I) build, O(1) per connection
+        std::unordered_map<std::string, std::string> issueMap;
+        for (const auto& issue : data.active) {
+            if (issue.connection.has_value()) {
+                auto key = issue.connection->source.fullPath() + "|" + issue.connection->dest.fullPath();
+                issueMap[key] = connect::Issue::typeToString(issue.type);
+            }
+        }
+
         connect::DiffInput current;
         for (const auto& conn : data.graph.connections) {
-            std::string status = "OK";
-            for (const auto& issue : data.active) {
-                if (issue.connection.has_value() &&
-                    issue.connection->source.fullPath() == conn.source.fullPath() &&
-                    issue.connection->dest.fullPath() == conn.dest.fullPath()) {
-                    status = connect::Issue::typeToString(issue.type);
-                    break;
-                }
-            }
+            auto key = conn.source.fullPath() + "|" + conn.dest.fullPath();
+            auto it = issueMap.find(key);
+            std::string status = (it != issueMap.end()) ? it->second : "OK";
             current.connections.push_back({conn.source.fullPath(), conn.dest.fullPath(), status});
         }
 

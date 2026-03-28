@@ -1,6 +1,7 @@
 #include "JsonReport.h"
 #include <fmt/format.h>
 #include <string>
+#include <unordered_map>
 
 namespace connect {
 
@@ -142,23 +143,25 @@ void JsonReportGenerator::generate(const ReportData& data, std::ostream& out) co
         out << "  },\n";
     }
 
+    // Build issue status lookup: O(I) build, O(1) per connection
+    std::unordered_map<std::string, std::string> issueStatusMap;
+    for (const auto& issue : data.active) {
+        if (issue.connection.has_value()) {
+            const auto& ic = issue.connection.value();
+            auto key = ic.source.fullPath() + "|" + ic.dest.fullPath();
+            issueStatusMap[key] = Issue::typeToString(issue.type);
+        }
+    }
+
     // Connections
     out << "  \"connections\": [\n";
     for (size_t i = 0; i < data.graph.connections.size(); ++i) {
         const auto& conn = data.graph.connections[i];
 
-        // Find status for this connection
-        std::string status = "OK";
-        for (const auto& issue : data.active) {
-            if (issue.connection.has_value()) {
-                const auto& ic = issue.connection.value();
-                if (ic.source.fullPath() == conn.source.fullPath() &&
-                    ic.dest.fullPath() == conn.dest.fullPath()) {
-                    status = Issue::typeToString(issue.type);
-                    break;
-                }
-            }
-        }
+        // O(1) status lookup
+        auto key = conn.source.fullPath() + "|" + conn.dest.fullPath();
+        auto it = issueStatusMap.find(key);
+        std::string status = (it != issueStatusMap.end()) ? it->second : "OK";
 
         out << "    {\n";
         out << fmt::format("      \"source\": \"{}\",\n", escapeJson(portRange(conn.source)));

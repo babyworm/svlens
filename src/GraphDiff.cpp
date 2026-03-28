@@ -11,12 +11,19 @@ namespace {
 
 using Key = std::pair<std::string, std::string>;
 
-// Strip width annotations like [31:0] from a port path.
+// Strip width annotations like [31:0] from the port name portion only.
+// Preserves generate indices in the path: top.genblk[3].u_bus.o_data[31:0]
+// → top.genblk[3].u_bus.o_data
 std::string stripWidth(const std::string& s) {
-    auto pos = s.find('[');
-    if (pos == std::string::npos)
-        return s;
-    return s.substr(0, pos);
+    auto lastDot = s.rfind('.');
+    if (lastDot == std::string::npos) {
+        // No dot — strip any trailing [...]
+        auto pos = s.find('[');
+        return (pos != std::string::npos) ? s.substr(0, pos) : s;
+    }
+    // Only strip [ from the portion after the last dot (port name)
+    auto pos = s.find('[', lastDot);
+    return (pos != std::string::npos) ? s.substr(0, pos) : s;
 }
 
 } // anonymous namespace

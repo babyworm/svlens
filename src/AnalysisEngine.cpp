@@ -67,21 +67,30 @@ std::vector<ModuleHealth> AnalysisEngine::computeModuleHealth(const ReportData& 
 }
 
 std::vector<CouplingEdge> AnalysisEngine::computeCoupling(const ReportData& data) const {
-    // Key: (srcShort, dstShort) -> count
+    // Key: (srcFullPath, dstFullPath) -> count (use full path for uniqueness)
+    struct PathPair {
+        std::string srcPath, dstPath, srcShort, dstShort;
+    };
     std::map<std::pair<std::string, std::string>, int> counts;
+    std::map<std::pair<std::string, std::string>, PathPair> info;
 
     for (const auto& conn : data.graph.connections) {
-        auto src = shortName(conn.source.instancePath);
-        auto dst = shortName(conn.dest.instancePath);
-        if (src != dst) {
-            counts[{src, dst}]++;
+        auto& sp = conn.source.instancePath;
+        auto& dp = conn.dest.instancePath;
+        if (sp != dp) {
+            auto key = std::make_pair(sp, dp);
+            counts[key]++;
+            if (info.find(key) == info.end()) {
+                info[key] = {sp, dp, shortName(sp), shortName(dp)};
+            }
         }
     }
 
     std::vector<CouplingEdge> result;
     result.reserve(counts.size());
     for (auto& [key, count] : counts) {
-        result.push_back({key.first, key.second, count});
+        auto& p = info[key];
+        result.push_back({p.srcShort, p.dstShort, p.srcPath, p.dstPath, count});
     }
 
     // Sort by connectionCount descending.

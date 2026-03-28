@@ -19,8 +19,10 @@ struct ModuleHealth {
 };
 
 struct CouplingEdge {
-    std::string srcModule; // short name
-    std::string dstModule; // short name
+    std::string srcModule; // short name (for display)
+    std::string dstModule; // short name (for display)
+    std::string srcPath;   // full instance path (for uniqueness)
+    std::string dstPath;   // full instance path (for uniqueness)
     int connectionCount = 0;
 };
 

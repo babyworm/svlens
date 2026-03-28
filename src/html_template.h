@@ -1014,7 +1014,15 @@ function initGraph() {
     return count;
   }
 
-  // Find signals between two sub-trees
+  // Build issue lookup by port path for quick detail access
+  var issueByPort = {};
+  DATA.issues.forEach(function(iss) {
+    var key = iss.port;
+    if (!issueByPort[key]) issueByPort[key] = [];
+    issueByPort[key].push(iss);
+  });
+
+  // Find signals between two sub-trees (with issue details)
   function signalsBetween(scopeA, scopeB) {
     var sigs = [];
     connPairs.forEach(function(p) {
@@ -1022,10 +1030,41 @@ function initGraph() {
           (isDescendant(p.s, scopeB) && isDescendant(p.d, scopeA))) {
         var sp = p.src.replace(/\[.*?\]/g, '').split('.').pop();
         var dp = p.dst.replace(/\[.*?\]/g, '').split('.').pop();
-        sigs.push({src: sp, dst: dp, status: p.status});
+        var detail = '';
+        var severity = '';
+        // Look up issue detail for this connection
+        var srcPath = p.src.replace(/\[.*?\]/g, '');
+        var dstPath = p.dst.replace(/\[.*?\]/g, '');
+        [srcPath, dstPath].forEach(function(pp) {
+          if (issueByPort[pp]) issueByPort[pp].forEach(function(iss) {
+            if (!detail && p.status !== 'OK') { detail = iss.detail; severity = iss.severity; }
+          });
+        });
+        sigs.push({src: sp, dst: dp, status: p.status, detail: detail, severity: severity, srcFull: p.src, dstFull: p.dst});
       }
     });
     return sigs;
+  }
+
+  // Check if any issues exist between two sub-trees
+  function hasIssuesBetween(scopeA, scopeB) {
+    var found = {errors: 0, warns: 0};
+    connPairs.forEach(function(p) {
+      if (p.status === 'OK') return;
+      if ((isDescendant(p.s, scopeA) && isDescendant(p.d, scopeB)) ||
+          (isDescendant(p.s, scopeB) && isDescendant(p.d, scopeA))) {
+        // Check severity from issues
+        var srcPath = p.src.replace(/\[.*?\]/g, '');
+        [srcPath].forEach(function(pp) {
+          if (issueByPort[pp]) issueByPort[pp].forEach(function(iss) {
+            if (iss.severity === 'ERROR') found.errors++;
+            else if (iss.severity === 'WARN') found.warns++;
+          });
+        });
+        if (found.errors === 0 && found.warns === 0) found.warns++; // status not OK but no specific issue found
+      }
+    });
+    return found;
   }
 
   // Health score lookup
@@ -1127,7 +1166,12 @@ function initGraph() {
           bg = 'rgb(' + cr + ',' + cg + ',' + cb + ')';
         }
         var border = isSelf ? 'border:1px solid rgba(155,89,182,0.4)' : '';
-        h += '<td class="heatmap-cell" data-src="' + esc(children[ri]) + '" data-dst="' + esc(children[ci]) + '" data-val="' + val + '" data-self="' + (isSelf ? '1' : '0') + '" style="background:' + bg + ';' + border + '">' + (val > 0 ? val : '') + '</td>';
+        var issueInfo = (val > 0 && !isSelf) ? hasIssuesBetween(children[ri], children[ci]) : {errors:0, warns:0};
+        var cellIcon = '';
+        if (issueInfo.errors > 0) cellIcon = '<span style="position:absolute;top:1px;right:2px;font-size:8px;color:#e74c3c">\u25CF</span>';
+        else if (issueInfo.warns > 0) cellIcon = '<span style="position:absolute;top:1px;right:2px;font-size:8px;color:#f39c12">\u25CF</span>';
+        var cellStyle = 'background:' + bg + ';' + border + (cellIcon ? ';position:relative' : '');
+        h += '<td class="heatmap-cell" data-src="' + esc(children[ri]) + '" data-dst="' + esc(children[ci]) + '" data-val="' + val + '" data-self="' + (isSelf ? '1' : '0') + '" style="' + cellStyle + '">' + (val > 0 ? val : '') + cellIcon + '</td>';
       }
       h += '</tr>';
     }
@@ -1196,11 +1240,31 @@ function initGraph() {
         mh += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">' + signals.length + ' signal(s)</div>';
         mh += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
         mh += '<tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px;color:var(--accent-blue)">Source</th><th style="text-align:left;padding:6px;color:var(--accent-blue)">Dest</th><th style="text-align:left;padding:6px;color:var(--accent-blue)">Status</th></tr>';
-        signals.forEach(function(s) {
+        signals.forEach(function(s, idx) {
           var sColor = s.status === 'OK' ? 'var(--accent-green)' : 'var(--accent-red)';
-          mh += '<tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td style="padding:6px">' + esc(s.src) + '</td><td style="padding:6px">' + esc(s.dst) + '</td><td style="padding:6px;color:' + sColor + '">' + esc(s.status) + '</td></tr>';
+          var rowCursor = (s.status !== 'OK' && s.detail) ? 'cursor:pointer' : '';
+          var detailId = 'hm-detail-' + idx;
+          mh += '<tr class="hm-sig-row" style="border-bottom:1px solid rgba(255,255,255,0.05);' + rowCursor + '">';
+          mh += '<td style="padding:6px">' + esc(s.src) + '</td>';
+          mh += '<td style="padding:6px">' + esc(s.dst) + '</td>';
+          mh += '<td style="padding:6px;color:' + sColor + '">' + esc(s.status);
+          if (s.status !== 'OK') mh += ' <span style="font-size:10px;opacity:0.6">\u25BC</span>';
+          mh += '</td></tr>';
+          if (s.detail) {
+            mh += '<tr id="' + detailId + '" style="display:none"><td colspan="3" style="padding:8px 6px 12px 16px;font-size:12px">';
+            mh += '<div style="background:var(--bg-primary);border-left:3px solid ' + sColor + ';padding:8px 12px;border-radius:0 4px 4px 0">';
+            mh += '<div style="color:' + sColor + ';font-weight:600;margin-bottom:4px">' + esc(s.status) + '</div>';
+            mh += '<div style="color:var(--text-secondary)">' + esc(s.detail) + '</div>';
+            mh += '<div style="color:var(--text-secondary);margin-top:4px;font-size:11px;opacity:0.7">' + esc(s.srcFull || '') + ' \u2192 ' + esc(s.dstFull || '') + '</div>';
+            mh += '</div></td></tr>';
+          }
         });
         mh += '</table></div></div>';
+        // After inserting, wire up click-to-expand for issue rows
+        mh += '<script>document.querySelectorAll(".hm-sig-row").forEach(function(row,i){';
+        mh += 'row.addEventListener("click",function(){';
+        mh += 'var d=document.getElementById("hm-detail-"+i);';
+        mh += 'if(d)d.style.display=d.style.display==="none"?"table-row":"none";});});<\/script>';
         var ov = document.createElement('div');
         ov.innerHTML = mh;
         document.body.appendChild(ov.firstChild);

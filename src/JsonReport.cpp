@@ -149,7 +149,7 @@ void JsonReportGenerator::generate(const ReportData& data, std::ostream& out) co
         if (issue.connection.has_value()) {
             const auto& ic = issue.connection.value();
             auto key = ic.source.fullPath() + "|" + ic.dest.fullPath();
-            issueStatusMap[key] = Issue::typeToString(issue.type);
+            issueStatusMap.emplace(key, Issue::typeToString(issue.type)); // first-hit wins
         }
     }
 

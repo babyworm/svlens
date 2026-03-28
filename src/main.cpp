@@ -297,7 +297,7 @@ static void runDiffMode(const CliOptions& opts, const connect::ReportData& data)
         for (const auto& issue : data.active) {
             if (issue.connection.has_value()) {
                 auto key = issue.connection->source.fullPath() + "|" + issue.connection->dest.fullPath();
-                issueMap[key] = connect::Issue::typeToString(issue.type);
+                issueMap.emplace(key, connect::Issue::typeToString(issue.type)); // first-hit wins
             }
         }
 

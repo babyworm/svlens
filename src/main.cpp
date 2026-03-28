@@ -3,6 +3,8 @@
 #include "ConventionChecker.h"
 #include "CsvReport.h"
 #include "DanglingChecker.h"
+#include "DotReport.h"
+#include "HtmlReport.h"
 #include "JsonReport.h"
 #include "MarkdownReport.h"
 #include "ProtocolChecker.h"
@@ -33,7 +35,7 @@ static void printUsage() {
         "  --top <module>          Top-level module\n\n"
         "Options:\n"
         "  -o, --output <dir>      Output directory (default: ./connect_reports/)\n"
-        "  --format <fmt>          json|md|csv|table|all (default: all)\n"
+        "  --format <fmt>          json|md|csv|table|dot|html|all (default: all)\n"
         "  --help                  Show this help message\n\n"
         "Analysis (all enabled by default, --no-* to disable):\n"
         "  --no-check-width        Disable width mismatch checking\n"
@@ -142,8 +144,9 @@ int main(int argc, char* argv[]) {
 
     // Validate format
     if (opts.format != "json" && opts.format != "md" && opts.format != "csv" &&
-        opts.format != "table" && opts.format != "all") {
-        fmt::print(stderr, "Error: invalid format '{}'. Use json|md|csv|table|all\n",
+        opts.format != "table" && opts.format != "dot" && opts.format != "html" &&
+        opts.format != "all") {
+        fmt::print(stderr, "Error: invalid format '{}'. Use json|md|csv|table|dot|html|all\n",
                    opts.format);
         return 1;
     }
@@ -267,6 +270,32 @@ int main(int argc, char* argv[]) {
         if (ofs) {
             connect::CsvReportGenerator csvGen;
             csvGen.generate(reportData, ofs);
+        } else {
+            fmt::print(stderr, "Error: cannot write to {}\n", path);
+        }
+    }
+
+    // DOT to file
+    if (opts.format == "dot" || opts.format == "all") {
+        fs::create_directories(opts.outputDir);
+        std::string path = (fs::path(opts.outputDir) / "connectivity.dot").string();
+        std::ofstream ofs(path);
+        if (ofs) {
+            connect::DotReportGenerator dotGen;
+            dotGen.generate(reportData, ofs);
+        } else {
+            fmt::print(stderr, "Error: cannot write to {}\n", path);
+        }
+    }
+
+    // HTML to file
+    if (opts.format == "html" || opts.format == "all") {
+        fs::create_directories(opts.outputDir);
+        std::string path = (fs::path(opts.outputDir) / "connect_report.html").string();
+        std::ofstream ofs(path);
+        if (ofs) {
+            connect::HtmlReportGenerator htmlGen;
+            htmlGen.generate(reportData, ofs);
         } else {
             fmt::print(stderr, "Error: cannot write to {}\n", path);
         }

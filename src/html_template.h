@@ -124,7 +124,7 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 .heatmap-title { font-size: 14px; color: var(--text-secondary); margin-bottom: 14px; }
 .heatmap-grid-container { display: inline-block; }
 .heatmap-row { display: flex; }
-.heatmap-label-y { width: 120px; text-align: right; padding-right: 8px; font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; justify-content: flex-end; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.heatmap-label-y { min-width: 120px; width: 120px; text-align: right; padding-right: 10px; font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; justify-content: flex-end; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; box-sizing: border-box; font-family: monospace; }
 .heatmap-label-x { font-size: 11px; color: var(--text-secondary); text-align: center; writing-mode: vertical-lr; transform: rotate(180deg); padding-bottom: 6px; height: 100px; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
 .heatmap-cell { width: 36px; height: 36px; margin: 1px; border-radius: 3px; cursor: pointer; transition: transform 0.1s, box-shadow 0.15s; display: flex; align-items: center; justify-content: center; font-size: 10px; color: transparent; flex-shrink: 0; }
 .heatmap-cell:hover { transform: scale(1.15); box-shadow: 0 0 8px rgba(52,152,219,0.5); color: #fff; z-index: 1; }
@@ -1039,6 +1039,41 @@ function initGraph() {
       tooltip.style.top = (e.clientY - 10) + 'px';
     });
     cell.addEventListener('mouseleave', function() { tooltip.style.display = 'none'; });
+    cell.addEventListener('click', function() {
+      var src = cell.dataset.src;
+      var dst = cell.dataset.dst;
+      var val = parseInt(cell.dataset.val);
+      if (val === 0) return;
+      // Find actual connections between these modules
+      var signals = [];
+      DATA.connections.forEach(function(c) {
+        var sp = c.source.replace(/\[.*/, '').split('.');
+        var dp = c.dest.replace(/\[.*/, '').split('.');
+        var sInst = sp.slice(0, -1).join('.');
+        var dInst = dp.slice(0, -1).join('.');
+        var sName = sInst.split('.').pop();
+        var dName = dInst.split('.').pop();
+        if ((sName === src && dName === dst) || (sName === dst && dName === src)) {
+          signals.push({ src: sp.pop(), dst: dp.pop(), status: c.status });
+        }
+      });
+      var html = '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:200;display:flex;align-items:center;justify-content:center" onclick="this.remove()">';
+      html += '<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:24px;max-width:500px;width:90%;max-height:70vh;overflow-y:auto" onclick="event.stopPropagation()">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
+      html += '<h3 style="margin:0;font-size:16px">' + esc(src) + ' \u2194 ' + esc(dst) + '</h3>';
+      html += '<span style="cursor:pointer;font-size:20px;color:var(--text-secondary)" onclick="this.closest(\'div[style*=fixed]\').remove()">\u2715</span></div>';
+      html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">' + signals.length + ' signal(s)</div>';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+      html += '<tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px;color:var(--accent-blue)">Source Port</th><th style="text-align:left;padding:6px;color:var(--accent-blue)">Dest Port</th><th style="text-align:left;padding:6px;color:var(--accent-blue)">Status</th></tr>';
+      signals.forEach(function(s) {
+        var sColor = s.status === 'OK' ? 'var(--accent-green)' : 'var(--accent-red)';
+        html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td style="padding:6px">' + esc(s.src) + '</td><td style="padding:6px">' + esc(s.dst) + '</td><td style="padding:6px;color:' + sColor + '">' + esc(s.status) + '</td></tr>';
+      });
+      html += '</table></div></div>';
+      var overlay = document.createElement('div');
+      overlay.innerHTML = html;
+      document.body.appendChild(overlay.firstChild);
+    });
   });
 })();
 

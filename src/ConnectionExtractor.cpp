@@ -4,6 +4,7 @@
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "slang/ast/symbols/PortSymbols.h"
+#include "slang/ast/symbols/BlockSymbols.h"
 #include "slang/ast/symbols/MemberSymbols.h"
 #include "slang/ast/symbols/VariableSymbols.h"
 #include "slang/ast/expressions/MiscExpressions.h"
@@ -94,94 +95,130 @@ void ConnectionExtractor::visitInstance(const slang::ast::InstanceSymbol& instan
     if (maxDepth_ >= 0 && static_cast<int>(instance.instanceDepth) > maxDepth_)
         return;
 
-    auto& body = instance.body;
+    visitScope(instance.body, parentPath);
+}
 
-    // Iterate all members to find child instances
-    for (auto& member : body.members()) {
-        if (member.kind == slang::ast::SymbolKind::Instance) {
-            auto& childInst = member.as<slang::ast::InstanceSymbol>();
-            std::string childPath = parentPath + "." + std::string(childInst.name);
-
-            // Process port connections for the child instance
-            auto portConns = childInst.getPortConnections();
-            for (auto* conn : portConns) {
-                auto& portSym = conn->port;
-                if (portSym.kind != slang::ast::SymbolKind::Port)
-                    continue;
-
-                auto& port = portSym.as<slang::ast::PortSymbol>();
-                auto& portType = port.getType();
-
-                PortInfo pinfo;
-                pinfo.instancePath = childPath;
-                pinfo.portName = std::string(port.name);
-                pinfo.direction = port.direction;
-                pinfo.width = portType.getBitWidth();
-                pinfo.isSigned = portType.isSigned();
-                pinfo.location = port.location;
-
-                // Always add to allPorts
-                graph_.allPorts.push_back(pinfo);
-
-                // Get the connection expression
-                const slang::ast::Expression* expr = conn->getExpression();
-
-                if (!expr || expr->kind == slang::ast::ExpressionKind::EmptyArgument) {
-                    // Port is unconnected -- already in allPorts, skip net mapping
-                    continue;
-                }
-
-                // Port has a non-empty expression — mark as connected
-                graph_.connectedPorts.insert(pinfo.fullPath());
-
-                std::string netName = extractNetName(expr);
-                if (netName.empty())
-                    continue;
-
-                // Build net key: scope path + net name
-                std::string netKey = parentPath + "::" + netName;
-
-                if (port.direction == slang::ast::ArgumentDirection::InOut) {
-                    netMap_[netKey].push_back({pinfo, true});   // driver
-                    netMap_[netKey].push_back({pinfo, false});  // load
-                } else {
-                    bool isDriver = (port.direction == slang::ast::ArgumentDirection::Out);
-                    netMap_[netKey].push_back({pinfo, isDriver});
-                }
+void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
+                                      const std::string& scopePath) {
+    for (auto& member : scope.members()) {
+        switch (member.kind) {
+            case slang::ast::SymbolKind::Instance:
+                processChildInstance(member.as<slang::ast::InstanceSymbol>(), scopePath);
+                break;
+            case slang::ast::SymbolKind::ContinuousAssign:
+                processContinuousAssign(member.as<slang::ast::ContinuousAssignSymbol>(), scopePath);
+                break;
+            case slang::ast::SymbolKind::GenerateBlock: {
+                auto& genBlock = member.as<slang::ast::GenerateBlockSymbol>();
+                // Standalone generate blocks (if/case) — include name only if non-empty
+                std::string blockScope = scopePath;
+                if (!genBlock.name.empty())
+                    blockScope = scopePath + "." + std::string(genBlock.name);
+                visitScope(genBlock, blockScope);
+                break;
             }
+            case slang::ast::SymbolKind::GenerateBlockArray: {
+                // Generate-for: each element is a GenerateBlock with an arrayIndex
+                auto& genArray = member.as<slang::ast::GenerateBlockArraySymbol>();
+                std::string arrayName(genArray.name);
+                for (auto& elem : genArray.members()) {
+                    if (elem.kind == slang::ast::SymbolKind::GenerateBlock) {
+                        auto& block = elem.as<slang::ast::GenerateBlockSymbol>();
+                        // Build indexed scope: parent.genblk[N]
+                        std::string idxStr = block.arrayIndex
+                            ? block.arrayIndex->toString()
+                            : std::to_string(block.constructIndex);
+                        std::string blockScope = scopePath + "." + arrayName + "[" + idxStr + "]";
+                        visitScope(block, blockScope);
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+}
 
-            // Recurse into child instance
-            visitInstance(childInst, childPath);
+void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol& childInst,
+                                                const std::string& scopePath) {
+    std::string childPath = scopePath + "." + std::string(childInst.name);
+
+    // Process port connections for the child instance
+    auto portConns = childInst.getPortConnections();
+    for (auto* conn : portConns) {
+        auto& portSym = conn->port;
+        if (portSym.kind != slang::ast::SymbolKind::Port)
+            continue;
+
+        auto& port = portSym.as<slang::ast::PortSymbol>();
+        auto& portType = port.getType();
+
+        PortInfo pinfo;
+        pinfo.instancePath = childPath;
+        pinfo.portName = std::string(port.name);
+        pinfo.direction = port.direction;
+        pinfo.width = portType.getBitWidth();
+        pinfo.isSigned = portType.isSigned();
+        pinfo.location = port.location;
+
+        // Always add to allPorts
+        graph_.allPorts.push_back(pinfo);
+
+        // Get the connection expression
+        const slang::ast::Expression* expr = conn->getExpression();
+
+        if (!expr || expr->kind == slang::ast::ExpressionKind::EmptyArgument) {
+            // Port is unconnected -- already in allPorts, skip net mapping
+            continue;
+        }
+
+        // Port has a non-empty expression — mark as connected
+        graph_.connectedPorts.insert(pinfo.fullPath());
+
+        std::string netName = extractNetName(expr);
+        if (netName.empty())
+            continue;
+
+        // Build net key: scope path + net name
+        std::string netKey = scopePath + "::" + netName;
+
+        if (port.direction == slang::ast::ArgumentDirection::InOut) {
+            netMap_[netKey].push_back({pinfo, true});   // driver
+            netMap_[netKey].push_back({pinfo, false});  // load
+        } else {
+            bool isDriver = (port.direction == slang::ast::ArgumentDirection::Out);
+            netMap_[netKey].push_back({pinfo, isDriver});
         }
     }
 
-    // Process continuous assign statements to create net aliases
-    for (auto& member : body.members()) {
-        if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
-            auto& assignSym = member.as<slang::ast::ContinuousAssignSymbol>();
-            auto& assignExpr = assignSym.getAssignment();
-            if (assignExpr.kind != slang::ast::ExpressionKind::Assignment)
-                continue;
+    // Recurse into child instance
+    visitInstance(childInst, childPath);
+}
 
-            auto& assign = assignExpr.as<slang::ast::AssignmentExpression>();
-            std::string lhsName = extractNetName(&assign.left());
-            std::string rhsName = extractNetName(&assign.right());
-            if (lhsName.empty() || rhsName.empty())
-                continue;
+void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAssignSymbol& assignSym,
+                                                    const std::string& scopePath) {
+    auto& assignExpr = assignSym.getAssignment();
+    if (assignExpr.kind != slang::ast::ExpressionKind::Assignment)
+        return;
 
-            std::string lhsKey = parentPath + "::" + lhsName;
-            std::string rhsKey = parentPath + "::" + rhsName;
+    auto& assign = assignExpr.as<slang::ast::AssignmentExpression>();
+    std::string lhsName = extractNetName(&assign.left());
+    std::string rhsName = extractNetName(&assign.right());
+    if (lhsName.empty() || rhsName.empty())
+        return;
 
-            if (lhsKey == rhsKey)
-                continue;
+    std::string lhsKey = scopePath + "::" + lhsName;
+    std::string rhsKey = scopePath + "::" + rhsName;
 
-            // Record alias: lhsKey and rhsKey refer to the same net
-            std::string lhsCanon = findCanonical(lhsKey);
-            std::string rhsCanon = findCanonical(rhsKey);
-            if (lhsCanon != rhsCanon)
-                netAliases_[rhsCanon] = lhsCanon;
-        }
-    }
+    if (lhsKey == rhsKey)
+        return;
+
+    // Record alias: lhsKey and rhsKey refer to the same net
+    std::string lhsCanon = findCanonical(lhsKey);
+    std::string rhsCanon = findCanonical(rhsKey);
+    if (lhsCanon != rhsCanon)
+        netAliases_[rhsCanon] = lhsCanon;
 }
 
 std::string ConnectionExtractor::findCanonical(const std::string& key) const {

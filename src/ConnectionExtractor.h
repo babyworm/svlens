@@ -2,6 +2,7 @@
 
 #include "ConnectionGraph.h"
 #include "slang/ast/Compilation.h"
+#include "slang/ast/symbols/MemberSymbols.h"
 
 #include <string>
 #include <unordered_map>
@@ -20,6 +21,15 @@ public:
 private:
     void visitInstance(const slang::ast::InstanceSymbol& instance,
                        const std::string& parentPath);
+
+    void visitScope(const slang::ast::Scope& scope,
+                    const std::string& scopePath);
+
+    void processChildInstance(const slang::ast::InstanceSymbol& childInst,
+                              const std::string& scopePath);
+
+    void processContinuousAssign(const slang::ast::ContinuousAssignSymbol& assignSym,
+                                 const std::string& scopePath);
 
     void resolveConnections();
 

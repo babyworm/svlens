@@ -223,10 +223,16 @@ void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAs
 
 std::string ConnectionExtractor::findCanonical(const std::string& key) const {
     std::string current = key;
+    std::vector<std::string> path;
     size_t maxIter = netAliases_.size() + 1;
     size_t iter = 0;
-    while (netAliases_.count(current) && iter++ < maxIter)
+    while (netAliases_.count(current) && iter++ < maxIter) {
+        path.push_back(current);
         current = netAliases_.at(current);
+    }
+    // Path compression: point all visited nodes directly to root
+    for (const auto& p : path)
+        netAliases_[p] = current;
     return current;
 }
 

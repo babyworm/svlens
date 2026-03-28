@@ -145,16 +145,35 @@ TEST_CASE("DotReport: error connections are colored red") {
 }
 
 TEST_CASE("DotReport: warning connections are colored orange") {
-    auto data = makeMultiConnectionData();
+    // Isolated WARN connection (no ERROR on same edge) to verify orange
+    ReportData data;
+    data.topModule = "soc_top";
+
+    PortInfo src;
+    src.instancePath = "soc_top.u_bus"; src.portName = "o_status";
+    src.direction = ArgumentDirection::Out; src.width = 8; src.isSigned = false;
+
+    PortInfo dst;
+    dst.instancePath = "soc_top.u_mon"; dst.portName = "i_status";
+    dst.direction = ArgumentDirection::In; dst.width = 8; dst.isSigned = true;
+
+    Connection conn{src, dst};
+    data.graph.connections.push_back(conn);
+
+    Issue warn;
+    warn.type = Issue::Type::TYPE_MISMATCH;
+    warn.severity = Issue::Severity::WARN;
+    warn.port = src;
+    warn.connection = conn;
+    warn.detail = "sign mismatch";
+    data.active.push_back(warn);
+
     std::ostringstream out;
     DotReportGenerator gen;
     gen.generate(data, out);
     auto dot = out.str();
 
-    // The cpu->bus edge has an error, so it should be red
-    CHECK_THAT(dot, ContainsSubstring("red"));
-    // The bus->mem edge is clean, should be black (default)
-    CHECK_THAT(dot, ContainsSubstring("u_mem"));
+    CHECK_THAT(dot, ContainsSubstring("orange"));
 }
 
 TEST_CASE("DotReport: multiple connections between same instances are grouped") {
@@ -167,7 +186,16 @@ TEST_CASE("DotReport: multiple connections between same instances are grouped") 
     // Both o_data and o_addr should appear in the cpu->bus edge label
     CHECK_THAT(dot, ContainsSubstring("o_data"));
     CHECK_THAT(dot, ContainsSubstring("o_addr"));
-    CHECK_THAT(dot, ContainsSubstring("u_mem"));
+
+    // Verify grouping: count edges from u_cpu -> u_bus (should be exactly 1)
+    size_t edgeCount = 0;
+    size_t pos = 0;
+    std::string edgePattern = "u_cpu -> u_bus";
+    while ((pos = dot.find(edgePattern, pos)) != std::string::npos) {
+        edgeCount++;
+        pos += edgePattern.size();
+    }
+    CHECK(edgeCount == 1);
 }
 
 TEST_CASE("DotReport: empty graph produces minimal valid DOT") {

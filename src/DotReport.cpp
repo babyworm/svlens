@@ -8,6 +8,11 @@
 
 namespace connect {
 
+static_assert(static_cast<int>(Issue::Severity::ERROR) < static_cast<int>(Issue::Severity::WARN),
+              "Severity enum ordering assumed: ERROR < WARN < INFO");
+static_assert(static_cast<int>(Issue::Severity::WARN) < static_cast<int>(Issue::Severity::INFO),
+              "Severity enum ordering assumed: ERROR < WARN < INFO");
+
 namespace {
 
 // Strip the top module prefix from an instance path and replace dots with
@@ -111,9 +116,6 @@ void DotReportGenerator::generate(const ReportData& data, std::ostream& out) con
                 newColor = EdgeColor::ORANGE;
             }
             // Promote to worst color: RED > ORANGE > BLACK
-            if (newColor < info.color) {
-                // enum ordering: BLACK=0, ORANGE=1, RED=2 -- we need RED to win
-            }
             if (static_cast<int>(newColor) > static_cast<int>(info.color)) {
                 info.color = newColor;
             }

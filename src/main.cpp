@@ -1,3 +1,4 @@
+#include "AnalysisEngine.h"
 #include "CheckerRunner.h"
 #include "ClockResetAnalyzer.h"
 #include "ConnectionExtractor.h"
@@ -254,6 +255,10 @@ int main(int argc, char* argv[]) {
         active,
         waived
     };
+
+    // Run analysis engine and attach results
+    connect::AnalysisEngine analysisEngine;
+    reportData.analysis = analysisEngine.analyze(reportData);
 
     bool needFileOutput = (opts.format != "table");
 

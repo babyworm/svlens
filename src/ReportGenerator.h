@@ -1,6 +1,8 @@
 #pragma once
+#include "AnalysisResult.h"
 #include "ConnectionGraph.h"
 #include "Issue.h"
+#include <optional>
 #include <ostream>
 #include <vector>
 
@@ -11,6 +13,7 @@ struct ReportData {
     ConnectionGraph graph;
     std::vector<Issue> active;
     std::vector<Issue> waived;
+    std::optional<AnalysisResult> analysis; // populated when AnalysisEngine is run
 
     int errorCount() const {
         int n = 0;

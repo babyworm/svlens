@@ -82,6 +82,64 @@ void JsonReportGenerator::generate(const ReportData& data, std::ostream& out) co
     }
     out << "  ],\n";
 
+    // Analysis (optional)
+    if (data.analysis.has_value()) {
+        const auto& analysis = data.analysis.value();
+        out << "  \"analysis\": {\n";
+        out << fmt::format("    \"overall_score\": {:.2f},\n", analysis.overallScore);
+        out << fmt::format("    \"total_ports\": {},\n", analysis.totalPorts);
+        out << fmt::format("    \"total_connections\": {},\n", analysis.totalConnections);
+
+        // Module health
+        out << "    \"module_health\": [\n";
+        for (size_t i = 0; i < analysis.moduleHealth.size(); ++i) {
+            const auto& m = analysis.moduleHealth[i];
+            out << "      {\n";
+            out << fmt::format("        \"instance\": \"{}\",\n", escapeJson(m.instancePath));
+            out << fmt::format("        \"name\": \"{}\",\n", escapeJson(m.shortName));
+            out << fmt::format("        \"total_ports\": {},\n", m.totalPorts);
+            out << fmt::format("        \"connected\": {},\n", m.connectedPorts);
+            out << fmt::format("        \"errors\": {},\n", m.errorCount);
+            out << fmt::format("        \"warnings\": {},\n", m.warnCount);
+            out << fmt::format("        \"score\": {:.2f}\n", m.score);
+            out << "      }";
+            if (i + 1 < analysis.moduleHealth.size()) out << ",";
+            out << "\n";
+        }
+        out << "    ],\n";
+
+        // Coupling
+        out << "    \"coupling\": [\n";
+        for (size_t i = 0; i < analysis.coupling.size(); ++i) {
+            const auto& c = analysis.coupling[i];
+            out << "      {\n";
+            out << fmt::format("        \"source\": \"{}\",\n", escapeJson(c.srcModule));
+            out << fmt::format("        \"dest\": \"{}\",\n", escapeJson(c.dstModule));
+            out << fmt::format("        \"connections\": {}\n", c.connectionCount);
+            out << "      }";
+            if (i + 1 < analysis.coupling.size()) out << ",";
+            out << "\n";
+        }
+        out << "    ],\n";
+
+        // Risks
+        out << "    \"risks\": [\n";
+        for (size_t i = 0; i < analysis.risks.size(); ++i) {
+            const auto& r = analysis.risks[i];
+            out << "      {\n";
+            out << fmt::format("        \"level\": \"{}\",\n", RiskItem::levelToString(r.level));
+            out << fmt::format("        \"type\": \"{}\",\n", Issue::typeToString(r.issue.type));
+            out << fmt::format("        \"port\": \"{}\",\n", escapeJson(r.issue.port.fullPath()));
+            out << fmt::format("        \"reason\": \"{}\"\n", escapeJson(r.reason));
+            out << "      }";
+            if (i + 1 < analysis.risks.size()) out << ",";
+            out << "\n";
+        }
+        out << "    ]\n";
+
+        out << "  },\n";
+    }
+
     // Connections
     out << "  \"connections\": [\n";
     for (size_t i = 0; i < data.graph.connections.size(); ++i) {

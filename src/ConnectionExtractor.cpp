@@ -25,14 +25,15 @@ std::string ConnectionExtractor::extractNetName(const slang::ast::Expression* ex
         return {};
 
     // Walk through conversions/assignments to find the underlying named value.
-    // Output port connections appear as Assignment expressions where left() is the net.
-    // Input port connections appear as direct NamedValue expressions.
+    // Accumulate index suffixes so that array-indexed nets like data[0] and data[1]
+    // produce distinct net keys (e.g., "data[0]" vs "data[1]").
     const slang::ast::Expression* current = expr;
+    std::string suffix; // accumulated index suffixes
     while (current) {
         switch (current->kind) {
             case slang::ast::ExpressionKind::NamedValue: {
                 auto& named = current->as<slang::ast::NamedValueExpression>();
-                return std::string(named.symbol.name);
+                return std::string(named.symbol.name) + suffix;
             }
             case slang::ast::ExpressionKind::Conversion: {
                 auto& conv = current->as<slang::ast::ConversionExpression>();
@@ -40,18 +41,29 @@ std::string ConnectionExtractor::extractNetName(const slang::ast::Expression* ex
                 continue;
             }
             case slang::ast::ExpressionKind::Assignment: {
-                // For output port connections, the left side is the external net
                 auto& assign = current->as<slang::ast::AssignmentExpression>();
                 current = &assign.left();
                 continue;
             }
             case slang::ast::ExpressionKind::RangeSelect: {
                 auto& sel = current->as<slang::ast::RangeSelectExpression>();
+                // Preserve range info in suffix for distinct net keys
+                suffix = "[range]" + suffix;
                 current = &sel.value();
                 continue;
             }
             case slang::ast::ExpressionKind::ElementSelect: {
                 auto& sel = current->as<slang::ast::ElementSelectExpression>();
+                // Try to extract constant index for the suffix
+                auto& idxExpr = sel.selector();
+                std::string idxStr;
+                auto* cv = idxExpr.getConstant();
+                if (cv && *cv) {
+                    idxStr = cv->toString();
+                } else {
+                    idxStr = "?";
+                }
+                suffix = "[" + idxStr + "]" + suffix;
                 current = &sel.value();
                 continue;
             }

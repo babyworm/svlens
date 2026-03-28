@@ -99,6 +99,9 @@ static CliOptions parseCustomArgs(int argc, const char* const* argv,
         } else if (arg == "--top") {
             if (i + 1 >= argc) { fmt::print(stderr, "Error: --top requires a value\n"); return opts; }
             opts.topModule = argv[++i];
+            // Also pass --top to slang so it elaborates the correct top module
+            slangArgs.push_back("--top");
+            slangArgs.push_back(argv[i]);
         } else if (arg == "-o" || arg == "--output") {
             if (i + 1 >= argc) { fmt::print(stderr, "Error: {} requires a value\n", arg); return opts; }
             opts.outputDir = argv[++i];

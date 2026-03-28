@@ -14,32 +14,29 @@ static std::string toLower(const std::string& s) {
     return result;
 }
 
+// Check if keyword appears as a whole word (bounded by _ or string boundaries).
+// e.g. "rst" matches "sys_rst_n", "rst", "rst_n" but NOT "first", "burst".
+static bool containsWord(const std::string& str, const std::string& keyword) {
+    size_t pos = 0;
+    while ((pos = str.find(keyword, pos)) != std::string::npos) {
+        bool atStart = (pos == 0 || str[pos - 1] == '_');
+        bool atEnd = (pos + keyword.size() >= str.size() ||
+                      str[pos + keyword.size()] == '_');
+        if (atStart && atEnd)
+            return true;
+        pos++;
+    }
+    return false;
+}
+
 bool ClockResetAnalyzer::isClockPort(const std::string& portName) {
     std::string lower = toLower(portName);
-    // Exact matches
-    if (lower == "clk" || lower == "clock")
-        return true;
-    // Contains _clk, clk_, _clock, clock_ as substring
-    if (lower.find("_clk") != std::string::npos ||
-        lower.find("clk_") != std::string::npos ||
-        lower.find("_clock") != std::string::npos ||
-        lower.find("clock_") != std::string::npos)
-        return true;
-    return false;
+    return containsWord(lower, "clk") || containsWord(lower, "clock");
 }
 
 bool ClockResetAnalyzer::isResetPort(const std::string& portName) {
     std::string lower = toLower(portName);
-    // Exact matches
-    if (lower == "rst" || lower == "rst_n" || lower == "reset" || lower == "reset_n")
-        return true;
-    // Contains _rst, rst_, _reset, reset_ as substring
-    if (lower.find("_rst") != std::string::npos ||
-        lower.find("rst_") != std::string::npos ||
-        lower.find("_reset") != std::string::npos ||
-        lower.find("reset_") != std::string::npos)
-        return true;
-    return false;
+    return containsWord(lower, "rst") || containsWord(lower, "reset");
 }
 
 ClockResetTopology ClockResetAnalyzer::analyze(const ConnectionGraph& graph) const {

@@ -9,6 +9,7 @@
 #include "GraphDiff.h"
 #include "InterfaceGrouper.h"
 #include "HtmlReport.h"
+#include "TraceEngine.h"
 #include "JsonReport.h"
 #include "MarkdownReport.h"
 #include "ProtocolChecker.h"
@@ -52,6 +53,8 @@ static void printUsage() {
         "  --convention <file>     Custom convention rules (YAML, optional)\n"
         "  --expect <file>         Expected/forbidden connectivity spec (YAML)\n"
         "  --depth <n>             Hierarchy depth (default: unlimited, -1)\n\n"
+        "Tracing:\n"
+        "  --trace <pattern>       Trace signal fan-out and fan-in (glob pattern)\n\n"
         "Comparison:\n"
         "  --diff <file>           Compare against a baseline JSON report\n\n"
         "Filtering:\n"
@@ -75,6 +78,7 @@ struct CliOptions {
     std::string conventionFile;
     std::string expectFile;
     std::string diffFile;
+    std::string traceSignal;
     bool ignoreTieOff = false;
     bool ignoreNc = false;
     bool showHelp = false;
@@ -131,6 +135,9 @@ static CliOptions parseCustomArgs(int argc, const char* const* argv,
         } else if (arg == "--diff") {
             if (i + 1 >= argc) { fmt::print(stderr, "Error: --diff requires a value\n"); return opts; }
             opts.diffFile = argv[++i];
+        } else if (arg == "--trace") {
+            if (i + 1 >= argc) { fmt::print(stderr, "Error: --trace requires a value\n"); return opts; }
+            opts.traceSignal = argv[++i];
         } else if (arg == "--ignore-tie-off") {
             // Parsed but not yet implemented - reserved for future use
             opts.ignoreTieOff = true;
@@ -429,6 +436,19 @@ int main(int argc, char* argv[]) {
             }
         }
         fmt::print("\n");
+    }
+
+    // --- Phase 6.9: Signal tracing ---
+    if (!opts.traceSignal.empty()) {
+        connect::TraceEngine traceEngine(reportData.graph);
+
+        auto fanOutHops = traceEngine.traceFanOut(opts.traceSignal);
+        fmt::print("\n{}", connect::TraceEngine::formatTrace(
+            fanOutHops, opts.traceSignal, true));
+
+        auto fanInHops = traceEngine.traceFanIn(opts.traceSignal);
+        fmt::print("\n{}", connect::TraceEngine::formatTrace(
+            fanInHops, opts.traceSignal, false));
     }
 
     // --- Phase 7: Exit code ---

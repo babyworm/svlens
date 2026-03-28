@@ -1,4 +1,5 @@
 #include "CheckerRunner.h"
+#include "ClockResetAnalyzer.h"
 #include "ConnectionExtractor.h"
 #include "ConventionChecker.h"
 #include "CsvReport.h"
@@ -46,6 +47,7 @@ static void printUsage() {
         "  --no-check-undriven     Disable undriven input checking\n"
         "  --check-protocol        Enable protocol completeness checking\n"
         "  --check-convention      Enable naming convention checking\n"
+        "  --check-clock-reset     Enable clock/reset topology analysis\n"
         "  --convention <file>     Custom convention rules (YAML, optional)\n"
         "  --expect <file>         Expected/forbidden connectivity spec (YAML)\n"
         "  --depth <n>             Hierarchy depth (default: unlimited, -1)\n\n"
@@ -68,6 +70,7 @@ struct CliOptions {
     bool checkUndriven = true;
     bool checkProtocol = false;
     bool checkConvention = false;
+    bool checkClockReset = false;
     std::string conventionFile;
     std::string expectFile;
     std::string diffFile;
@@ -116,6 +119,8 @@ static CliOptions parseCustomArgs(int argc, const char* const* argv,
             opts.checkProtocol = true;
         } else if (arg == "--check-convention") {
             opts.checkConvention = true;
+        } else if (arg == "--check-clock-reset") {
+            opts.checkClockReset = true;
         } else if (arg == "--convention") {
             if (i + 1 >= argc) { fmt::print(stderr, "Error: --convention requires a value\n"); return opts; }
             opts.conventionFile = argv[++i];
@@ -357,6 +362,53 @@ int main(int argc, char* argv[]) {
         } catch (const std::exception& e) {
             fmt::print(stderr, "Error loading diff baseline: {}\n", e.what());
         }
+    }
+
+    // --- Phase 6.7: Clock/Reset topology ---
+    if (opts.checkClockReset) {
+        connect::ClockResetAnalyzer crAnalyzer;
+        auto topo = crAnalyzer.analyze(reportData.graph);
+
+        fmt::print("\n=== Clock Topology ===\n");
+        for (const auto& [portName, instances] : topo.clockGroups) {
+            fmt::print("  {} ->", portName);
+            for (size_t i = 0; i < instances.size(); ++i) {
+                // Extract short instance name (after last dot)
+                const auto& inst = instances[i];
+                auto dotPos = inst.rfind('.');
+                std::string shortName = (dotPos != std::string::npos)
+                    ? inst.substr(dotPos + 1) : inst;
+                if (i > 0) fmt::print(",");
+                fmt::print(" {}", shortName);
+            }
+            fmt::print("\n");
+        }
+
+        fmt::print("\n=== Reset Topology ===\n");
+        for (const auto& [portName, instances] : topo.resetGroups) {
+            fmt::print("  {} ->", portName);
+            for (size_t i = 0; i < instances.size(); ++i) {
+                const auto& inst = instances[i];
+                auto dotPos = inst.rfind('.');
+                std::string shortName = (dotPos != std::string::npos)
+                    ? inst.substr(dotPos + 1) : inst;
+                if (i > 0) fmt::print(",");
+                fmt::print(" {}", shortName);
+            }
+            fmt::print("\n");
+        }
+
+        if (!topo.warnings.empty()) {
+            fmt::print("\n=== Clock/Reset Warnings ===\n");
+            for (const auto& inst : topo.warnings) {
+                auto dotPos = inst.rfind('.');
+                std::string shortName = (dotPos != std::string::npos)
+                    ? inst.substr(dotPos + 1) : inst;
+                fmt::print("  \u26a0 {} ({}): has clock input but no reset port detected\n",
+                           inst, shortName);
+            }
+        }
+        fmt::print("\n");
     }
 
     // --- Phase 7: Exit code ---

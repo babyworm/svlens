@@ -45,6 +45,7 @@ add_library(slang-connect-lib OBJECT
     src/HtmlReport.cpp
     src/GraphDiff.cpp
     src/ExpectChecker.cpp
+    src/ClockResetAnalyzer.cpp
 )
 target_include_directories(slang-connect-lib PUBLIC src)
 target_link_libraries(slang-connect-lib PUBLIC slang::slang fmt::fmt yaml-cpp::yaml-cpp)

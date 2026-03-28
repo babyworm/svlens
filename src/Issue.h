@@ -15,7 +15,9 @@ struct Issue {
         DANGLING_OUTPUT,
         UNDRIVEN_INPUT,
         PROTOCOL_INCOMPLETE,
-        CONVENTION
+        CONVENTION,
+        EXPECT_MISSING,
+        EXPECT_FORBIDDEN
     };
 
     enum class Severity {
@@ -37,7 +39,9 @@ struct Issue {
             case Type::DANGLING_OUTPUT: return "DANGLING_OUTPUT";
             case Type::UNDRIVEN_INPUT:  return "UNDRIVEN_INPUT";
             case Type::PROTOCOL_INCOMPLETE: return "PROTOCOL_INCOMPLETE";
-            case Type::CONVENTION:     return "CONVENTION";
+            case Type::CONVENTION:       return "CONVENTION";
+            case Type::EXPECT_MISSING:   return "EXPECT_MISSING";
+            case Type::EXPECT_FORBIDDEN: return "EXPECT_FORBIDDEN";
         }
         return "UNKNOWN";
     }

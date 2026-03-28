@@ -1,0 +1,9 @@
+expected:
+  - from: "*.u_cpu.o_ibus_addr"
+    to: "*.u_bus.i_cpu_ibus_addr"
+  - from: "*.u_bus.o_mem_addr"
+    to: "*.u_mem.i_addr"
+
+forbidden:
+  - from: "*.u_mem.*"
+    to: "*.u_cpu.*"

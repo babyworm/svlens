@@ -4,6 +4,7 @@
 #include "CsvReport.h"
 #include "DanglingChecker.h"
 #include "DotReport.h"
+#include "ExpectChecker.h"
 #include "GraphDiff.h"
 #include "HtmlReport.h"
 #include "JsonReport.h"
@@ -46,6 +47,7 @@ static void printUsage() {
         "  --check-protocol        Enable protocol completeness checking\n"
         "  --check-convention      Enable naming convention checking\n"
         "  --convention <file>     Custom convention rules (YAML, optional)\n"
+        "  --expect <file>         Expected/forbidden connectivity spec (YAML)\n"
         "  --depth <n>             Hierarchy depth (default: unlimited, -1)\n\n"
         "Comparison:\n"
         "  --diff <file>           Compare against a baseline JSON report\n\n"
@@ -67,6 +69,7 @@ struct CliOptions {
     bool checkProtocol = false;
     bool checkConvention = false;
     std::string conventionFile;
+    std::string expectFile;
     std::string diffFile;
     bool ignoreTieOff = false;
     bool ignoreNc = false;
@@ -116,6 +119,9 @@ static CliOptions parseCustomArgs(int argc, const char* const* argv,
         } else if (arg == "--convention") {
             if (i + 1 >= argc) { fmt::print(stderr, "Error: --convention requires a value\n"); return opts; }
             opts.conventionFile = argv[++i];
+        } else if (arg == "--expect") {
+            if (i + 1 >= argc) { fmt::print(stderr, "Error: --expect requires a value\n"); return opts; }
+            opts.expectFile = argv[++i];
         } else if (arg == "--diff") {
             if (i + 1 >= argc) { fmt::print(stderr, "Error: --diff requires a value\n"); return opts; }
             opts.diffFile = argv[++i];
@@ -207,6 +213,8 @@ int main(int argc, char* argv[]) {
         }
         runner.addChecker(std::make_unique<connect::ConventionChecker>());
     }
+    if (!opts.expectFile.empty())
+        runner.addChecker(std::make_unique<connect::ExpectChecker>(opts.expectFile));
 
     auto issues = runner.runAll(graph);
 

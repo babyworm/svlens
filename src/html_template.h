@@ -93,6 +93,31 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 
 /* --- Graph tab --- */
 #graph-container { width: 100%; height: 100%; background: #0f0f23; }
+#graph-toolbar { position: absolute; top: 10px; left: 10px; z-index: 10; display: flex; gap: 8px; align-items: center; }
+#graph-toolbar input[type="text"] { padding: 5px 10px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-primary); font-size: 12px; width: 180px; outline: none; }
+#graph-toolbar input[type="text"]:focus { border-color: var(--accent-blue); }
+#graph-toolbar button { padding: 5px 12px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-primary); font-size: 12px; cursor: pointer; transition: background 0.15s; }
+#graph-toolbar button:hover { background: #1f3050; }
+#graph-legend { position: absolute; bottom: 14px; left: 14px; z-index: 10; background: rgba(22,33,62,0.92); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-size: 11px; color: var(--text-secondary); pointer-events: none; }
+#graph-legend .legend-row { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
+#graph-legend .legend-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.1); }
+#graph-legend .legend-line { width: 22px; height: 0; border-top: 2px solid; flex-shrink: 0; }
+#graph-legend .legend-title { font-weight: 700; color: var(--text-primary); margin-bottom: 4px; font-size: 12px; }
+#graph-info-panel { display: none; position: absolute; right: 16px; top: 56px; width: 310px; max-height: calc(100% - 70px); overflow-y: auto; background: rgba(22,33,62,0.96); border: 1px solid var(--border); border-radius: 8px; padding: 16px; z-index: 10; }
+#graph-info-panel h3 { font-size: 15px; margin-bottom: 10px; color: #a0c4ff; word-break: break-all; }
+#graph-info-panel .info-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px solid #0d1b2a; }
+#graph-info-panel .info-row .info-label { color: var(--text-secondary); }
+#graph-info-panel .info-section-title { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; margin-top: 10px; margin-bottom: 4px; }
+#graph-info-panel .info-conn-item { font-size: 12px; padding: 3px 6px; margin-bottom: 2px; background: #0d1b2a; border-radius: 3px; }
+#graph-info-panel .info-issue-item { font-size: 11px; padding: 3px 6px; margin-bottom: 2px; border-radius: 3px; border-left: 3px solid #555; background: #0d1b2a; }
+#graph-info-panel .info-issue-item.sev-err { border-left-color: var(--accent-red); }
+#graph-info-panel .info-issue-item.sev-warn { border-left-color: var(--accent-orange); }
+#graph-info-panel .info-close { position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--text-secondary); font-size: 16px; cursor: pointer; }
+#graph-info-panel .info-close:hover { color: var(--text-primary); }
+#graph-info-panel .signal-status { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+#graph-info-panel .signal-status.st-ok { background: #1a3d2e; color: var(--accent-green); }
+#graph-info-panel .signal-status.st-err { background: #3d1a1a; color: var(--accent-red); }
+#graph-info-panel .signal-status.st-warn { background: #3d3a1a; color: var(--accent-orange); }
 
 /* --- Heatmap tab --- */
 .heatmap-wrapper { padding: 24px; overflow: auto; height: 100%; }
@@ -168,7 +193,28 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 <!-- Tab content -->
 <div id="tab-content">
   <div class="tab-pane active" id="pane-overview"></div>
-  <div class="tab-pane" id="pane-graph"><div id="graph-container"></div></div>
+  <div class="tab-pane" id="pane-graph">
+    <div id="graph-toolbar">
+      <input type="text" id="graph-search" placeholder="Search module..." />
+      <button id="graph-reset-btn">Reset View</button>
+    </div>
+    <div id="graph-container"></div>
+    <div id="graph-info-panel">
+      <button class="info-close" id="info-close-btn">&times;</button>
+      <h3 id="info-title"></h3>
+      <div id="info-content"></div>
+    </div>
+    <div id="graph-legend">
+      <div class="legend-title">Legend</div>
+      <div class="legend-row"><div class="legend-swatch" style="background:#1a3d2e;border-color:#2ecc71"></div> Health &gt; 80%</div>
+      <div class="legend-row"><div class="legend-swatch" style="background:#3d3a1a;border-color:#f1c40f"></div> Health 60-80%</div>
+      <div class="legend-row"><div class="legend-swatch" style="background:#3d1a1a;border-color:#e74c3c"></div> Health &lt; 60%</div>
+      <div class="legend-row"><div class="legend-line" style="border-color:#3a3a5a"></div> Normal edge</div>
+      <div class="legend-row"><div class="legend-line" style="border-color:#e97c00"></div> Warning edge</div>
+      <div class="legend-row"><div class="legend-line" style="border-color:#e94560"></div> Error edge</div>
+      <div class="legend-row" style="margin-top:6px;color:#777">Click: focus | Dbl-click: expand ports</div>
+    </div>
+  </div>
   <div class="tab-pane" id="pane-heatmap"></div>
   <div class="tab-pane" id="pane-details"></div>
 </div>
@@ -326,10 +372,22 @@ function switchToDetails(inst) {
 }
 
 // =============================================
-//   TAB 2: GRAPH (vis-network)
+//   TAB 2: GRAPH (vis-network) - Progressive
 // =============================================
+var graphNetwork = null;
+var graphNodes = null;
+var graphEdges = null;
+var focusedModule = null;
+var expandedModules = new Set();
+var graphModuleData = {};  // instPath -> { short, health, ports, connections, issues }
+var graphEdgeData = {};    // edgeId -> { from, to, signals[] }
+var graphOrigNodes = [];   // original module-level nodes for reset
+var graphOrigEdges = [];   // original module-level edges for reset
+
 function initGraph() {
+  // --- Build module data from connections ---
   var instances = new Map();
+  var portsByInst = {};  // instPath -> { portName -> { dir, width, status, connections[] } }
   DATA.connections.forEach(function(c) {
     var sParts = c.source.split('.');
     var dParts = c.dest.split('.');
@@ -339,34 +397,83 @@ function initGraph() {
     var dShort = dInst.split('.').pop();
     if (!instances.has(sInst)) instances.set(sInst, sShort);
     if (!instances.has(dInst)) instances.set(dInst, dShort);
+    var sPort = sParts[sParts.length - 1];
+    var dPort = dParts[dParts.length - 1];
+    if (!portsByInst[sInst]) portsByInst[sInst] = {};
+    if (!portsByInst[sInst][sPort]) portsByInst[sInst][sPort] = { dir: 'output', width: 0, status: 'OK', connections: [] };
+    portsByInst[sInst][sPort].connections.push({ dest: dInst, destPort: dPort, status: c.status, raw: c });
+    if (c.status !== 'OK') portsByInst[sInst][sPort].status = c.status;
+    if (!portsByInst[dInst]) portsByInst[dInst] = {};
+    if (!portsByInst[dInst][dPort]) portsByInst[dInst][dPort] = { dir: 'input', width: 0, status: 'OK', connections: [] };
+    portsByInst[dInst][dPort].connections.push({ dest: sInst, destPort: sPort, status: c.status, raw: c });
+    if (c.status !== 'OK') portsByInst[dInst][dPort].status = c.status;
   });
 
-  // Build health lookup
+  // Extract widths from port names like o_data[31:0]
+  function parseWidth(name) {
+    var m = name.match(/\[(\d+):(\d+)\]/);
+    if (m) return Math.abs(parseInt(m[1]) - parseInt(m[2])) + 1;
+    m = name.match(/\[(\d+)\]/);
+    if (m) return 1;
+    return 1;
+  }
+  Object.keys(portsByInst).forEach(function(inst) {
+    Object.keys(portsByInst[inst]).forEach(function(pn) {
+      portsByInst[inst][pn].width = parseWidth(pn);
+    });
+  });
+
+  // Health lookup
   var healthMap = {};
+  var healthByName = {};
   if (analysis) {
-    analysis.module_health.forEach(function(m) { healthMap[m.instance] = m.score; });
+    analysis.module_health.forEach(function(m) {
+      healthMap[m.instance] = m;
+      healthByName[m.name] = m;
+    });
   }
 
-  var nodes = new vis.DataSet();
-  var nodeId = 0;
-  var instToId = new Map();
-  instances.forEach(function(label, path) {
-    instToId.set(path, nodeId);
-    var s = healthMap[path];
-    var bgCol = '#16213e';
-    var borderCol = '#0f3460';
-    if (typeof s === 'number') {
-      if (s > 0.8) { bgCol = '#1a3d2e'; borderCol = '#2ecc71'; }
-      else if (s > 0.6) { bgCol = '#3d3a1a'; borderCol = '#f1c40f'; }
-      else { bgCol = '#3d1a1a'; borderCol = '#e74c3c'; }
-    }
-    nodes.add({ id: nodeId, label: label, shape: 'box',
-      color: { background: bgCol, border: borderCol, highlight: { background: '#1a3a5c', border: '#e94560' } },
-      font: { color: '#e0e0e0', size: 14 } });
-    nodeId++;
+  // Issue lookup by instance
+  var issuesByInst = {};
+  DATA.issues.forEach(function(iss) {
+    var parts = iss.port.split('.');
+    var inst = parts.slice(0, -1).join('.');
+    if (!issuesByInst[inst]) issuesByInst[inst] = [];
+    issuesByInst[inst].push(iss);
   });
 
-  // Build severity map
+  // Issue severity per port
+  var portIssueSev = {};
+  DATA.issues.forEach(function(iss) {
+    if (iss.source && iss.source.instance && iss.source.port) {
+      var k = iss.source.instance + '::' + iss.source.port;
+      if (!portIssueSev[k] || iss.severity === 'ERROR') portIssueSev[k] = iss.severity;
+    }
+    if (iss.dest && iss.dest.instance && iss.dest.port) {
+      var k2 = iss.dest.instance + '::' + iss.dest.port;
+      if (!portIssueSev[k2] || iss.severity === 'ERROR') portIssueSev[k2] = iss.severity;
+    }
+  });
+
+  // Build graphModuleData
+  instances.forEach(function(shortName, instPath) {
+    var h = healthMap[instPath];
+    var ports = portsByInst[instPath] || {};
+    var portCount = Object.keys(ports).length;
+    graphModuleData[instPath] = {
+      short: shortName,
+      instPath: instPath,
+      health: h ? h.score : null,
+      totalPorts: h ? h.total_ports : portCount,
+      connected: h ? h.connected : portCount,
+      errors: h ? h.errors : 0,
+      warnings: h ? h.warnings : 0,
+      ports: ports,
+      issues: issuesByInst[instPath] || []
+    };
+  });
+
+  // --- Severity for edges ---
   var sevRank = { INFO: 1, WARN: 2, ERROR: 3 };
   var connSev = new Map();
   DATA.issues.forEach(function(iss) {
@@ -379,7 +486,7 @@ function initGraph() {
     }
   });
 
-  // Group edges
+  // --- Group edges at module level ---
   var edgeGroups = new Map();
   DATA.connections.forEach(function(c) {
     var sParts = c.source.split('.');
@@ -387,39 +494,458 @@ function initGraph() {
     var sInst = sParts.slice(0, -1).join('.');
     var dInst = dParts.slice(0, -1).join('.');
     var key = sInst + '->' + dInst;
-    if (!edgeGroups.has(key)) edgeGroups.set(key, { from: sInst, to: dInst, labels: [], status: 'OK' });
+    if (!edgeGroups.has(key)) edgeGroups.set(key, { from: sInst, to: dInst, signals: [] });
     var g = edgeGroups.get(key);
-    var sPort = sParts[sParts.length - 1].replace(/\[.*/, '');
-    var dPort = dParts[dParts.length - 1].replace(/\[.*/, '');
-    g.labels.push(sPort + ' -> ' + dPort + (c.status !== 'OK' ? ' [' + c.status + ']' : ''));
-    if (c.status !== 'OK') g.status = c.status;
+    var sPort = sParts[sParts.length - 1];
+    var dPort = dParts[dParts.length - 1];
+    g.signals.push({ sourcePort: sPort, destPort: dPort, status: c.status });
   });
-
   connSev.forEach(function(sev, key) {
     var g = edgeGroups.get(key);
     if (g) g.severity = sev;
   });
 
-  var sevColor = { ERROR: '#e94560', WARN: '#e97c00', INFO: '#4a90d9' };
-  var edges = new vis.DataSet();
-  edgeGroups.forEach(function(g) {
-    var fromId = instToId.get(g.from);
-    var toId = instToId.get(g.to);
-    if (fromId === undefined || toId === undefined) return;
-    var sev = g.severity;
-    var col = sev ? (sevColor[sev] || '#3a3a5a') : '#3a3a5a';
-    edges.add({ from: fromId, to: toId, arrows: 'to',
-      label: g.labels.join('\n'), font: { color: '#888', size: 10, multi: 'html' },
-      color: { color: col, highlight: '#e94560' }, width: sev === 'ERROR' ? 2 : 1 });
+  // --- Build vis nodes (Level 1: module overview) ---
+  graphNodes = new vis.DataSet();
+  graphEdges = new vis.DataSet();
+  var nodeIdCounter = 0;
+  var instToNodeId = {};
+
+  function healthColors(score) {
+    if (typeof score !== 'number') return { bg: '#16213e', border: '#0f3460' };
+    if (score > 0.8) return { bg: '#1a3d2e', border: '#2ecc71' };
+    if (score > 0.6) return { bg: '#3d3a1a', border: '#f1c40f' };
+    return { bg: '#3d1a1a', border: '#e74c3c' };
+  }
+
+  instances.forEach(function(shortName, instPath) {
+    var md = graphModuleData[instPath];
+    var sc = md.health;
+    var hc = healthColors(sc);
+    var portCount = md.totalPorts || Object.keys(md.ports).length;
+    var baseSize = Math.max(20, Math.min(50, 16 + portCount * 2));
+    var nid = 'mod_' + instPath;
+    instToNodeId[instPath] = nid;
+    var nodeObj = {
+      id: nid, label: shortName + '\n' + portCount + ' ports',
+      shape: 'box', group: 'module',
+      color: { background: hc.bg, border: hc.border,
+        highlight: { background: '#1a3a5c', border: '#e94560' },
+        hover: { background: '#1a3a5c', border: '#a0c4ff' } },
+      font: { color: '#e0e0e0', size: 14, multi: true },
+      size: baseSize, borderWidth: 2,
+      widthConstraint: { minimum: 80 },
+      instPath: instPath
+    };
+    graphNodes.add(nodeObj);
+    graphOrigNodes.push(Object.assign({}, nodeObj));
   });
 
+  var sevColor = { ERROR: '#e94560', WARN: '#e97c00', INFO: '#4a90d9' };
+  var edgeIdCounter = 0;
+  edgeGroups.forEach(function(g) {
+    var fromId = instToNodeId[g.from];
+    var toId = instToNodeId[g.to];
+    if (!fromId || !toId) return;
+    var sev = g.severity;
+    var col = sev ? (sevColor[sev] || '#3a3a5a') : '#3a3a5a';
+    var count = g.signals.length;
+    var w = Math.max(1, Math.min(6, Math.round(Math.log2(count + 1) * 1.5)));
+    var eid = 'edge_' + edgeIdCounter++;
+    var edgeObj = {
+      id: eid, from: fromId, to: toId, arrows: 'to',
+      label: count + (count === 1 ? ' signal' : ' signals'),
+      font: { color: '#888', size: 10, strokeWidth: 0, background: 'transparent' },
+      color: { color: col, highlight: '#e94560', hover: '#a0c4ff' },
+      width: w, hoverWidth: 0.5,
+      smooth: { type: 'cubicBezier' }
+    };
+    graphEdges.add(edgeObj);
+    graphOrigEdges.push(Object.assign({}, edgeObj));
+    graphEdgeData[eid] = { from: g.from, to: g.to, signals: g.signals, severity: sev };
+  });
+
+  // --- Create network ---
   var container = document.getElementById('graph-container');
-  new vis.Network(container, { nodes: nodes, edges: edges }, {
-    layout: { hierarchical: { direction: 'LR', sortMethod: 'directed', levelSeparation: 220, nodeSpacing: 100 } },
+  graphNetwork = new vis.Network(container, { nodes: graphNodes, edges: graphEdges }, {
+    layout: { hierarchical: { direction: 'LR', sortMethod: 'directed', levelSeparation: 240, nodeSpacing: 80 } },
     physics: false,
     edges: { smooth: { type: 'cubicBezier' } },
-    interaction: { hover: true, tooltipDelay: 100 }
+    interaction: { hover: true, tooltipDelay: 150, zoomView: true, dragView: true }
   });
+
+  // --- Click: focus mode (Level 2) ---
+  graphNetwork.on('click', function(params) {
+    var infoPanel = document.getElementById('graph-info-panel');
+    if (params.nodes.length === 1) {
+      var nid = params.nodes[0];
+      var nodeData = graphNodes.get(nid);
+      if (!nodeData || nodeData.group === 'port_in' || nodeData.group === 'port_out') return;
+      if (nodeData.group !== 'module') return;
+      var instPath = nodeData.instPath;
+      if (focusedModule === instPath) return;  // already focused
+      focusedModule = instPath;
+      applyFocusMode(instPath);
+      showModuleInfo(instPath);
+    } else if (params.edges.length === 1 && params.nodes.length === 0) {
+      var eid = params.edges[0];
+      showEdgeInfo(eid);
+    } else if (params.nodes.length === 0 && params.edges.length === 0) {
+      clearFocusMode();
+      infoPanel.style.display = 'none';
+    }
+  });
+
+  // --- Double-click: expand ports (Level 3) ---
+  graphNetwork.on('doubleClick', function(params) {
+    if (params.nodes.length !== 1) return;
+    var nid = params.nodes[0];
+    var nodeData = graphNodes.get(nid);
+    if (!nodeData || nodeData.group !== 'module') return;
+    var instPath = nodeData.instPath;
+    if (expandedModules.has(instPath)) {
+      collapseModule(instPath);
+    } else {
+      expandModule(instPath);
+    }
+  });
+
+  // --- Hover on edge: tooltip ---
+  graphNetwork.on('hoverEdge', function(params) {
+    var eid = params.edge;
+    var ed = graphEdgeData[eid];
+    if (!ed) return;
+    var lines = ed.signals.slice(0, 15).map(function(s) {
+      return s.sourcePort.replace(/\[.*/, '') + ' -> ' + s.destPort.replace(/\[.*/, '') + (s.status !== 'OK' ? ' [' + s.status + ']' : '');
+    });
+    if (ed.signals.length > 15) lines.push('... +' + (ed.signals.length - 15) + ' more');
+    graphNetwork.canvas.body.container.title = lines.join('\n');
+  });
+  graphNetwork.on('blurEdge', function() {
+    graphNetwork.canvas.body.container.title = '';
+  });
+
+  // ---- Focus mode helpers ----
+  function applyFocusMode(instPath) {
+    var targetId = instToNodeId[instPath];
+    if (!targetId) return;
+    var connectedEdges = graphNetwork.getConnectedEdges(targetId);
+    var neighborNodes = new Set();
+    neighborNodes.add(targetId);
+    connectedEdges.forEach(function(eid) {
+      var e = graphEdges.get(eid);
+      if (e) { neighborNodes.add(e.from); neighborNodes.add(e.to); }
+    });
+    // Also include port nodes of expanded modules in the neighbor set
+    expandedModules.forEach(function(expInst) {
+      var expId = instToNodeId[expInst];
+      if (neighborNodes.has(expId)) {
+        graphNodes.forEach(function(n) {
+          if (n.parentModule === expInst) neighborNodes.add(n.id);
+        });
+      }
+    });
+    // Dim non-neighbors
+    var updates = [];
+    graphNodes.forEach(function(n) {
+      if (neighborNodes.has(n.id)) {
+        updates.push({ id: n.id, opacity: 1.0 });
+      } else {
+        updates.push({ id: n.id, opacity: 0.15 });
+      }
+    });
+    graphNodes.update(updates);
+    var edgeUpdates = [];
+    var connSet = new Set(connectedEdges);
+    graphEdges.forEach(function(e) {
+      if (connSet.has(e.id)) {
+        edgeUpdates.push({ id: e.id, hidden: false });
+      } else {
+        edgeUpdates.push({ id: e.id, hidden: true });
+      }
+    });
+    graphEdges.update(edgeUpdates);
+  }
+
+  function clearFocusMode() {
+    focusedModule = null;
+    var updates = [];
+    graphNodes.forEach(function(n) {
+      updates.push({ id: n.id, opacity: 1.0 });
+    });
+    graphNodes.update(updates);
+    var edgeUpdates = [];
+    graphEdges.forEach(function(e) {
+      edgeUpdates.push({ id: e.id, hidden: false });
+    });
+    graphEdges.update(edgeUpdates);
+  }
+
+  // ---- Port expansion (Level 3) ----
+  function expandModule(instPath) {
+    var md = graphModuleData[instPath];
+    if (!md) return;
+    expandedModules.add(instPath);
+    var modNodeId = instToNodeId[instPath];
+    // Hide module node
+    graphNodes.update({ id: modNodeId, hidden: true });
+    // Get module node position for layout
+    var pos = graphNetwork.getPositions([modNodeId]);
+    var mx = pos[modNodeId] ? pos[modNodeId].x : 0;
+    var my = pos[modNodeId] ? pos[modNodeId].y : 0;
+    // Split ports into inputs/outputs
+    var inputs = [];
+    var outputs = [];
+    Object.keys(md.ports).forEach(function(pn) {
+      var p = md.ports[pn];
+      if (p.dir === 'input') inputs.push(pn); else outputs.push(pn);
+    });
+    inputs.sort();
+    outputs.sort();
+    var totalPorts = inputs.length + outputs.length;
+    var spacing = 40;
+    // Add port nodes
+    var portNodes = [];
+    function portColor(instPath, portName) {
+      var pdata = md.ports[portName];
+      var pkey = instPath + '::' + portName.replace(/\[.*/, '');
+      var sev = portIssueSev[pkey];
+      if (sev === 'ERROR') return { bg: '#3d1a1a', border: '#e74c3c' };
+      if (sev === 'WARN') return { bg: '#3d3a1a', border: '#e97c00' };
+      if (pdata && pdata.connections.length > 0) return { bg: '#1a3d2e', border: '#2ecc71' };
+      return { bg: '#1e1e2e', border: '#555' };
+    }
+    inputs.forEach(function(pn, idx) {
+      var pc = portColor(instPath, pn);
+      var cleanName = pn.replace(/\[.*/, '');
+      var w = parseWidth(pn);
+      var pid = 'port_' + instPath + '_' + cleanName;
+      var yOff = (idx - (inputs.length - 1) / 2) * spacing;
+      graphNodes.add({
+        id: pid, label: cleanName + ' [' + w + 'b]',
+        shape: 'box', group: 'port_in',
+        color: { background: pc.bg, border: pc.border,
+          highlight: { background: '#1a3a5c', border: '#e94560' } },
+        font: { color: '#c0c0c0', size: 11 },
+        size: 12, borderWidth: 1, widthConstraint: { minimum: 60 },
+        x: mx - 80, y: my + yOff, fixed: { x: true, y: true },
+        parentModule: instPath
+      });
+      portNodes.push(pid);
+    });
+    outputs.forEach(function(pn, idx) {
+      var pc = portColor(instPath, pn);
+      var cleanName = pn.replace(/\[.*/, '');
+      var w = parseWidth(pn);
+      var pid = 'port_' + instPath + '_' + cleanName;
+      var yOff = (idx - (outputs.length - 1) / 2) * spacing;
+      graphNodes.add({
+        id: pid, label: cleanName + ' [' + w + 'b]',
+        shape: 'box', group: 'port_out',
+        color: { background: pc.bg, border: pc.border,
+          highlight: { background: '#1a3a5c', border: '#e94560' } },
+        font: { color: '#c0c0c0', size: 11 },
+        size: 12, borderWidth: 1, widthConstraint: { minimum: 60 },
+        x: mx + 80, y: my + yOff, fixed: { x: true, y: true },
+        parentModule: instPath
+      });
+      portNodes.push(pid);
+    });
+
+    // Replace module-level edges with port-level edges
+    var edgesToHide = [];
+    graphEdges.forEach(function(e) {
+      if (e.from === modNodeId || e.to === modNodeId) {
+        edgesToHide.push(e.id);
+      }
+    });
+    edgesToHide.forEach(function(eid) {
+      graphEdges.update({ id: eid, hidden: true });
+    });
+
+    // Add port-level edges
+    DATA.connections.forEach(function(c) {
+      var sParts = c.source.split('.');
+      var dParts = c.dest.split('.');
+      var sInst = sParts.slice(0, -1).join('.');
+      var dInst = dParts.slice(0, -1).join('.');
+      var sPort = sParts[sParts.length - 1].replace(/\[.*/, '');
+      var dPort = dParts[dParts.length - 1].replace(/\[.*/, '');
+      if (sInst !== instPath && dInst !== instPath) return;
+      var fromNode, toNode;
+      if (sInst === instPath) {
+        fromNode = 'port_' + instPath + '_' + sPort;
+        toNode = expandedModules.has(dInst) ? ('port_' + dInst + '_' + dPort) : instToNodeId[dInst];
+      } else {
+        fromNode = expandedModules.has(sInst) ? ('port_' + sInst + '_' + sPort) : instToNodeId[sInst];
+        toNode = 'port_' + instPath + '_' + dPort;
+      }
+      if (!fromNode || !toNode) return;
+      if (!graphNodes.get(fromNode) || !graphNodes.get(toNode)) return;
+      var col = c.status !== 'OK' ? '#e97c00' : '#3a5a5a';
+      var eid = 'pexp_' + sInst + '_' + sPort + '_' + dInst + '_' + dPort;
+      if (!graphEdges.get(eid)) {
+        graphEdges.add({
+          id: eid, from: fromNode, to: toNode, arrows: 'to',
+          color: { color: col, highlight: '#e94560' },
+          width: 1, smooth: { type: 'cubicBezier' },
+          parentModule: instPath
+        });
+        var ed = { from: sInst, to: dInst, signals: [{ sourcePort: sPort, destPort: dPort, status: c.status }] };
+        graphEdgeData[eid] = ed;
+      }
+    });
+    if (focusedModule) applyFocusMode(focusedModule);
+  }
+
+  function collapseModule(instPath) {
+    expandedModules.delete(instPath);
+    var modNodeId = instToNodeId[instPath];
+    // Remove port nodes
+    var toRemove = [];
+    graphNodes.forEach(function(n) {
+      if (n.parentModule === instPath) toRemove.push(n.id);
+    });
+    toRemove.forEach(function(nid) { graphNodes.remove(nid); });
+    // Remove port-level edges
+    var edgesToRemove = [];
+    graphEdges.forEach(function(e) {
+      if (e.parentModule === instPath) edgesToRemove.push(e.id);
+    });
+    edgesToRemove.forEach(function(eid) {
+      delete graphEdgeData[eid];
+      graphEdges.remove(eid);
+    });
+    // Restore module node
+    graphNodes.update({ id: modNodeId, hidden: false });
+    // Restore module-level edges
+    graphEdges.forEach(function(e) {
+      if (e.from === modNodeId || e.to === modNodeId) {
+        var otherNode = e.from === modNodeId ? e.to : e.from;
+        var otherData = graphNodes.get(otherNode);
+        if (otherData && otherData.hidden) return;  // other module is expanded, keep hidden
+        graphEdges.update({ id: e.id, hidden: false });
+      }
+    });
+    if (focusedModule) applyFocusMode(focusedModule);
+  }
+
+  // ---- Info panel helpers ----
+  function showModuleInfo(instPath) {
+    var md = graphModuleData[instPath];
+    if (!md) return;
+    var panel = document.getElementById('graph-info-panel');
+    var title = document.getElementById('info-title');
+    var content = document.getElementById('info-content');
+    title.textContent = md.short;
+    var h = '';
+    h += '<div class="info-row"><span class="info-label">Instance</span><span style="font-size:11px;word-break:break-all">' + esc(instPath) + '</span></div>';
+    h += '<div class="info-row"><span class="info-label">Health</span><span style="color:' + scoreColor(md.health || 0) + ';font-weight:700">' + (md.health !== null ? pct(md.health) + '%' : 'N/A') + '</span></div>';
+    h += '<div class="info-row"><span class="info-label">Total Ports</span><span>' + md.totalPorts + '</span></div>';
+    h += '<div class="info-row"><span class="info-label">Connected</span><span>' + md.connected + '</span></div>';
+    if (md.errors) h += '<div class="info-row"><span class="info-label">Errors</span><span style="color:var(--accent-red)">' + md.errors + '</span></div>';
+    if (md.warnings) h += '<div class="info-row"><span class="info-label">Warnings</span><span style="color:var(--accent-orange)">' + md.warnings + '</span></div>';
+    // Connected modules
+    var neighbors = {};
+    edgeGroups.forEach(function(g) {
+      if (g.from === instPath) {
+        var sn = (graphModuleData[g.to] || {}).short || g.to;
+        neighbors[sn] = (neighbors[sn] || 0) + g.signals.length;
+      }
+      if (g.to === instPath) {
+        var sn2 = (graphModuleData[g.from] || {}).short || g.from;
+        neighbors[sn2] = (neighbors[sn2] || 0) + g.signals.length;
+      }
+    });
+    var nlist = Object.keys(neighbors);
+    if (nlist.length > 0) {
+      h += '<div class="info-section-title">Connected Modules</div>';
+      nlist.sort(function(a, b) { return neighbors[b] - neighbors[a]; });
+      nlist.forEach(function(n) {
+        h += '<div class="info-conn-item">' + esc(n) + ' <span style="color:var(--accent-blue)">' + neighbors[n] + ' signal' + (neighbors[n] > 1 ? 's' : '') + '</span></div>';
+      });
+    }
+    // Issues
+    if (md.issues.length > 0) {
+      h += '<div class="info-section-title">Issues (' + md.issues.length + ')</div>';
+      md.issues.slice(0, 10).forEach(function(iss) {
+        var cls = iss.severity === 'ERROR' ? 'sev-err' : (iss.severity === 'WARN' ? 'sev-warn' : '');
+        h += '<div class="info-issue-item ' + cls + '"><strong>' + iss.severity + '</strong> ' + iss.type.replace(/_/g, ' ') + '</div>';
+      });
+      if (md.issues.length > 10) h += '<div style="font-size:11px;color:#666;margin-top:4px">... +' + (md.issues.length - 10) + ' more</div>';
+    }
+    content.innerHTML = h;
+    panel.style.display = 'block';
+  }
+
+  function showEdgeInfo(eid) {
+    var ed = graphEdgeData[eid];
+    if (!ed) return;
+    var panel = document.getElementById('graph-info-panel');
+    var title = document.getElementById('info-title');
+    var content = document.getElementById('info-content');
+    var fromShort = (graphModuleData[ed.from] || {}).short || ed.from;
+    var toShort = (graphModuleData[ed.to] || {}).short || ed.to;
+    title.textContent = fromShort + ' \u2192 ' + toShort;
+    var h = '';
+    h += '<div class="info-row"><span class="info-label">Signals</span><span>' + ed.signals.length + '</span></div>';
+    h += '<div class="info-section-title">Signal Details</div>';
+    ed.signals.forEach(function(s) {
+      var srcClean = s.sourcePort.replace(/\[.*/, '');
+      var dstClean = s.destPort.replace(/\[.*/, '');
+      var stCls = s.status === 'OK' ? 'st-ok' : (s.status.indexOf('WARN') >= 0 || s.status === 'WIDTH_MISMATCH' ? 'st-warn' : 'st-err');
+      h += '<div class="info-conn-item">' + esc(srcClean) + ' \u2192 ' + esc(dstClean);
+      h += ' <span class="signal-status ' + stCls + '">' + s.status + '</span></div>';
+    });
+    content.innerHTML = h;
+    panel.style.display = 'block';
+  }
+
+  // ---- Search ----
+  var searchBox = document.getElementById('graph-search');
+  if (searchBox) {
+    searchBox.addEventListener('input', function() {
+      var q = searchBox.value.trim().toLowerCase();
+      if (!q) { clearFocusMode(); return; }
+      var found = null;
+      Object.keys(graphModuleData).forEach(function(instPath) {
+        var md = graphModuleData[instPath];
+        if (md.short.toLowerCase().indexOf(q) >= 0 || instPath.toLowerCase().indexOf(q) >= 0) {
+          if (!found) found = instPath;
+        }
+      });
+      if (found) {
+        focusedModule = found;
+        applyFocusMode(found);
+        showModuleInfo(found);
+        var nid = instToNodeId[found];
+        if (nid) graphNetwork.focus(nid, { scale: 1.0, animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+      }
+    });
+  }
+
+  // ---- Reset button ----
+  var resetBtn = document.getElementById('graph-reset-btn');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', function() {
+      // Collapse all expanded modules
+      var toCollapse = [];
+      expandedModules.forEach(function(inst) { toCollapse.push(inst); });
+      toCollapse.forEach(function(inst) { collapseModule(inst); });
+      clearFocusMode();
+      document.getElementById('graph-info-panel').style.display = 'none';
+      if (searchBox) searchBox.value = '';
+      graphNetwork.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+    });
+  }
+
+  // ---- Close info panel button ----
+  var closeBtn = document.getElementById('info-close-btn');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function() {
+      document.getElementById('graph-info-panel').style.display = 'none';
+    });
+  }
 }
 
 // =============================================

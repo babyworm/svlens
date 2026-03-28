@@ -334,3 +334,202 @@ TEST_CASE("AnalysisEngine WIDTH_MISMATCH extension classified as LOW", "[Analysi
     REQUIRE(result.risks.size() == 1);
     CHECK(result.risks[0].level == RiskItem::Level::LOW);
 }
+
+// ---------- Part B: Missing risk classification tests ----------
+
+TEST_CASE("AnalysisEngine UNDRIVEN_INPUT classified as MEDIUM", "[AnalysisEngine]") {
+    ReportData data;
+    data.topModule = "top";
+    data.graph.topModule = "top";
+
+    PortInfo p = makePort("top.u_x", "i_clk", ArgumentDirection::In);
+    data.graph.allPorts = {p};
+
+    data.active.push_back(makeIssue(
+        Issue::Type::UNDRIVEN_INPUT, Issue::Severity::ERROR,
+        p, "undriven input"));
+
+    AnalysisEngine engine;
+    auto result = engine.analyze(data);
+
+    REQUIRE(result.risks.size() == 1);
+    CHECK(result.risks[0].level == RiskItem::Level::MEDIUM);
+    CHECK(result.risks[0].issue.type == Issue::Type::UNDRIVEN_INPUT);
+    CHECK_FALSE(result.risks[0].reason.empty());
+}
+
+TEST_CASE("AnalysisEngine PROTOCOL_INCOMPLETE classified as HIGH", "[AnalysisEngine]") {
+    ReportData data;
+    data.topModule = "top";
+    data.graph.topModule = "top";
+
+    PortInfo p = makePort("top.u_bus", "axi_awvalid", ArgumentDirection::Out);
+    data.graph.allPorts = {p};
+
+    data.active.push_back(makeIssue(
+        Issue::Type::PROTOCOL_INCOMPLETE, Issue::Severity::WARN,
+        p, "missing AWREADY in AXI4 interface"));
+
+    AnalysisEngine engine;
+    auto result = engine.analyze(data);
+
+    REQUIRE(result.risks.size() == 1);
+    CHECK(result.risks[0].level == RiskItem::Level::HIGH);
+    CHECK(result.risks[0].issue.type == Issue::Type::PROTOCOL_INCOMPLETE);
+    CHECK_FALSE(result.risks[0].reason.empty());
+}
+
+TEST_CASE("AnalysisEngine EXPECT_MISSING classified as MEDIUM", "[AnalysisEngine]") {
+    ReportData data;
+    data.topModule = "top";
+    data.graph.topModule = "top";
+
+    PortInfo p = makePort("top.u_cpu", "o_data", ArgumentDirection::Out, 32);
+    data.graph.allPorts = {p};
+
+    data.active.push_back(makeIssue(
+        Issue::Type::EXPECT_MISSING, Issue::Severity::ERROR,
+        p, "expected connection u_cpu.o_data -> u_bus.i_data not found"));
+
+    AnalysisEngine engine;
+    auto result = engine.analyze(data);
+
+    REQUIRE(result.risks.size() == 1);
+    CHECK(result.risks[0].level == RiskItem::Level::MEDIUM);
+    CHECK(result.risks[0].issue.type == Issue::Type::EXPECT_MISSING);
+    CHECK_FALSE(result.risks[0].reason.empty());
+}
+
+TEST_CASE("AnalysisEngine EXPECT_FORBIDDEN classified as HIGH", "[AnalysisEngine]") {
+    ReportData data;
+    data.topModule = "top";
+    data.graph.topModule = "top";
+
+    PortInfo src = makePort("top.u_debug", "o_secret", ArgumentDirection::Out, 64);
+    PortInfo dst = makePort("top.u_ext", "i_data", ArgumentDirection::In, 64);
+    data.graph.allPorts = {src, dst};
+    data.graph.connections.push_back({src, dst});
+    data.graph.connectedPorts = {"top.u_debug.o_secret", "top.u_ext.i_data"};
+
+    data.active.push_back(makeIssue(
+        Issue::Type::EXPECT_FORBIDDEN, Issue::Severity::ERROR,
+        src, "forbidden connection u_debug -> u_ext",
+        Connection{src, dst}));
+
+    AnalysisEngine engine;
+    auto result = engine.analyze(data);
+
+    REQUIRE(result.risks.size() == 1);
+    CHECK(result.risks[0].level == RiskItem::Level::HIGH);
+    CHECK(result.risks[0].issue.type == Issue::Type::EXPECT_FORBIDDEN);
+    CHECK_FALSE(result.risks[0].reason.empty());
+}
+
+TEST_CASE("AnalysisEngine CONVENTION classified as LOW", "[AnalysisEngine]") {
+    ReportData data;
+    data.topModule = "top";
+    data.graph.topModule = "top";
+
+    PortInfo p = makePort("top.u_core", "data_in", ArgumentDirection::In, 16);
+    data.graph.allPorts = {p};
+
+    data.active.push_back(makeIssue(
+        Issue::Type::CONVENTION, Issue::Severity::INFO,
+        p, "input port 'data_in' missing 'i_' prefix"));
+
+    AnalysisEngine engine;
+    auto result = engine.analyze(data);
+
+    REQUIRE(result.risks.size() == 1);
+    CHECK(result.risks[0].level == RiskItem::Level::LOW);
+    CHECK(result.risks[0].issue.type == Issue::Type::CONVENTION);
+    CHECK_FALSE(result.risks[0].reason.empty());
+}
+
+TEST_CASE("AnalysisEngine mixed risk types sorted HIGH then MEDIUM then LOW", "[AnalysisEngine]") {
+    ReportData data;
+    data.topModule = "top";
+    data.graph.topModule = "top";
+
+    PortInfo p1 = makePort("top.u_a", "o_data",  ArgumentDirection::Out, 8);
+    PortInfo p2 = makePort("top.u_a", "i_clk",   ArgumentDirection::In);
+    PortInfo p3 = makePort("top.u_a", "o_debug",  ArgumentDirection::Out, 4);
+    PortInfo p4 = makePort("top.u_a", "data_out", ArgumentDirection::Out, 16);
+    data.graph.allPorts = {p1, p2, p3, p4};
+
+    // HIGH: EXPECT_FORBIDDEN
+    data.active.push_back(makeIssue(
+        Issue::Type::EXPECT_FORBIDDEN, Issue::Severity::ERROR,
+        p1, "forbidden connection present"));
+    // HIGH: PROTOCOL_INCOMPLETE
+    data.active.push_back(makeIssue(
+        Issue::Type::PROTOCOL_INCOMPLETE, Issue::Severity::WARN,
+        p1, "missing protocol signal"));
+    // MEDIUM: UNDRIVEN_INPUT
+    data.active.push_back(makeIssue(
+        Issue::Type::UNDRIVEN_INPUT, Issue::Severity::ERROR,
+        p2, "undriven input"));
+    // MEDIUM: EXPECT_MISSING
+    data.active.push_back(makeIssue(
+        Issue::Type::EXPECT_MISSING, Issue::Severity::ERROR,
+        p1, "expected connection missing"));
+    // LOW: DANGLING_OUTPUT
+    data.active.push_back(makeIssue(
+        Issue::Type::DANGLING_OUTPUT, Issue::Severity::WARN,
+        p3, "dangling output"));
+    // LOW: CONVENTION
+    data.active.push_back(makeIssue(
+        Issue::Type::CONVENTION, Issue::Severity::INFO,
+        p4, "naming convention violation"));
+
+    AnalysisEngine engine;
+    auto result = engine.analyze(data);
+
+    REQUIRE(result.risks.size() == 6);
+    // First two should be HIGH
+    CHECK(result.risks[0].level == RiskItem::Level::HIGH);
+    CHECK(result.risks[1].level == RiskItem::Level::HIGH);
+    // Next two should be MEDIUM
+    CHECK(result.risks[2].level == RiskItem::Level::MEDIUM);
+    CHECK(result.risks[3].level == RiskItem::Level::MEDIUM);
+    // Last two should be LOW
+    CHECK(result.risks[4].level == RiskItem::Level::LOW);
+    CHECK(result.risks[5].level == RiskItem::Level::LOW);
+}
+
+TEST_CASE("AnalysisEngine module with multiple issue types — health score accounts for all", "[AnalysisEngine]") {
+    ReportData data;
+    data.topModule = "top";
+    data.graph.topModule = "top";
+
+    PortInfo p1 = makePort("top.u_mod", "o_data", ArgumentDirection::Out, 32);
+    PortInfo p2 = makePort("top.u_mod", "i_data", ArgumentDirection::In, 32);
+    PortInfo p3 = makePort("top.u_mod", "o_debug", ArgumentDirection::Out, 8);
+    PortInfo p4 = makePort("top.u_mod", "data_in", ArgumentDirection::In, 16);
+    data.graph.allPorts = {p1, p2, p3, p4};
+
+    // 2 ERRORs + 1 WARN + 1 INFO
+    // Score: 1.0 - 2*0.15 - 1*0.05 - 1*0.0 = 1.0 - 0.35 = 0.65
+    data.active.push_back(makeIssue(
+        Issue::Type::UNDRIVEN_INPUT, Issue::Severity::ERROR,
+        p2, "undriven input"));
+    data.active.push_back(makeIssue(
+        Issue::Type::EXPECT_FORBIDDEN, Issue::Severity::ERROR,
+        p1, "forbidden connection"));
+    data.active.push_back(makeIssue(
+        Issue::Type::DANGLING_OUTPUT, Issue::Severity::WARN,
+        p3, "dangling output"));
+    data.active.push_back(makeIssue(
+        Issue::Type::CONVENTION, Issue::Severity::INFO,
+        p4, "naming convention violation"));
+
+    AnalysisEngine engine;
+    auto result = engine.analyze(data);
+
+    REQUIRE(result.moduleHealth.size() == 1);
+    CHECK(result.moduleHealth[0].shortName == "u_mod");
+    CHECK(result.moduleHealth[0].errorCount == 2);
+    CHECK(result.moduleHealth[0].warnCount == 1);
+    CHECK(result.moduleHealth[0].infoCount == 1);
+    CHECK_THAT(result.moduleHealth[0].score, Catch::Matchers::WithinAbs(0.65, 0.001));
+}

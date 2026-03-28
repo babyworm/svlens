@@ -129,15 +129,11 @@ std::vector<InterfaceGroup> InterfaceGrouper::classify(const ConnectionGraph& gr
     }
 
     for (const auto& [instPath, ports] : instancePorts) {
-        // Track which protocols matched for this instance (for AXI4 superset rule)
+        // Track AXI4 match ratio for superset disambiguation with AXI4-Lite
         bool axi4Matched = false;
+        double axi4Ratio = 0.0;
 
         for (const auto& proto : protocols_) {
-            // AXI4 superset rule: if AXI4 already matched, skip AXI4-Lite
-            if (proto.name == "AXI4-Lite" && axi4Matched) {
-                continue;
-            }
-
             // Count how many key signals match
             std::vector<std::string> matched;
             for (const auto& sig : proto.keySignals) {
@@ -158,6 +154,24 @@ std::vector<InterfaceGroup> InterfaceGrouper::classify(const ConnectionGraph& gr
 
             if (proto.name == "AXI4") {
                 axi4Matched = true;
+                axi4Ratio = ratio;
+            }
+
+            // AXI4 superset rule: when both AXI4 and AXI4-Lite match the same
+            // instance, keep only the one with the higher match ratio.
+            if (proto.name == "AXI4-Lite" && axi4Matched) {
+                if (axi4Ratio >= ratio) {
+                    // AXI4 is a better or equal fit — suppress AXI4-Lite
+                    continue;
+                } else {
+                    // AXI4-Lite is a better fit — remove the previously added AXI4 entry
+                    result.erase(
+                        std::remove_if(result.begin(), result.end(),
+                            [&instPath](const InterfaceGroup& g) {
+                                return g.instancePath == instPath && g.protocol == "AXI4";
+                            }),
+                        result.end());
+                }
             }
 
             // Detect prefix from matched ports

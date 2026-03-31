@@ -33,7 +33,7 @@ const char* riskSymbol(RiskItem::Level level) {
 void TableReportGenerator::generate(const ReportData& data, std::ostream& out) const {
     int totalConnections = static_cast<int>(data.graph.connections.size());
 
-    out << fmt::format("=== slang-connect: {} ===\n\n", data.topModule);
+    out << fmt::format("=== sv-conncheck: {} ===\n\n", data.topModule);
 
     out << fmt::format("Connections: {}  Errors: {}  Warnings: {}  Info: {}  Waived: {}\n\n",
         totalConnections,

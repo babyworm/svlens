@@ -20,7 +20,7 @@
 #include "UndrivenChecker.h"
 #include "WaiverFilter.h"
 #include "WidthChecker.h"
-#include "slang/driver/Driver.h"
+#include <slang/driver/Driver.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -36,8 +36,8 @@ namespace fs = std::filesystem;
 
 static void printUsage() {
     fmt::print(
-        "slang-connect v0.2.0 -- Module interconnect verification and analysis\n\n"
-        "Usage: slang-connect [OPTIONS] <SV_FILES...>\n\n"
+        "sv-conncheck v0.2.1 -- Module interconnect verification and analysis\n\n"
+        "Usage: sv-conncheck [OPTIONS] <SV_FILES...>\n\n"
         "Required:\n"
         "  --top <module>          Top-level module\n\n"
         "Options:\n"

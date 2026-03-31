@@ -1,17 +1,17 @@
 #include "ConnectionExtractor.h"
 
-#include "slang/ast/Expression.h"
-#include "slang/ast/symbols/CompilationUnitSymbols.h"
-#include "slang/ast/symbols/InstanceSymbols.h"
-#include "slang/ast/symbols/PortSymbols.h"
-#include "slang/ast/symbols/BlockSymbols.h"
-#include "slang/ast/symbols/MemberSymbols.h"
-#include "slang/ast/symbols/VariableSymbols.h"
-#include "slang/ast/expressions/MiscExpressions.h"
-#include "slang/ast/expressions/ConversionExpression.h"
-#include "slang/ast/expressions/AssignmentExpressions.h"
-#include "slang/ast/expressions/SelectExpressions.h"
-#include "slang/ast/types/Type.h"
+#include <slang/ast/Expression.h>
+#include <slang/ast/symbols/CompilationUnitSymbols.h>
+#include <slang/ast/symbols/InstanceSymbols.h>
+#include <slang/ast/symbols/PortSymbols.h>
+#include <slang/ast/symbols/BlockSymbols.h>
+#include <slang/ast/symbols/MemberSymbols.h>
+#include <slang/ast/symbols/VariableSymbols.h>
+#include <slang/ast/expressions/MiscExpressions.h>
+#include <slang/ast/expressions/ConversionExpression.h>
+#include <slang/ast/expressions/AssignmentExpressions.h>
+#include <slang/ast/expressions/SelectExpressions.h>
+#include <slang/ast/types/Type.h>
 
 namespace connect {
 

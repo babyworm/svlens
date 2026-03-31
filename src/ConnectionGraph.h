@@ -1,7 +1,7 @@
 #pragma once
 
-#include "slang/ast/SemanticFacts.h"
-#include "slang/text/SourceLocation.h"
+#include <slang/ast/SemanticFacts.h>
+#include <slang/text/SourceLocation.h>
 
 #include <cstdint>
 #include <string>

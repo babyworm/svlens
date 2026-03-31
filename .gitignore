@@ -9,3 +9,5 @@ compile_commands.json
 .idea/
 CMakeUserPresets.json
 .omx/
+.rat/
+.rtl-agent-team/

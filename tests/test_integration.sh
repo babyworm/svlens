@@ -1,7 +1,11 @@
 #!/bin/bash
 set -e
-BINARY="${1:-./build/slang-connect}"
-OUTDIR="/tmp/slang-connect-integration-test"
+BINARY="${1:-./build/sv-conncheck}"
+if [ ! -x "$BINARY" ]; then
+    echo "ERROR: $BINARY not found or not executable"
+    exit 1
+fi
+OUTDIR="/tmp/sv-conncheck-integration-test"
 rm -rf "$OUTDIR"
 
 echo "=== Integration Test ==="

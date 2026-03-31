@@ -1,4 +1,4 @@
-# slang-connect
+# sv-conncheck
 
 Module interconnect verification and connectivity analysis tool for SystemVerilog designs.
 Analyzes port connections and reports width mismatches, type mismatches,
@@ -7,47 +7,86 @@ Provides quantitative health scoring, risk assessment, and interactive visualiza
 
 Built on [slang](https://github.com/MikePopoloski/slang) v10+.
 
+## Prerequisites
+
+| Dependency | Version | Install |
+|------------|---------|---------|
+| C++ compiler | C++20 support (GCC 13+, Clang 16+) | system package |
+| CMake | 3.20+ | system package |
+| [slang](https://github.com/MikePopoloski/slang) | v10+ | see below |
+
+**Auto-fetched** (no manual install needed): yaml-cpp 0.8.0, Catch2 v3.5.2, fmt (bundled by slang)
+
+### Quick setup (recommended)
+
+The setup script checks prerequisites and installs slang automatically:
+
+```bash
+./scripts/setup-deps.sh                          # install to $HOME/.local (default)
+./scripts/setup-deps.sh --prefix /opt/sv-deps    # or custom location
+```
+
+### Manual slang install
+
+```bash
+git clone --depth 1 --branch v7.0 https://github.com/MikePopoloski/slang.git
+cd slang
+cmake -B build -DCMAKE_INSTALL_PREFIX=$HOME/.local -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+cmake --install build
+```
+
 ## Build
 
 ```bash
 cmake -B build -DCMAKE_PREFIX_PATH="$HOME/.local"
-cmake --build build
+cmake --build build -j$(nproc)
+```
+
+`CMAKE_PREFIX_PATH` should point to the directory where slang was installed.
+
+If slang is not found, CMake will print the exact setup command to run.
+
+To run tests:
+
+```bash
+ctest --test-dir build
 ```
 
 ## Usage
 
 ```bash
 # Basic analysis
-slang-connect design.sv --top my_top
+sv-conncheck design.sv --top my_top
 
 # Full analysis with all output formats
-slang-connect -f filelist.f --top soc_top --format all -o reports/
+sv-conncheck -f filelist.f --top soc_top --format all -o reports/
 
 # Selective checks with waivers
-slang-connect design.sv --top my_top --no-check-dangling --waiver waivers.yaml
+sv-conncheck design.sv --top my_top --no-check-dangling --waiver waivers.yaml
 
 # Protocol and convention checking
-slang-connect design.sv --top my_top --check-protocol --check-convention
+sv-conncheck design.sv --top my_top --check-protocol --check-convention
 
 # Generate block diagram (Graphviz DOT)
-slang-connect design.sv --top my_top --format dot -o reports/
+sv-conncheck design.sv --top my_top --format dot -o reports/
 dot -Tsvg reports/connectivity.dot -o block_diagram.svg
 
 # Interactive HTML dashboard
-slang-connect design.sv --top my_top --format html -o reports/
+sv-conncheck design.sv --top my_top --format html -o reports/
 open reports/connect_report.html
 
 # Compare against baseline (CI integration)
-slang-connect design.sv --top my_top --diff baseline/connect_report.json
+sv-conncheck design.sv --top my_top --diff baseline/connect_report.json
 
 # Verify expected connectivity
-slang-connect design.sv --top my_top --expect connectivity_spec.yaml
+sv-conncheck design.sv --top my_top --expect connectivity_spec.yaml
 
 # Clock/reset topology analysis
-slang-connect design.sv --top my_top --check-clock-reset
+sv-conncheck design.sv --top my_top --check-clock-reset
 
 # Signal fan-in/fan-out tracing
-slang-connect design.sv --top my_top --trace "*.u_cpu.o_addr"
+sv-conncheck design.sv --top my_top --trace "*.u_cpu.o_addr"
 ```
 
 ## Checks
@@ -105,10 +144,10 @@ Compare current analysis against a baseline JSON report to detect connectivity c
 
 ```bash
 # Generate baseline
-slang-connect design.sv --top soc --format json -o baseline/
+sv-conncheck design.sv --top soc --format json -o baseline/
 
 # After modifications, compare
-slang-connect design_v2.sv --top soc --diff baseline/connect_report.json
+sv-conncheck design_v2.sv --top soc --diff baseline/connect_report.json
 ```
 
 Output shows added, removed, and status-changed connections.
@@ -128,7 +167,7 @@ forbidden:
 ```
 
 ```bash
-slang-connect design.sv --top soc --expect connectivity_spec.yaml
+sv-conncheck design.sv --top soc --expect connectivity_spec.yaml
 ```
 
 ## Tested Against

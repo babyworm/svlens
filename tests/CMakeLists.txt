@@ -1,4 +1,4 @@
-add_executable(slang-connect-tests
+add_executable(sv-conncheck-tests
     test_width_checker.cpp
     test_type_checker.cpp
     test_dangling_checker.cpp
@@ -19,11 +19,14 @@ add_executable(slang-connect-tests
     test_trace_engine.cpp
     test_analysis_engine.cpp
 )
-target_link_libraries(slang-connect-tests PRIVATE slang-connect-lib Catch2::Catch2WithMain)
+target_link_libraries(sv-conncheck-tests PRIVATE sv-conncheck-lib Catch2::Catch2WithMain)
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/test_waivers.yaml DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/waiver_integration.yaml DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/expected_conn.yaml DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/sv DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 include(CTest)
 include(Catch)
-catch_discover_tests(slang-connect-tests WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+catch_discover_tests(sv-conncheck-tests WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+add_test(NAME integration_shell
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_integration.sh $<TARGET_FILE:sv-conncheck>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

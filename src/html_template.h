@@ -7,7 +7,7 @@ inline constexpr const char* HTML_TEMPLATE = R"HTMLTPL(<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>slang-connect: {{TOP_MODULE}}</title>
+<title>sv-conncheck: {{TOP_MODULE}}</title>
 <script src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js" integrity="sha384-Ux6phic9PEHJ38YtrijhkzyJ8yQlH8i/+buBR8s3mAZOJrP1gwyvAcIYl3GWtpX1" crossorigin="anonymous"></script>
 <style>
 :root {
@@ -177,7 +177,7 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 
 <!-- Header -->
 <div id="header">
-  <h1>slang-connect</h1>
+  <h1>sv-conncheck</h1>
   <span class="top-name">{{TOP_MODULE}}</span>
   <span id="badges"></span>
 </div>

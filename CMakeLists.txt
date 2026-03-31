@@ -1,13 +1,28 @@
 cmake_minimum_required(VERSION 3.20)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-project(slang-connect LANGUAGES CXX)
+project(sv-conncheck LANGUAGES CXX)
 
+# C++20 required by slang library headers
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(slang REQUIRED)
-find_package(fmt REQUIRED)
+find_package(slang QUIET)
+if(NOT slang_FOUND)
+    message(FATAL_ERROR
+        "slang not found. Install it first:\n"
+        "  ./scripts/setup-deps.sh --prefix \$HOME/.local\n"
+        "Then re-run cmake with:\n"
+        "  cmake -B build -DCMAKE_PREFIX_PATH=\$HOME/.local\n"
+        "See README.md for details.")
+endif()
+# fmt: prefer slang's bundled copy; fall back to system install
+if(NOT TARGET slang::fmt)
+    find_package(fmt REQUIRED)
+    set(FMT_TARGET fmt::fmt)
+else()
+    set(FMT_TARGET slang::fmt)
+endif()
 
 include(FetchContent)
 
@@ -27,7 +42,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 
 # Library target (shared between main executable and tests)
-add_library(slang-connect-lib OBJECT
+add_library(sv-conncheck-lib OBJECT
     src/ConnectionExtractor.cpp
     src/WidthChecker.cpp
     src/TypeChecker.cpp
@@ -50,13 +65,13 @@ add_library(slang-connect-lib OBJECT
     src/TraceEngine.cpp
     src/AnalysisEngine.cpp
 )
-target_include_directories(slang-connect-lib PUBLIC src)
-target_link_libraries(slang-connect-lib PUBLIC slang::slang fmt::fmt yaml-cpp::yaml-cpp)
+target_include_directories(sv-conncheck-lib PUBLIC src)
+target_link_libraries(sv-conncheck-lib PUBLIC slang::slang ${FMT_TARGET} yaml-cpp::yaml-cpp)
 
-add_executable(slang-connect src/main.cpp)
-target_link_libraries(slang-connect PRIVATE slang-connect-lib)
+add_executable(sv-conncheck src/main.cpp)
+target_link_libraries(sv-conncheck PRIVATE sv-conncheck-lib)
 
-install(TARGETS slang-connect RUNTIME DESTINATION bin)
+install(TARGETS sv-conncheck RUNTIME DESTINATION bin)
 
 enable_testing()
 add_subdirectory(tests)

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "ConnectionGraph.h"
-#include "slang/ast/Compilation.h"
-#include "slang/ast/symbols/MemberSymbols.h"
+#include <slang/ast/Compilation.h>
+#include <slang/ast/symbols/MemberSymbols.h>
 
 #include <string>
 #include <unordered_map>

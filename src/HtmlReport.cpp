@@ -43,7 +43,12 @@ void HtmlReportGenerator::generate(const ReportData& data, std::ostream& out) co
 
     std::string html(HTML_TEMPLATE);
     html = replaceAll(html, "{{TOP_MODULE}}", escapeHtml(data.topModule));
-    html = replaceAll(html, "{{JSON_DATA}}", jsonStream.str());
+    std::string jsonStr = jsonStream.str();
+    // Prevent </script> injection in embedded JSON
+    for (size_t pos = jsonStr.find("</"); pos != std::string::npos; pos = jsonStr.find("</", pos + 3)) {
+        jsonStr.replace(pos, 2, "<\\/");
+    }
+    html = replaceAll(html, "{{JSON_DATA}}", jsonStr);
 
     out << html;
 }

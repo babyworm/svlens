@@ -62,6 +62,7 @@ add_executable(svlens-tests
     test_trace_engine.cpp
     test_analysis_engine.cpp
     test_glob_util.cpp
+    test_conn_runner_utils.cpp
 )
 target_link_libraries(svlens-tests PRIVATE svlens-conn-lib svlens-cdc-lib Catch2::Catch2WithMain)
 target_compile_definitions(svlens-tests PRIVATE

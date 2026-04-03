@@ -318,7 +318,7 @@ void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAs
         netAliases_[rhsCanon] = lhsCanon;
 }
 
-std::string ConnectionExtractor::findCanonical(const std::string& key) const {
+std::string ConnectionExtractor::findCanonical(const std::string& key) {
     std::string current = key;
     std::vector<std::string> path;
     size_t maxIter = netAliases_.size() + 1;

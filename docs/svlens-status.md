@@ -86,7 +86,7 @@ Representative scripts:
 Latest full regression result:
 
 - `ctest --test-dir build --output-on-failure`
-- **451 / 451 tests passing**
+- **464 / 464 tests passing**
 
 ## Packaging / CI
 

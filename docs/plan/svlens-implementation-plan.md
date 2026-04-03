@@ -1,6 +1,6 @@
 # svlens Implementation Plan
 
-Status: Draft  
+Status: Implemented  
 Depends on: [`svlens-unification-spec.md`](svlens-unification-spec.md)
 
 > Note:

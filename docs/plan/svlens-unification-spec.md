@@ -1,6 +1,6 @@
 # svlens Unification Spec
 
-Status: Draft  
+Status: Implemented  
 Owner: sv-conncheck / sv-cdccheck integration effort  
 Scope: unify the entrypoint and shared frontend for connectivity + CDC analysis
 

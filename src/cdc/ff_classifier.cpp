@@ -408,7 +408,8 @@ static void processMembers(const slang::ast::Scope& scope,
                     std::string port_name(conn->port.name);
                     std::string lower_port = port_name;
                     std::transform(lower_port.begin(), lower_port.end(),
-                                   lower_port.begin(), ::tolower);
+                                   lower_port.begin(),
+                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
                     if (ClockTreeAnalyzer::isClockName(lower_port)) {
                         auto* expr = conn->getExpression();
                         if (expr) {

@@ -381,7 +381,8 @@ void SyncVerifier::detectGrayCodePattern() {
                 leaf_prefix = leaf_prefix.substr(last_dot + 1);
             std::string lower_leaf = leaf_prefix;
             std::transform(lower_leaf.begin(), lower_leaf.end(),
-                           lower_leaf.begin(), ::tolower);
+                           lower_leaf.begin(),
+                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
             for (auto& pat : {"ptr", "addr", "wr_ptr", "rd_ptr",
                               "wptr", "rptr", "fifo"}) {
                 if (lower_leaf.find(pat) != std::string::npos) {
@@ -635,7 +636,8 @@ void SyncVerifier::detectNonPow2FIFO() {
             for (auto& fanin : src_ff->fanin_signals) {
                 std::string lower_fanin = fanin;
                 std::transform(lower_fanin.begin(), lower_fanin.end(),
-                               lower_fanin.begin(), ::tolower);
+                               lower_fanin.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
                 if (lower_fanin.find("depth") != std::string::npos ||
                     lower_fanin.find("size") != std::string::npos ||
                     lower_fanin.find("entries") != std::string::npos) {
@@ -874,7 +876,8 @@ void SyncVerifier::detectQuasiStaticSignals() {
 
         std::string lower_leaf = src_leaf;
         std::transform(lower_leaf.begin(), lower_leaf.end(),
-                       lower_leaf.begin(), ::tolower);
+                       lower_leaf.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
         bool is_quasi_static = false;
         for (auto& pat : {"cfg_", "config_", "mode_", "static_"}) {

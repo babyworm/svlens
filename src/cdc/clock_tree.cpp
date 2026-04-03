@@ -309,7 +309,8 @@ void ClockTreeAnalyzer::collectSensitivityClocks(
 
 static bool isPLLName(const std::string& name) {
     std::string upper = name;
-    std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+    std::transform(upper.begin(), upper.end(), upper.begin(),
+        [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
     for (auto& pat : {"PLL", "MMCM", "DCM", "CLKGEN"}) {
         if (upper.find(pat) != std::string::npos) return true;
     }
@@ -584,7 +585,8 @@ void ClockTreeAnalyzer::detectClockGatesInInstance(
                 std::string port_name(conn->port.name);
                 std::string lower_port = port_name;
                 std::transform(lower_port.begin(), lower_port.end(),
-                               lower_port.begin(), ::tolower);
+                               lower_port.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
                 auto* expr = conn->getExpression();
                 std::string actual;
@@ -623,7 +625,8 @@ void ClockTreeAnalyzer::detectClockGatesInInstance(
                     std::string port_name(conn->port.name);
                     std::string lower_port = port_name;
                     std::transform(lower_port.begin(), lower_port.end(),
-                                   lower_port.begin(), ::tolower);
+                                   lower_port.begin(),
+                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
                     if ((lower_port.find("clk") != std::string::npos ||
                          lower_port.find("ck") != std::string::npos) &&
                         lower_port.find("out") == std::string::npos &&
@@ -747,7 +750,8 @@ static bool matchWordBoundary(const std::string& lower, const char* pattern) {
 
 bool ClockTreeAnalyzer::isClockName(const std::string& name) {
     std::string lower = name;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     for (auto& pattern : {"clk", "clock", "ck"}) {
         if (matchWordBoundary(lower, pattern)) return true;
     }
@@ -756,7 +760,8 @@ bool ClockTreeAnalyzer::isClockName(const std::string& name) {
 
 bool ClockTreeAnalyzer::isResetName(const std::string& name) {
     std::string lower = name;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     // Check longer patterns first to match correctly (rst_n before rst)
     for (auto& pattern : {"reset", "rstn", "rst_n", "rst"}) {
         if (matchWordBoundary(lower, pattern)) return true;

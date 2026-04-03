@@ -34,12 +34,15 @@ FetchContent_Declare(
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(yaml-cpp)
 
-FetchContent_Declare(
-    Catch2
-    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-    GIT_TAG v3.5.2
-)
-FetchContent_MakeAvailable(Catch2)
+include(CTest)
+if(BUILD_TESTING)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG v3.5.2
+    )
+    FetchContent_MakeAvailable(Catch2)
+endif()
 
 # Shared/common frontend library
 add_library(svlens-common-lib STATIC
@@ -106,5 +109,6 @@ target_compile_definitions(svlens PRIVATE SVLENS_VERSION="${PROJECT_VERSION}")
 target_compile_definitions(svlens-conn-lib PRIVATE SVLENS_VERSION="${PROJECT_VERSION}")
 target_compile_definitions(svlens-cdc-lib PRIVATE SVLENS_VERSION="${PROJECT_VERSION}")
 
-enable_testing()
-add_subdirectory(tests)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()

@@ -133,14 +133,14 @@ enum class ViolationCategory {
 /// A single CDC crossing report entry
 struct CrossingReport {
     std::string id;             // e.g., "VIOLATION-001"
-    ViolationCategory category;
-    Severity severity;
+    ViolationCategory category = ViolationCategory::Info;
+    Severity severity = Severity::None;
     std::string source_signal;
     std::string dest_signal;
-    ClockDomain* source_domain;
-    ClockDomain* dest_domain;
+    ClockDomain* source_domain = nullptr;
+    ClockDomain* dest_domain = nullptr;
     std::vector<std::string> path;
-    SyncType sync_type;
+    SyncType sync_type = SyncType::None;
     std::string recommendation;
     std::string rule;  // SpyGlass-compatible rule ID, e.g. "Ac_cdc01"
 };

@@ -1,0 +1,17 @@
+# AES IP — multi-clock: main + EDN interface
+clock_domains:
+  - name: clk_i
+    type: primary
+  - name: clk_edn_i
+    type: primary
+    async_to: [clk_i]
+
+known_crossings:
+  - from_domain: clk_i
+    to_domain: clk_edn_i
+    description: "AES-EDN clock domain crossing"
+  - from_domain: clk_edn_i
+    to_domain: clk_i
+    description: "EDN response to AES core"
+
+known_clean: []

@@ -1,0 +1,8 @@
+# UART IP — single clock domain in OpenTitan
+clock_domains:
+  - name: clk_i
+    type: primary
+
+known_crossings: []
+known_clean:
+  - description: "Single clock domain design"

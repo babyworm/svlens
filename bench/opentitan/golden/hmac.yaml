@@ -1,0 +1,8 @@
+# HMAC IP — single clock domain
+clock_domains:
+  - name: clk_i
+    type: primary
+
+known_crossings: []
+known_clean:
+  - description: "All paths within clk_i domain"

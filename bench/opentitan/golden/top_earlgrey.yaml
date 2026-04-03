@@ -1,0 +1,47 @@
+# Top EarlGrey — full SoC clock structure
+clock_domains:
+  - name: clk_main_i
+    type: primary
+    freq_mhz: 100
+  - name: clk_io_i
+    type: primary
+    freq_mhz: 96
+    async_to: [clk_main_i, clk_usb_i, clk_aon_i]
+  - name: clk_usb_i
+    type: primary
+    freq_mhz: 48
+    async_to: [clk_main_i, clk_io_i, clk_aon_i]
+  - name: clk_aon_i
+    type: primary
+    freq_mhz: 0.2
+    async_to: [clk_main_i, clk_io_i, clk_usb_i]
+  - name: clk_io_div2_i
+    type: generated
+    master: clk_io_i
+    divide_by: 2
+  - name: clk_io_div4_i
+    type: generated
+    master: clk_io_i
+    divide_by: 4
+
+known_crossings:
+  - from_domain: clk_main_i
+    to_domain: clk_io_i
+    description: "Main-to-IO crossings"
+  - from_domain: clk_io_i
+    to_domain: clk_main_i
+    description: "IO-to-Main crossings"
+  - from_domain: clk_main_i
+    to_domain: clk_usb_i
+    description: "Main-to-USB crossings"
+  - from_domain: clk_usb_i
+    to_domain: clk_main_i
+    description: "USB-to-Main crossings"
+  - from_domain: clk_aon_i
+    to_domain: clk_main_i
+    description: "AON-to-Main crossings"
+  - from_domain: clk_main_i
+    to_domain: clk_aon_i
+    description: "Main-to-AON crossings"
+
+known_clean: []

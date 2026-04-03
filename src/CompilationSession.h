@@ -9,7 +9,7 @@
 #include <string_view>
 #include <vector>
 
-namespace connect {
+namespace svlens {
 
 class CompilationSession {
 public:
@@ -34,4 +34,6 @@ private:
     std::vector<std::string> expandedArgs_;
 };
 
-} // namespace connect
+} // namespace svlens
+
+namespace connect { using CompilationSession = svlens::CompilationSession; }

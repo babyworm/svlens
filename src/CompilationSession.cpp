@@ -6,7 +6,7 @@
 
 #include <stdexcept>
 
-namespace connect {
+namespace svlens {
 
 namespace {
 
@@ -118,4 +118,4 @@ const slang::ast::InstanceSymbol* CompilationSession::findTopInstance(
     return nullptr;
 }
 
-} // namespace connect
+} // namespace svlens

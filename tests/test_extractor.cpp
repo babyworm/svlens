@@ -1,33 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include "ConnectionExtractor.h"
-#include "slang/driver/Driver.h"
+#include "TestUtils.h"
+#include "WidthChecker.h"
 
 using namespace connect;
-
-// Holds both the Driver and Compilation so source text stays alive.
-// The Driver owns the SourceManager whose buffers back all string_views
-// in the AST (symbol names, etc.), so it must outlive the Compilation.
-struct CompileResult {
-    std::unique_ptr<slang::driver::Driver> driver;
-    std::unique_ptr<slang::ast::Compilation> compilation;
-    explicit operator bool() const { return compilation != nullptr; }
-};
-
-// Helper to compile a single SV file.
-// slang auto-detects top modules (modules not instantiated by others).
-static CompileResult compileFile(const std::string& path) {
-    auto driver = std::make_unique<slang::driver::Driver>();
-    driver->addStandardArgs();
-    std::vector<const char*> args = {"test", path.c_str()};
-    if (!driver->parseCommandLine(static_cast<int>(args.size()), args.data()))
-        return {};
-    if (!driver->processOptions())
-        return {};
-    if (!driver->parseAllSources())
-        return {};
-    auto compilation = driver->createCompilation();
-    return {std::move(driver), std::move(compilation)};
-}
+using testutils::compileFile;
 
 TEST_CASE("Extractor: clean design has connections and all ports") {
     auto result = compileFile("sv/clean_design.sv");
@@ -74,4 +51,34 @@ TEST_CASE("Extractor: undriven input port is in allPorts") {
         if (port.portName == "i_config") foundConfig = true;
     }
     CHECK(foundConfig);
+}
+
+TEST_CASE("Extractor: member access resolves and concat becomes approximate") {
+    auto result = compileFile("sv/member_access_and_concat.sv");
+    REQUIRE(result);
+
+    ConnectionExtractor extractor(*result.compilation, "member_concat_top");
+    auto graph = extractor.extract();
+
+    bool foundMemberAccessConnection = false;
+    size_t aggregateEdges = 0;
+
+    for (const auto& conn : graph.connections) {
+        if (conn.source.fullPath() == "member_concat_top.u_prod.o_valid" &&
+            conn.dest.fullPath() == "member_concat_top.u_cons.i_valid") {
+            foundMemberAccessConnection = true;
+            CHECK(conn.kind == ConnectionKind::Direct);
+        }
+
+        if (conn.dest.fullPath() == "member_concat_top.u_cons.i_bus") {
+            aggregateEdges++;
+            CHECK(conn.kind == ConnectionKind::Approximate);
+        }
+    }
+
+    CHECK(foundMemberAccessConnection);
+    CHECK(aggregateEdges == 2);
+
+    WidthChecker checker;
+    CHECK(checker.check(graph).empty());
 }

@@ -10,6 +10,8 @@ struct ConventionRules {
     std::string instancePrefix = "u_";
 };
 
+ConventionRules loadConventionRules(const std::string& yamlPath);
+
 class ConventionChecker : public IChecker {
 public:
     ConventionChecker() = default;

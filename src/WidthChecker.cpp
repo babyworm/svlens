@@ -5,6 +5,8 @@ namespace connect {
 std::vector<Issue> WidthChecker::check(const ConnectionGraph& graph) const {
     std::vector<Issue> issues;
     for (auto& conn : graph.connections) {
+        if (conn.kind == ConnectionKind::Approximate)
+            continue;
         if (conn.source.width == conn.dest.width) continue;
         Issue issue;
         issue.type = Issue::Type::WIDTH_MISMATCH;

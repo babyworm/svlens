@@ -126,7 +126,8 @@ std::string TraceEngine::formatTrace(const std::vector<TraceHop>& hops,
         }
 
         // Width mismatch warning
-        if (src.width != dst.width) {
+        if (hop.connection.kind != ConnectionKind::Approximate &&
+            src.width != dst.width) {
             os << "  \u26a0 " << src.width << "b\u2192" << dst.width << "b";
         }
 

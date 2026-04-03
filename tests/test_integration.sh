@@ -33,4 +33,40 @@ EXIT=$?
 if [ $EXIT -ne 0 ]; then echo "FAIL: disabled checkers exit=$EXIT"; exit 1; fi
 echo "PASS: checker disable"
 
+# Test 5: ignore-nc suppresses intentional NC ports
+$BINARY tests/sv/filter_flags.sv --top filter_top --format json -o "$OUTDIR/filter_default" || true
+if ! grep -q 'top.u_src.o_nc' "$OUTDIR/filter_default/connect_report.json"; then
+    echo "FAIL: default run should report o_nc"
+    exit 1
+fi
+if ! grep -q 'top.u_snk.i_nc' "$OUTDIR/filter_default/connect_report.json"; then
+    echo "FAIL: default run should report i_nc"
+    exit 1
+fi
+
+$BINARY tests/sv/filter_flags.sv --top filter_top --ignore-nc --format json -o "$OUTDIR/filter_ignore_nc" || true
+if grep -q 'top.u_src.o_nc' "$OUTDIR/filter_ignore_nc/connect_report.json"; then
+    echo "FAIL: --ignore-nc should suppress o_nc"
+    exit 1
+fi
+if grep -q 'top.u_snk.i_nc' "$OUTDIR/filter_ignore_nc/connect_report.json"; then
+    echo "FAIL: --ignore-nc should suppress i_nc"
+    exit 1
+fi
+echo "PASS: ignore-nc"
+
+# Test 6: custom convention file is loaded and implies convention checking
+cat > "$OUTDIR/custom_convention.yaml" <<'EOF'
+input_prefix: in_
+output_prefix: out_
+instance_prefix: inst_
+EOF
+
+$BINARY tests/sv/clean_design.sv --top clean_top --convention "$OUTDIR/custom_convention.yaml" --format json -o "$OUTDIR/custom_convention" || true
+if ! grep -q '"type": "CONVENTION"' "$OUTDIR/custom_convention/connect_report.json"; then
+    echo "FAIL: custom convention rules were not applied"
+    exit 1
+fi
+echo "PASS: custom convention"
+
 echo "=== All integration tests passed ==="

@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include "ConnectionExtractor.h"
 #include "CheckerRunner.h"
+#include "TestUtils.h"
 #include "WidthChecker.h"
 #include "TypeChecker.h"
 #include "DanglingChecker.h"
@@ -8,30 +9,9 @@
 #include "ProtocolChecker.h"
 #include "ConventionChecker.h"
 #include "WaiverFilter.h"
-#include "slang/driver/Driver.h"
 
 using namespace connect;
-
-// Holds both the Driver and Compilation so source text stays alive.
-struct CompileResult {
-    std::unique_ptr<slang::driver::Driver> driver;
-    std::unique_ptr<slang::ast::Compilation> compilation;
-    explicit operator bool() const { return compilation != nullptr; }
-};
-
-static CompileResult compileFile(const std::string& path) {
-    auto driver = std::make_unique<slang::driver::Driver>();
-    driver->addStandardArgs();
-    std::vector<const char*> args = {"test", path.c_str()};
-    if (!driver->parseCommandLine(static_cast<int>(args.size()), args.data()))
-        return {};
-    if (!driver->processOptions())
-        return {};
-    if (!driver->parseAllSources())
-        return {};
-    auto compilation = driver->createCompilation();
-    return {std::move(driver), std::move(compilation)};
-}
+using testutils::compileFile;
 
 // ---- Deep Hierarchy Tests ----
 

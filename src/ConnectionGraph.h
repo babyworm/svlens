@@ -23,15 +23,22 @@ struct PortInfo {
     }
 };
 
+enum class ConnectionKind {
+    Direct,
+    Approximate
+};
+
 struct Connection {
     PortInfo source;
     PortInfo dest;
+    ConnectionKind kind = ConnectionKind::Direct;
 };
 
 struct ConnectionGraph {
     std::vector<Connection> connections;
     std::vector<PortInfo> allPorts;
     std::unordered_set<std::string> connectedPorts; // ports with non-empty expressions
+    std::unordered_set<std::string> tieOffPorts;    // ports connected only to compile-time constants
     std::string topModule;
 };
 

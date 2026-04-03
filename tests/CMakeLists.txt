@@ -1,4 +1,5 @@
 add_executable(sv-conncheck-tests
+    TestUtils.cpp
     test_width_checker.cpp
     test_type_checker.cpp
     test_dangling_checker.cpp
@@ -9,6 +10,8 @@ add_executable(sv-conncheck-tests
     test_waiver_filter.cpp
     test_reports.cpp
     test_extractor.cpp
+    test_connection_filters.cpp
+    test_fixture_resolution.cpp
     test_integration_advanced.cpp
     test_dot_report.cpp
     test_html_report.cpp
@@ -20,6 +23,7 @@ add_executable(sv-conncheck-tests
     test_analysis_engine.cpp
 )
 target_link_libraries(sv-conncheck-tests PRIVATE sv-conncheck-lib Catch2::Catch2WithMain)
+target_compile_definitions(sv-conncheck-tests PRIVATE TEST_SV_DIR="${CMAKE_CURRENT_SOURCE_DIR}/sv")
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/test_waivers.yaml DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/waiver_integration.yaml DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/expected_conn.yaml DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

@@ -68,6 +68,9 @@ sv-conncheck design.sv --top my_top --no-check-dangling --waiver waivers.yaml
 # Protocol and convention checking
 sv-conncheck design.sv --top my_top --check-protocol --check-convention
 
+# Ignore intentional NC / tie-off ports
+sv-conncheck design.sv --top my_top --ignore-nc --ignore-tie-off
+
 # Generate block diagram (Graphviz DOT)
 sv-conncheck design.sv --top my_top --format dot -o reports/
 dot -Tsvg reports/connectivity.dot -o block_diagram.svg
@@ -168,6 +171,28 @@ forbidden:
 
 ```bash
 sv-conncheck design.sv --top soc --expect connectivity_spec.yaml
+
+## Custom Convention Rules
+
+Override the default `i_` / `o_` / `u_` prefixes with a YAML file:
+
+```yaml
+input_prefix: in_
+output_prefix: out_
+instance_prefix: inst_
+```
+
+Nested `input.prefix`, `output.prefix`, and `instance.prefix` keys are also accepted.
+
+```bash
+sv-conncheck design.sv --top soc --convention convention.yaml
+```
+
+## Current Limits
+
+- `ConnectionExtractor` now follows named values, conversions, selects, struct-member access, continuous-assign aliases, and concatenation operands as approximate edges.
+- Whole-interface / modport ports and procedural glue logic are still only partially modeled, so complex interface-heavy designs can remain under-connected in the graph.
+- Clock/reset grouping is still name-based heuristic analysis, not semantic clock-domain tracing.
 ```
 
 ## Tested Against

@@ -62,3 +62,15 @@ TEST_CASE("WidthChecker: signed sign-extension is INFO") {
     REQUIRE(issues.size() == 1);
     CHECK(issues[0].severity == Issue::Severity::INFO);
 }
+
+TEST_CASE("WidthChecker: approximate aggregate edges are skipped") {
+    ConnectionGraph graph;
+    graph.connections.push_back({
+        makePort("top.u_a", "o_hi", ArgumentDirection::Out, 4),
+        makePort("top.u_b", "i_bus", ArgumentDirection::In, 8),
+        ConnectionKind::Approximate
+    });
+
+    WidthChecker checker;
+    CHECK(checker.check(graph).empty());
+}

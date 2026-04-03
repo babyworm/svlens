@@ -1,6 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include "ConventionChecker.h"
 
+#include <cstdio>
+#include <fstream>
+
 using namespace connect;
 using slang::ast::ArgumentDirection;
 
@@ -92,4 +95,23 @@ TEST_CASE("ConventionChecker: custom rules work") {
 
     ConventionChecker checker(rules);
     REQUIRE(checker.check(graph).empty());
+}
+
+TEST_CASE("ConventionChecker: loads convention rules from YAML") {
+    const char* yamlPath = "test_convention_rules.yaml";
+    {
+        std::ofstream ofs(yamlPath);
+        REQUIRE(ofs.good());
+        ofs << "input_prefix: in_\n";
+        ofs << "output_prefix: out_\n";
+        ofs << "instance:\n";
+        ofs << "  prefix: inst_\n";
+    }
+
+    auto rules = loadConventionRules(yamlPath);
+    CHECK(rules.inputPrefix == "in_");
+    CHECK(rules.outputPrefix == "out_");
+    CHECK(rules.instancePrefix == "inst_");
+
+    std::remove(yamlPath);
 }

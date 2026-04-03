@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-project(sv-conncheck LANGUAGES CXX)
+project(sv-conncheck VERSION 0.2.2 LANGUAGES CXX)
 
 # C++20 required by slang library headers
 set(CMAKE_CXX_STANDARD 20)
@@ -64,12 +64,14 @@ add_library(sv-conncheck-lib OBJECT
     src/InterfaceGrouper.cpp
     src/TraceEngine.cpp
     src/AnalysisEngine.cpp
+    src/ConnectionFilters.cpp
 )
 target_include_directories(sv-conncheck-lib PUBLIC src)
 target_link_libraries(sv-conncheck-lib PUBLIC slang::slang ${FMT_TARGET} yaml-cpp::yaml-cpp)
 
 add_executable(sv-conncheck src/main.cpp)
 target_link_libraries(sv-conncheck PRIVATE sv-conncheck-lib)
+target_compile_definitions(sv-conncheck PRIVATE SV_CONN_CHECK_VERSION="${PROJECT_VERSION}")
 
 install(TARGETS sv-conncheck RUNTIME DESTINATION bin)
 

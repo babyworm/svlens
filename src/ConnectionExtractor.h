@@ -19,6 +19,12 @@ public:
     ConnectionGraph extract();
 
 private:
+    struct ResolvedExpr {
+        std::vector<std::string> netNames;
+        bool approximate = false;
+        bool tieOff = false;
+    };
+
     void visitInstance(const slang::ast::InstanceSymbol& instance,
                        const std::string& parentPath);
 
@@ -33,7 +39,7 @@ private:
 
     void resolveConnections();
 
-    static std::string extractNetName(const slang::ast::Expression* expr);
+    static ResolvedExpr resolveExpr(const slang::ast::Expression* expr);
 
     slang::ast::Compilation& compilation_;
     std::string topModule_;
@@ -46,6 +52,7 @@ private:
     struct NetBinding {
         PortInfo port;
         bool isDriver;
+        ConnectionKind kind = ConnectionKind::Direct;
     };
     std::unordered_map<std::string, std::vector<NetBinding>> netMap_;
 

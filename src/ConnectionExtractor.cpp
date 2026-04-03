@@ -10,75 +10,146 @@
 #include <slang/ast/expressions/MiscExpressions.h>
 #include <slang/ast/expressions/ConversionExpression.h>
 #include <slang/ast/expressions/AssignmentExpressions.h>
+#include <slang/ast/expressions/OperatorExpressions.h>
 #include <slang/ast/expressions/SelectExpressions.h>
 #include <slang/ast/types/Type.h>
 
+#include <algorithm>
+
 namespace connect {
+
+namespace {
+
+void appendUnique(std::vector<std::string>& dest, const std::vector<std::string>& src) {
+    for (const auto& value : src) {
+        if (std::find(dest.begin(), dest.end(), value) == dest.end())
+            dest.push_back(value);
+    }
+}
+
+bool isConstantOnly(const slang::ast::Expression* expr) {
+    if (!expr)
+        return false;
+
+    auto* constant = expr->getConstant();
+    return constant && *constant;
+}
+
+} // namespace
 
 ConnectionExtractor::ConnectionExtractor(slang::ast::Compilation& compilation,
                                          const std::string& topModule,
                                          int maxDepth)
     : compilation_(compilation), topModule_(topModule), maxDepth_(maxDepth) {}
 
-std::string ConnectionExtractor::extractNetName(const slang::ast::Expression* expr) {
+ConnectionExtractor::ResolvedExpr ConnectionExtractor::resolveExpr(
+    const slang::ast::Expression* expr) {
+    ResolvedExpr result;
     if (!expr)
-        return {};
+        return result;
 
-    // Walk through conversions/assignments to find the underlying named value.
-    // Accumulate index suffixes so that array-indexed nets like data[0] and data[1]
-    // produce distinct net keys (e.g., "data[0]" vs "data[1]").
-    const slang::ast::Expression* current = expr;
-    std::string suffix; // accumulated index suffixes
-    while (current) {
-        switch (current->kind) {
-            case slang::ast::ExpressionKind::NamedValue: {
-                auto& named = current->as<slang::ast::NamedValueExpression>();
-                return std::string(named.symbol.name) + suffix;
-            }
-            case slang::ast::ExpressionKind::Conversion: {
-                auto& conv = current->as<slang::ast::ConversionExpression>();
-                current = &conv.operand();
-                continue;
-            }
-            case slang::ast::ExpressionKind::Assignment: {
-                auto& assign = current->as<slang::ast::AssignmentExpression>();
-                current = &assign.left();
-                continue;
-            }
-            case slang::ast::ExpressionKind::RangeSelect: {
-                auto& sel = current->as<slang::ast::RangeSelectExpression>();
-                // Extract range bounds for distinct net keys
-                std::string lStr = "?", rStr = "?";
-                if (auto* lv = sel.left().getConstant(); lv && *lv)
-                    lStr = lv->toString();
-                if (auto* rv = sel.right().getConstant(); rv && *rv)
-                    rStr = rv->toString();
-                suffix = "[" + lStr + ":" + rStr + "]" + suffix;
-                current = &sel.value();
-                continue;
-            }
-            case slang::ast::ExpressionKind::ElementSelect: {
-                auto& sel = current->as<slang::ast::ElementSelectExpression>();
-                // Try to extract constant index for the suffix
-                auto& idxExpr = sel.selector();
-                std::string idxStr;
-                auto* cv = idxExpr.getConstant();
-                if (cv && *cv) {
-                    idxStr = cv->toString();
-                } else {
-                    idxStr = "?";
-                }
-                suffix = "[" + idxStr + "]" + suffix;
-                current = &sel.value();
-                continue;
-            }
-            case slang::ast::ExpressionKind::EmptyArgument:
-                return {};
-            default:
-                return {};
+    switch (expr->kind) {
+        case slang::ast::ExpressionKind::NamedValue: {
+            auto& named = expr->as<slang::ast::NamedValueExpression>();
+            result.netNames.push_back(std::string(named.symbol.name));
+            return result;
         }
+        case slang::ast::ExpressionKind::ArbitrarySymbol: {
+            auto& symbolExpr = expr->as<slang::ast::ArbitrarySymbolExpression>();
+            result.netNames.push_back(std::string(symbolExpr.symbol->name));
+            return result;
+        }
+        case slang::ast::ExpressionKind::Conversion: {
+            auto& conv = expr->as<slang::ast::ConversionExpression>();
+            return resolveExpr(&conv.operand());
+        }
+        case slang::ast::ExpressionKind::Assignment: {
+            auto& assign = expr->as<slang::ast::AssignmentExpression>();
+            return resolveExpr(&assign.left());
+        }
+        case slang::ast::ExpressionKind::RangeSelect: {
+            auto& sel = expr->as<slang::ast::RangeSelectExpression>();
+            result = resolveExpr(&sel.value());
+
+            std::string left = "?", right = "?";
+            if (auto* constant = sel.left().getConstant(); constant && *constant)
+                left = constant->toString();
+            if (auto* constant = sel.right().getConstant(); constant && *constant)
+                right = constant->toString();
+
+            for (auto& name : result.netNames)
+                name += "[" + left + ":" + right + "]";
+            return result;
+        }
+        case slang::ast::ExpressionKind::ElementSelect: {
+            auto& sel = expr->as<slang::ast::ElementSelectExpression>();
+            result = resolveExpr(&sel.value());
+
+            std::string index = "?";
+            if (auto* constant = sel.selector().getConstant(); constant && *constant)
+                index = constant->toString();
+
+            for (auto& name : result.netNames)
+                name += "[" + index + "]";
+            return result;
+        }
+        case slang::ast::ExpressionKind::MemberAccess: {
+            auto& access = expr->as<slang::ast::MemberAccessExpression>();
+            result = resolveExpr(&access.value());
+            for (auto& name : result.netNames)
+                name += "." + std::string(access.member.name);
+
+            if (access.member.kind == slang::ast::SymbolKind::Modport ||
+                access.member.kind == slang::ast::SymbolKind::ModportPort) {
+                result.approximate = true;
+            }
+            return result;
+        }
+        case slang::ast::ExpressionKind::Concatenation: {
+            auto& concat = expr->as<slang::ast::ConcatenationExpression>();
+            bool allTieOff = true;
+
+            for (auto* operand : concat.operands()) {
+                auto child = resolveExpr(operand);
+                appendUnique(result.netNames, child.netNames);
+                result.approximate = result.approximate || child.approximate;
+                allTieOff &= child.tieOff || (child.netNames.empty() && isConstantOnly(operand));
+            }
+
+            if (!result.netNames.empty())
+                result.approximate = true;
+            result.tieOff = result.netNames.empty() && allTieOff;
+            return result;
+        }
+        case slang::ast::ExpressionKind::Replication: {
+            auto& replication = expr->as<slang::ast::ReplicationExpression>();
+            result = resolveExpr(&replication.concat());
+            if (!result.netNames.empty())
+                result.approximate = true;
+            return result;
+        }
+        case slang::ast::ExpressionKind::Streaming: {
+            auto& streaming = expr->as<slang::ast::StreamingConcatenationExpression>();
+            bool allTieOff = true;
+
+            for (const auto& stream : streaming.streams()) {
+                auto child = resolveExpr(stream.operand.get());
+                appendUnique(result.netNames, child.netNames);
+                result.approximate = result.approximate || child.approximate;
+                allTieOff &= child.tieOff || (child.netNames.empty() && isConstantOnly(stream.operand.get()));
+            }
+
+            if (!result.netNames.empty())
+                result.approximate = true;
+            result.tieOff = result.netNames.empty() && allTieOff;
+            return result;
+        }
+        case slang::ast::ExpressionKind::EmptyArgument:
+            return result;
+        default:
+            result.tieOff = isConstantOnly(expr);
+            return result;
     }
-    return {};
 }
 
 ConnectionGraph ConnectionExtractor::extract() {
@@ -193,19 +264,27 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
         // Port has a non-empty expression — mark as connected
         graph_.connectedPorts.insert(pinfo.fullPath());
 
-        std::string netName = extractNetName(expr);
-        if (netName.empty())
+        auto resolved = resolveExpr(expr);
+        if (resolved.tieOff)
+            graph_.tieOffPorts.insert(pinfo.fullPath());
+
+        if (resolved.netNames.empty())
             continue;
 
-        // Build net key: scope path + net name
-        std::string netKey = scopePath + "::" + netName;
+        const ConnectionKind kind = resolved.approximate
+            ? ConnectionKind::Approximate
+            : ConnectionKind::Direct;
 
-        if (port.direction == slang::ast::ArgumentDirection::InOut) {
-            netMap_[netKey].push_back({pinfo, true});   // driver
-            netMap_[netKey].push_back({pinfo, false});  // load
-        } else {
-            bool isDriver = (port.direction == slang::ast::ArgumentDirection::Out);
-            netMap_[netKey].push_back({pinfo, isDriver});
+        for (const auto& netName : resolved.netNames) {
+            std::string netKey = scopePath + "::" + netName;
+
+            if (port.direction == slang::ast::ArgumentDirection::InOut) {
+                netMap_[netKey].push_back({pinfo, true, kind});   // driver
+                netMap_[netKey].push_back({pinfo, false, kind});  // load
+            } else {
+                bool isDriver = (port.direction == slang::ast::ArgumentDirection::Out);
+                netMap_[netKey].push_back({pinfo, isDriver, kind});
+            }
         }
     }
 
@@ -220,13 +299,14 @@ void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAs
         return;
 
     auto& assign = assignExpr.as<slang::ast::AssignmentExpression>();
-    std::string lhsName = extractNetName(&assign.left());
-    std::string rhsName = extractNetName(&assign.right());
-    if (lhsName.empty() || rhsName.empty())
+    auto lhs = resolveExpr(&assign.left());
+    auto rhs = resolveExpr(&assign.right());
+    if (lhs.approximate || rhs.approximate ||
+        lhs.netNames.size() != 1 || rhs.netNames.size() != 1)
         return;
 
-    std::string lhsKey = scopePath + "::" + lhsName;
-    std::string rhsKey = scopePath + "::" + rhsName;
+    std::string lhsKey = scopePath + "::" + lhs.netNames.front();
+    std::string rhsKey = scopePath + "::" + rhs.netNames.front();
 
     if (lhsKey == rhsKey)
         return;
@@ -264,14 +344,14 @@ void ConnectionExtractor::resolveConnections() {
 
     for (auto& [canon, bindings] : canonicalGroups) {
         // Collect drivers and loads
-        std::vector<const PortInfo*> drivers;
-        std::vector<const PortInfo*> loads;
+        std::vector<const NetBinding*> drivers;
+        std::vector<const NetBinding*> loads;
 
         for (auto* binding : bindings) {
             if (binding->isDriver) {
-                drivers.push_back(&binding->port);
+                drivers.push_back(binding);
             } else {
-                loads.push_back(&binding->port);
+                loads.push_back(binding);
             }
         }
 
@@ -279,8 +359,12 @@ void ConnectionExtractor::resolveConnections() {
         for (auto* driver : drivers) {
             for (auto* load : loads) {
                 Connection conn;
-                conn.source = *driver;
-                conn.dest = *load;
+                conn.source = driver->port;
+                conn.dest = load->port;
+                if (driver->kind == ConnectionKind::Approximate ||
+                    load->kind == ConnectionKind::Approximate) {
+                    conn.kind = ConnectionKind::Approximate;
+                }
                 graph_.connections.push_back(conn);
             }
         }

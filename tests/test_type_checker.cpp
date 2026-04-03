@@ -46,3 +46,15 @@ TEST_CASE("TypeChecker: unsigned to signed is ERROR") {
     REQUIRE(issues.size() == 1);
     CHECK(issues[0].severity == Issue::Severity::ERROR);
 }
+
+TEST_CASE("TypeChecker: approximate aggregate edges are skipped") {
+    ConnectionGraph graph;
+    graph.connections.push_back({
+        makePort("top.u_a", "o_hi", ArgumentDirection::Out, 8, true),
+        makePort("top.u_b", "i_bus", ArgumentDirection::In, 8, false),
+        ConnectionKind::Approximate
+    });
+
+    TypeChecker checker;
+    CHECK(checker.check(graph).empty());
+}

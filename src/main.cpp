@@ -2,6 +2,7 @@
 #include "CheckerRunner.h"
 #include "ClockResetAnalyzer.h"
 #include "ConnectionExtractor.h"
+#include "ConnectionFilters.h"
 #include "ConventionChecker.h"
 #include "CsvReport.h"
 #include "DanglingChecker.h"
@@ -34,9 +35,13 @@
 
 namespace fs = std::filesystem;
 
+#ifndef SV_CONN_CHECK_VERSION
+#define SV_CONN_CHECK_VERSION "0.2.2"
+#endif
+
 static void printUsage() {
     fmt::print(
-        "sv-conncheck v0.2.1 -- Module interconnect verification and analysis\n\n"
+        "sv-conncheck v" SV_CONN_CHECK_VERSION " -- Module interconnect verification and analysis\n\n"
         "Usage: sv-conncheck [OPTIONS] <SV_FILES...>\n\n"
         "Required:\n"
         "  --top <module>          Top-level module\n\n"
@@ -55,12 +60,14 @@ static void printUsage() {
         "  --convention <file>     Custom convention rules (YAML, optional)\n"
         "  --expect <file>         Expected/forbidden connectivity spec (YAML)\n"
         "  --depth <n>             Hierarchy depth (default: unlimited, -1)\n\n"
+        "Filtering:\n"
+        "  --ignore-tie-off        Exclude ports tied to compile-time constants\n"
+        "  --ignore-nc             Exclude ports named as no-connect / unused\n"
+        "  --waiver <file>         YAML waiver file\n\n"
         "Tracing:\n"
         "  --trace <pattern>       Trace signal fan-out and fan-in (glob pattern)\n\n"
         "Comparison:\n"
         "  --diff <file>           Compare against a baseline JSON report\n\n"
-        "Filtering:\n"
-        "  --waiver <file>         YAML waiver file\n\n"
         "All other options (e.g. -I, -D, --std, -f) are passed to slang.\n");
 }
 
@@ -134,6 +141,7 @@ static CliOptions parseCustomArgs(int argc, const char* const* argv,
         } else if (arg == "--convention") {
             if (i + 1 >= argc) { fmt::print(stderr, "Error: --convention requires a value\n"); return opts; }
             opts.conventionFile = argv[++i];
+            opts.checkConvention = true;
         } else if (arg == "--expect") {
             if (i + 1 >= argc) { fmt::print(stderr, "Error: --expect requires a value\n"); return opts; }
             opts.expectFile = argv[++i];
@@ -144,10 +152,8 @@ static CliOptions parseCustomArgs(int argc, const char* const* argv,
             if (i + 1 >= argc) { fmt::print(stderr, "Error: --trace requires a value\n"); return opts; }
             opts.traceSignal = argv[++i];
         } else if (arg == "--ignore-tie-off") {
-            // Parsed but not yet implemented - reserved for future use
             opts.ignoreTieOff = true;
         } else if (arg == "--ignore-nc") {
-            // Parsed but not yet implemented - reserved for future use
             opts.ignoreNc = true;
         } else {
             // Pass through to slang (SV files, -I, -D, --std, -f, etc.)
@@ -211,10 +217,10 @@ static std::vector<connect::Issue> runCheckers(const CliOptions& opts,
     if (opts.checkProtocol)
         runner.addChecker(std::make_unique<connect::ProtocolChecker>());
     if (opts.checkConvention) {
-        if (!opts.conventionFile.empty()) {
-            fmt::print(stderr, "Warning: --convention file loading not yet implemented, using defaults\n");
-        }
-        runner.addChecker(std::make_unique<connect::ConventionChecker>());
+        auto rules = opts.conventionFile.empty()
+            ? connect::ConventionRules{}
+            : connect::loadConventionRules(opts.conventionFile);
+        runner.addChecker(std::make_unique<connect::ConventionChecker>(rules));
     }
     if (!opts.expectFile.empty())
         runner.addChecker(std::make_unique<connect::ExpectChecker>(opts.expectFile));
@@ -429,8 +435,19 @@ int main(int argc, char* argv[]) {
     if (!runCompilation(slangArgs, opts, graph))
         return 1;
 
+    connect::GraphFilterOptions filterOptions;
+    filterOptions.ignoreTieOff = opts.ignoreTieOff;
+    filterOptions.ignoreNc = opts.ignoreNc;
+    graph = connect::applyGraphFilters(graph, filterOptions);
+
     // --- Phase 4: Run checkers ---
-    auto issues = runCheckers(opts, graph);
+    std::vector<connect::Issue> issues;
+    try {
+        issues = runCheckers(opts, graph);
+    } catch (const std::exception& e) {
+        fmt::print(stderr, "Error: {}\n", e.what());
+        return 1;
+    }
 
     // --- Phase 5: Apply waivers ---
     std::vector<connect::Issue> active;

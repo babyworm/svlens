@@ -102,5 +102,9 @@ target_link_libraries(svlens PRIVATE svlens-common-lib svlens-conn-lib svlens-cd
 
 install(TARGETS svlens RUNTIME DESTINATION bin)
 
+target_compile_definitions(svlens PRIVATE SVLENS_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(svlens-conn-lib PRIVATE SVLENS_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(svlens-cdc-lib PRIVATE SVLENS_VERSION="${PROJECT_VERSION}")
+
 enable_testing()
 add_subdirectory(tests)

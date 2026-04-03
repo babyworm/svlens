@@ -5,10 +5,6 @@
 
 #include <iostream>
 
-#ifndef SVLENS_VERSION
-#define SVLENS_VERSION "0.2.2"
-#endif
-
 void cdccli::printCdcUsage() {
     std::cout << "svlens cdc v" << SVLENS_VERSION << " — Structural CDC Analysis Tool\n\n"
               << "Usage: svlens cdc [OPTIONS] <SV_FILES...>\n\n"

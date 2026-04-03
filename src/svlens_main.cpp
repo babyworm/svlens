@@ -17,7 +17,7 @@ namespace fs = std::filesystem;
 
 void printUsage() {
     fmt::print(
-        "svlens v0.2.2 -- Unified SystemVerilog structural analysis\n\n"
+        "svlens v" SVLENS_VERSION " -- Unified SystemVerilog structural analysis\n\n"
         "Usage:\n"
         "  svlens conn [OPTIONS] <SV_FILES...>\n"
         "  svlens cdc  [OPTIONS] <SV_FILES...>\n"
@@ -151,7 +151,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
     if (mode == "--version") {
-        fmt::print("svlens 0.2.2\n");
+        fmt::print("svlens " SVLENS_VERSION "\n");
         return 0;
     }
     if (mode == "conn") {
@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
             return 0;
         }
         if (connOpts.showVersion || cdcOpts.showVersion) {
-            fmt::print("svlens v0.2.2\n");
+            fmt::print("svlens v" SVLENS_VERSION "\n");
             return 0;
         }
         if (!connect::validateConnOptions(connOpts))

@@ -10,10 +10,6 @@
 #include <string>
 #include <vector>
 
-#ifndef SVLENS_VERSION
-#define SVLENS_VERSION "0.2.2"
-#endif
-
 void connect::printConnUsage() {
     fmt::print(
         "svlens conn v" SVLENS_VERSION " -- Module interconnect verification and analysis\n\n"

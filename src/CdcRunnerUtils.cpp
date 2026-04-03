@@ -24,7 +24,7 @@ sv_cdccheck::AnalysisResult analyzeCdcCompilation(slang::ast::Compilation& compi
     compilation.getAllDiagnostics();
 
     if (!opts.quiet)
-        std::cout << "sv-cdccheck: Design elaborated successfully.\n";
+        std::cout << "svlens cdc: Design elaborated successfully.\n";
 
     sv_cdccheck::ClockDatabase clockDb;
     sv_cdccheck::ClockTreeAnalyzer clockAnalyzer(compilation, clockDb);
@@ -41,7 +41,7 @@ sv_cdccheck::AnalysisResult analyzeCdcCompilation(slang::ast::Compilation& compi
         if (opts.verbose)
             std::cout << "  Loading clock YAML: " << opts.clockYamlFile << "\n";
         if (!clockYamlParser.loadFile(opts.clockYamlFile)) {
-            std::cerr << "sv-cdccheck: warning: could not load clock YAML file: "
+            std::cerr << "svlens cdc: warning: could not load clock YAML file: "
                       << opts.clockYamlFile << "\n";
         } else {
             clockYamlParser.applyTo(clockDb);
@@ -66,7 +66,7 @@ sv_cdccheck::AnalysisResult analyzeCdcCompilation(slang::ast::Compilation& compi
         std::cout << "  FFs detected: " << classifier->getFFNodes().size() << "\n";
 
     for (const auto& err : classifier->getErrors())
-        std::cerr << "sv-cdccheck: error: " << err.hier_path << ": " << err.message << "\n";
+        std::cerr << "svlens cdc: error: " << err.hier_path << ": " << err.message << "\n";
 
     sv_cdccheck::ConnectivityBuilder connectivity(compilation, classifier->getFFNodes());
     connectivity.analyze();
@@ -88,7 +88,7 @@ sv_cdccheck::AnalysisResult analyzeCdcCompilation(slang::ast::Compilation& compi
         if (opts.verbose)
             std::cout << "  Loading waivers: " << opts.waiverFile << "\n";
         if (!waiverMgr.loadFile(opts.waiverFile)) {
-            std::cerr << "sv-cdccheck: warning: could not load waiver file: "
+            std::cerr << "svlens cdc: warning: could not load waiver file: "
                       << opts.waiverFile << "\n";
         } else if (opts.verbose) {
             std::cout << "  Waivers loaded: " << waiverMgr.getWaivers().size() << "\n";

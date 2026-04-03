@@ -92,17 +92,17 @@ cdccli::CdcCliOptions cdccli::parseCdcArgs(int argc, const char* const* argv,
 
 bool cdccli::validateCdcOptions(const CdcCliOptions& opts) {
     if (!opts.parseError.empty()) {
-        std::cerr << "sv-cdccheck: error: " << opts.parseError << "\n";
+        std::cerr << "svlens cdc: error: " << opts.parseError << "\n";
         return false;
     }
     if (opts.topModule.empty()) {
-        std::cerr << "sv-cdccheck: error: --top <module> is required\n";
+        std::cerr << "svlens cdc: error: --top <module> is required\n";
         printCdcUsage();
         return false;
     }
     if (opts.format != "md" && opts.format != "json" && opts.format != "sdc" &&
         opts.format != "waiver" && opts.format != "all") {
-        std::cerr << "sv-cdccheck: error: invalid format '" << opts.format
+        std::cerr << "svlens cdc: error: invalid format '" << opts.format
                   << "'. Use md|json|sdc|waiver|all\n";
         return false;
     }
@@ -143,7 +143,7 @@ int runCdcMain(int argc, char** argv) {
     connect::CompilationSession session;
     std::string error;
     if (!session.compile(compilationArgs, &error)) {
-        std::cerr << "sv-cdccheck: error: " << error << "\n";
+        std::cerr << "svlens cdc: error: " << error << "\n";
         return 1;
     }
 

@@ -133,3 +133,20 @@ TEST_CASE("isAsynchronous: Divided clocks are NOT async", "[cdc][clock_db]") {
 
     CHECK_FALSE(db.isAsynchronous(d1, d2));
 }
+
+TEST_CASE("findOrCreateDomain: duplicate source names get unique domain_by_name keys", "[cdc][clock_db]") {
+    sv_cdccheck::ClockDatabase db;
+    auto s1 = std::make_unique<sv_cdccheck::ClockSource>();
+    s1->id = "clk_subsys_a"; s1->name = "clk";
+    auto* p1 = db.addSource(std::move(s1));
+
+    auto s2 = std::make_unique<sv_cdccheck::ClockSource>();
+    s2->id = "clk_subsys_b"; s2->name = "clk";
+    auto* p2 = db.addSource(std::move(s2));
+
+    auto* d1 = db.findOrCreateDomain(p1, sv_cdccheck::Edge::Posedge);
+    auto* d2 = db.findOrCreateDomain(p2, sv_cdccheck::Edge::Posedge);
+
+    CHECK(d1 != d2);
+    CHECK(db.domains.size() == 2);
+}

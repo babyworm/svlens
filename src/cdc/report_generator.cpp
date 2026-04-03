@@ -97,11 +97,18 @@ ClockDomain* ClockDatabase::findOrCreateDomain(ClockSource* source, Edge edge) {
             return d.get();
     }
     auto dom = std::make_unique<ClockDomain>();
-    dom->canonical_name = source->name;
     dom->source = source;
     dom->edge = edge;
+
+    // Build a unique canonical name: prefer source->id if name collides
+    std::string cname = source->name;
+    if (domain_by_name.count(cname) > 0) {
+        cname = source->id.empty() ? (source->name + "_" + std::to_string(domains.size())) : source->id;
+    }
+    dom->canonical_name = cname;
+
     auto* ptr = dom.get();
-    domain_by_name[dom->canonical_name] = ptr;
+    domain_by_name[cname] = ptr;
     domains.push_back(std::move(dom));
     return ptr;
 }

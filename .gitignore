@@ -14,3 +14,6 @@ CMakeUserPresets.json
 .rat/
 .rtl-agent-team/
 Testing/
+bench/opentitan/.ot-src/
+bench/opentitan/results/
+bench/opentitan/filelists/

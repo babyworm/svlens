@@ -1,0 +1,31 @@
+opentitan_tag: "Earlgrey-PROD.M6"
+opentitan_repo: "https://github.com/lowRISC/opentitan.git"
+
+targets:
+  - name: aes
+    level: L1
+    top_module: aes
+    core: "lowrisc:ip:aes"
+    core_file: "hw/ip/aes/aes.core"
+    timeout_sec: 120
+
+  - name: hmac
+    level: L2
+    top_module: hmac
+    core: "lowrisc:ip:hmac"
+    core_file: "hw/ip/hmac/hmac.core"
+    timeout_sec: 120
+
+  - name: uart
+    level: L3
+    top_module: uart
+    core: "lowrisc:ip:uart"
+    core_file: "hw/ip/uart/uart.core"
+    timeout_sec: 120
+
+  - name: top_earlgrey
+    level: L4
+    top_module: top_earlgrey
+    core: "lowrisc:systems:top_earlgrey"
+    core_file: "hw/top_earlgrey/top_earlgrey.core"
+    timeout_sec: 600

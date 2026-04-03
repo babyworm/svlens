@@ -11,7 +11,7 @@ CLANG_FORMAT ?= clang-format
 # future contributors using .hpp / .cxx / .cc / .hxx remain covered.
 FORMAT_FILES := $(shell git ls-files src include tests fuzz 2>/dev/null | grep -E '\.(cpp|cxx|cc|h|hpp|hxx)$$')
 
-.PHONY: help build test install clean debug format format-check
+.PHONY: help build test install clean debug format format-check bench
 
 help:
 	@echo "svlens build targets:"
@@ -63,3 +63,6 @@ format-check:
 		exit 1; \
 	fi
 	@echo "format-check: all files match .clang-format"
+
+bench: build
+	cd bench/opentitan && bash fetch.sh && python3 gen_filelist.py && bash run.sh && python3 evaluate.py

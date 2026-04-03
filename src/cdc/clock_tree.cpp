@@ -685,6 +685,12 @@ void ClockTreeAnalyzer::importSdcRelationships() {
     }
 }
 
+// Walk master chain to find ultimate root clock source
+static ClockSource* rootSource(ClockSource* s) {
+    while (s && s->master) s = s->master;
+    return s;
+}
+
 void ClockTreeAnalyzer::inferRelationships() {
     // For sources sharing a master: mark as Divided
     // For unrelated auto-detected sources: conservatively mark as Asynchronous
@@ -703,15 +709,16 @@ void ClockTreeAnalyzer::inferRelationships() {
             }
             if (already_defined) continue;
 
-            // Same master → related/divided
-            if (a->master && a->master == b->master) {
-                clock_db_.relationships.push_back(
-                    {a, b, DomainRelationship::Type::Divided});
-            } else if (a->master == b || b->master == a) {
+            // Check if they share a common root source
+            auto* rootA = rootSource(a);
+            auto* rootB = rootSource(b);
+
+            if (rootA == rootB) {
+                // Same root → divided/related
                 clock_db_.relationships.push_back(
                     {a, b, DomainRelationship::Type::Divided});
             } else {
-                // Different sources, no known relationship → assume async
+                // Different root sources → assume async
                 clock_db_.relationships.push_back(
                     {a, b, DomainRelationship::Type::Asynchronous});
             }

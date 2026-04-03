@@ -186,7 +186,9 @@ static void collectContinuousAssigns(
 
         // ContinuousAssignSymbol has getAssignment() that returns an Assignment expression
         auto& ca = member.as<slang::ast::ContinuousAssignSymbol>();
-        auto& assign_expr = ca.getAssignment().as<slang::ast::AssignmentExpression>();
+        auto& assignRaw = ca.getAssignment();
+        if (assignRaw.kind != slang::ast::ExpressionKind::Assignment) continue;
+        auto& assign_expr = assignRaw.as<slang::ast::AssignmentExpression>();
         std::string lhs_name;
         if (assign_expr.left().kind == slang::ast::ExpressionKind::NamedValue) {
             lhs_name = std::string(

@@ -867,10 +867,8 @@ void SyncVerifier::detectQuasiStaticSignals() {
     // or the source FF has no dynamic data input (empty fanin)
     size_t n = crossings_.size(); // snapshot size to avoid iterating new entries
     for (size_t ci = 0; ci < n; ++ci) {
-        auto& crossing = crossings_[ci];
-
-        // Extract leaf name of source signal
-        std::string src_leaf = crossing.source_signal;
+        // Use index-based access throughout — auto& would dangle if push_back reallocates
+        std::string src_leaf = crossings_[ci].source_signal;
         auto dot = src_leaf.rfind('.');
         if (dot != std::string::npos) src_leaf = src_leaf.substr(dot + 1);
 
@@ -889,7 +887,7 @@ void SyncVerifier::detectQuasiStaticSignals() {
 
         if (!is_quasi_static) {
             // Also check if source FF has no dynamic data input
-            auto ff_it = ff_by_path_.find(crossing.source_signal);
+            auto ff_it = ff_by_path_.find(crossings_[ci].source_signal);
             if (ff_it != ff_by_path_.end()) {
                 const FFNode* src_ff = ff_it->second;
                 if (src_ff->fanin_signals.empty()) {
@@ -901,11 +899,11 @@ void SyncVerifier::detectQuasiStaticSignals() {
         if (is_quasi_static) {
             // Add a separate INFO report for the quasi-static hint
             CrossingReport report;
-            report.source_domain = crossing.source_domain;
-            report.dest_domain = crossing.dest_domain;
-            report.source_signal = crossing.source_signal;
-            report.dest_signal = crossing.dest_signal;
-            report.sync_type = crossing.sync_type;
+            report.source_domain = crossings_[ci].source_domain;
+            report.dest_domain = crossings_[ci].dest_domain;
+            report.source_signal = crossings_[ci].source_signal;
+            report.dest_signal = crossings_[ci].dest_signal;
+            report.sync_type = crossings_[ci].sync_type;
             report.category = ViolationCategory::Info;
             report.severity = Severity::Info;
             report.id = "INFO-" + std::to_string(++info_counter_);

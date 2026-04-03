@@ -535,17 +535,20 @@ void ClockTreeAnalyzer::checkTogglePattern(
 
 // ── Phase 1b+: Clock gate (ICG) detection ──
 
+// Forward declaration — defined in Helpers section below
+static bool matchWordBoundary(const std::string& lower, const char* pattern);
+
 static bool isICGName(const std::string& name) {
-    std::string upper = name;
-    std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
-    for (auto& pat : {"ICG", "CLKGATE", "CG", "CLOCK_GATE"}) {
-        std::string upat(pat);
-        if (upper.find(upat) != std::string::npos) return true;
-    }
-    // Also check lowercase
     std::string lower = name;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-    if (lower.find("clock_gate") != std::string::npos) return true;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    // Specific patterns — word-boundary matching to avoid false positives
+    for (auto& pat : {"icg", "clkgate", "clock_gate", "clk_gate"}) {
+        if (matchWordBoundary(lower, pat)) return true;
+    }
+    // "cg" only as standalone word boundary (not substring of codec_gen, cfg, etc.)
+    if (matchWordBoundary(lower, "cg")) return true;
     return false;
 }
 

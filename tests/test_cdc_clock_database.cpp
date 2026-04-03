@@ -76,3 +76,60 @@ TEST_CASE("CDC ClockDatabase: isAsynchronous honors explicit relationships", "[c
     db.relationships.push_back({sysPtr, extPtr, DomainRelationship::Type::SameSource});
     CHECK_FALSE(db.isAsynchronous(sysDom, extDom));
 }
+
+TEST_CASE("isAsynchronous: PhysicallyExclusive clocks are NOT async (never coexist per SDC)", "[cdc][clock_db]") {
+    ClockDatabase db;
+    auto s1 = std::make_unique<ClockSource>();
+    s1->id = "mux_clk_a"; s1->name = "mux_clk_a";
+    auto* p1 = db.addSource(std::move(s1));
+
+    auto s2 = std::make_unique<ClockSource>();
+    s2->id = "mux_clk_b"; s2->name = "mux_clk_b";
+    auto* p2 = db.addSource(std::move(s2));
+
+    db.relationships.push_back(
+        {p1, p2, DomainRelationship::Type::PhysicallyExclusive});
+
+    auto* d1 = db.findOrCreateDomain(p1, Edge::Posedge);
+    auto* d2 = db.findOrCreateDomain(p2, Edge::Posedge);
+
+    CHECK_FALSE(db.isAsynchronous(d1, d2));
+}
+
+TEST_CASE("isAsynchronous: LogicallyExclusive clocks are NOT async (never coexist per SDC)", "[cdc][clock_db]") {
+    ClockDatabase db;
+    auto s1 = std::make_unique<ClockSource>();
+    s1->id = "le_a"; s1->name = "le_a";
+    auto* p1 = db.addSource(std::move(s1));
+
+    auto s2 = std::make_unique<ClockSource>();
+    s2->id = "le_b"; s2->name = "le_b";
+    auto* p2 = db.addSource(std::move(s2));
+
+    db.relationships.push_back(
+        {p1, p2, DomainRelationship::Type::LogicallyExclusive});
+
+    auto* d1 = db.findOrCreateDomain(p1, Edge::Posedge);
+    auto* d2 = db.findOrCreateDomain(p2, Edge::Posedge);
+
+    CHECK_FALSE(db.isAsynchronous(d1, d2));
+}
+
+TEST_CASE("isAsynchronous: Divided clocks are NOT async", "[cdc][clock_db]") {
+    ClockDatabase db;
+    auto s1 = std::make_unique<ClockSource>();
+    s1->id = "pll"; s1->name = "pll";
+    auto* p1 = db.addSource(std::move(s1));
+
+    auto s2 = std::make_unique<ClockSource>();
+    s2->id = "pll_div2"; s2->name = "pll_div2";
+    auto* p2 = db.addSource(std::move(s2));
+
+    db.relationships.push_back(
+        {p1, p2, DomainRelationship::Type::Divided});
+
+    auto* d1 = db.findOrCreateDomain(p1, Edge::Posedge);
+    auto* d2 = db.findOrCreateDomain(p2, Edge::Posedge);
+
+    CHECK_FALSE(db.isAsynchronous(d1, d2));
+}

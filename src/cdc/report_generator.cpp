@@ -125,6 +125,9 @@ bool ClockDatabase::isAsynchronous(const ClockDomain* a, const ClockDomain* b) c
     for (auto& rel : relationships) {
         if ((rel.a == a->source && rel.b == b->source) ||
             (rel.a == b->source && rel.b == a->source)) {
+            // Only Asynchronous needs CDC synchronization.
+            // Exclusive clocks (Physically/Logically) never coexist per SDC semantics.
+            // SameSource and Divided are related clocks — no crossing needed.
             return rel.relationship == DomainRelationship::Type::Asynchronous;
         }
     }

@@ -204,15 +204,19 @@ void ClockYamlParser::applyTo(ClockDatabase& clock_db) const {
                 if (!out.frequency.empty()) {
                     double freq_mhz = 0;
                     std::string freq_str = out.frequency;
-                    if (freq_str.ends_with("MHz") || freq_str.ends_with("Mhz") ||
-                        freq_str.ends_with("mhz")) {
-                        freq_mhz = std::stod(freq_str.substr(0, freq_str.size() - 3));
-                    } else if (freq_str.ends_with("GHz") || freq_str.ends_with("Ghz") ||
-                               freq_str.ends_with("ghz")) {
-                        freq_mhz = std::stod(freq_str.substr(0, freq_str.size() - 3)) * 1000.0;
-                    } else if (freq_str.ends_with("KHz") || freq_str.ends_with("Khz") ||
-                               freq_str.ends_with("khz")) {
-                        freq_mhz = std::stod(freq_str.substr(0, freq_str.size() - 3)) / 1000.0;
+                    try {
+                        if (freq_str.ends_with("MHz") || freq_str.ends_with("Mhz") ||
+                            freq_str.ends_with("mhz")) {
+                            freq_mhz = std::stod(freq_str.substr(0, freq_str.size() - 3));
+                        } else if (freq_str.ends_with("GHz") || freq_str.ends_with("Ghz") ||
+                                   freq_str.ends_with("ghz")) {
+                            freq_mhz = std::stod(freq_str.substr(0, freq_str.size() - 3)) * 1000.0;
+                        } else if (freq_str.ends_with("KHz") || freq_str.ends_with("Khz") ||
+                                   freq_str.ends_with("khz")) {
+                            freq_mhz = std::stod(freq_str.substr(0, freq_str.size() - 3)) / 1000.0;
+                        }
+                    } catch (const std::exception&) {
+                        freq_mhz = 0;
                     }
                     if (freq_mhz > 0) {
                         src->period_ns = 1000.0 / freq_mhz;

@@ -19,6 +19,8 @@
 #include "slang/ast/statements/ConditionalStatements.h"
 #include "slang/ast/SemanticFacts.h"
 
+#include <cstring>
+
 namespace sv_cdccheck {
 
 FFClassifier::FFClassifier(slang::ast::Compilation& compilation,
@@ -365,17 +367,25 @@ static void processMembers(const slang::ast::Scope& scope,
             auto& child_inst = member.as<slang::ast::InstanceSymbol>();
             auto& def = child_inst.getDefinition();
             std::string def_name(def.name);
-            std::string def_upper = def_name;
-            std::transform(def_upper.begin(), def_upper.end(),
-                           def_upper.begin(), ::toupper);
+            std::string def_lower = def_name;
+            std::transform(def_lower.begin(), def_lower.end(),
+                           def_lower.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
             bool is_lib_ff = false;
-            for (auto& pat : {"DFF", "SDFF", "DFFR", "FDRE", "FD"}) {
-                std::string spat(pat);
-                if (def_upper.find(spat) != std::string::npos) {
-                    is_lib_ff = true;
-                    break;
+            // Use alpha-boundary matching to avoid false positives
+            // e.g., "fd" should match "FD1", "FDRE" but not "FIFO_DATA"
+            for (auto& pat : {"dff", "sdff", "dffr", "fdre", "fdce", "fdrse"}) {
+                size_t plen = std::strlen(pat);
+                auto pos = def_lower.find(pat);
+                while (pos != std::string::npos) {
+                    bool start_ok = (pos == 0 || !std::isalpha(static_cast<unsigned char>(def_lower[pos - 1])));
+                    size_t end = pos + plen;
+                    bool end_ok = (end == def_lower.size() || !std::isalpha(static_cast<unsigned char>(def_lower[end])));
+                    if (start_ok && end_ok) { is_lib_ff = true; break; }
+                    pos = def_lower.find(pat, pos + 1);
                 }
+                if (is_lib_ff) break;
             }
 
             // Also check for (* cdc_ff *) attribute

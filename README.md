@@ -1,13 +1,44 @@
-# sv-conncheck
+# svlens
 
-Module interconnect verification and connectivity analysis tool for SystemVerilog designs.
-Analyzes port connections and reports width mismatches, type mismatches,
-dangling outputs, undriven inputs, protocol completeness, and naming conventions.
-Provides quantitative health scoring, risk assessment, and interactive visualization.
+Unified structural analysis toolkit for SystemVerilog RTL designs.
+
+This repository now ships a single user-facing executable:
+
+- `svlens`
 
 Built on [slang](https://github.com/MikePopoloski/slang) v10+.
 
-## Prerequisites
+---
+
+## What it does
+
+`svlens` currently exposes two analysis modes:
+
+- **Connectivity / interconnect analysis**
+  - port-to-port connectivity extraction
+  - width mismatch, type mismatch, dangling output, undriven input
+  - protocol completeness, naming convention checks
+  - diff / trace / interface grouping / report generation
+
+- **CDC (Clock Domain Crossing) analysis**
+  - clock source and domain analysis
+  - FF classification
+  - FF-to-FF crossing detection
+  - synchronizer recognition
+  - CDC waiver / SDC / report generation
+
+It also supports:
+
+- **`svlens both`**
+  - sequential `conn` + `cdc` execution
+  - shared elaboration frontend
+  - split output trees under one output root
+
+---
+
+## Build
+
+### Prerequisites
 
 | Dependency | Version | Install |
 |------------|---------|---------|
@@ -17,147 +48,179 @@ Built on [slang](https://github.com/MikePopoloski/slang) v10+.
 
 **Auto-fetched** (no manual install needed): yaml-cpp 0.8.0, Catch2 v3.5.2, fmt (bundled by slang)
 
-### Quick setup (recommended)
-
-The setup script checks prerequisites and installs slang automatically:
+### Quick setup
 
 ```bash
-./scripts/setup-deps.sh                          # install to $HOME/.local (default)
-./scripts/setup-deps.sh --prefix /opt/sv-deps    # or custom location
+./scripts/setup-deps.sh
+./scripts/setup-deps.sh --prefix /opt/sv-deps
 ```
 
 ### Manual slang install
 
 ```bash
-git clone --depth 1 --branch v7.0 https://github.com/MikePopoloski/slang.git
+git clone --depth 1 --branch v10.0 https://github.com/MikePopoloski/slang.git
 cd slang
 cmake -B build -DCMAKE_INSTALL_PREFIX=$HOME/.local -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 cmake --install build
 ```
 
-## Build
+### Build this project
 
 ```bash
 cmake -B build -DCMAKE_PREFIX_PATH="$HOME/.local"
 cmake --build build -j$(nproc)
 ```
 
-`CMAKE_PREFIX_PATH` should point to the directory where slang was installed.
-
-If slang is not found, CMake will print the exact setup command to run.
-
-To run tests:
+### Run tests
 
 ```bash
-ctest --test-dir build
+ctest --test-dir build --output-on-failure
 ```
 
-## Usage
+---
+
+## Primary CLI
 
 ```bash
-# Basic analysis
-sv-conncheck design.sv --top my_top
+svlens conn [OPTIONS] <SV_FILES...>
+svlens cdc  [OPTIONS] <SV_FILES...>
+svlens both [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] <SV_FILES...>
+```
 
-# Full analysis with all output formats
-sv-conncheck -f filelist.f --top soc_top --format all -o reports/
+### Help
+
+```bash
+./build/svlens --help
+./build/svlens conn --help
+./build/svlens cdc --help
+```
+
+### Version
+
+```bash
+./build/svlens --version
+```
+
+---
+
+## Connectivity examples
+
+```bash
+# Basic connectivity analysis
+./build/svlens conn design.sv --top my_top
+
+# All output formats
+./build/svlens conn -f filelist.f --top soc_top --format all -o reports/
 
 # Selective checks with waivers
-sv-conncheck design.sv --top my_top --no-check-dangling --waiver waivers.yaml
+./build/svlens conn design.sv --top my_top --no-check-dangling --waiver waivers.yaml
 
 # Protocol and convention checking
-sv-conncheck design.sv --top my_top --check-protocol --check-convention
+./build/svlens conn design.sv --top my_top --check-protocol --check-convention
 
 # Ignore intentional NC / tie-off ports
-sv-conncheck design.sv --top my_top --ignore-nc --ignore-tie-off
+./build/svlens conn design.sv --top my_top --ignore-nc --ignore-tie-off
 
-# Generate block diagram (Graphviz DOT)
-sv-conncheck design.sv --top my_top --format dot -o reports/
-dot -Tsvg reports/connectivity.dot -o block_diagram.svg
+# Diff against baseline
+./build/svlens conn design.sv --top my_top --diff baseline/connect_report.json
 
-# Interactive HTML dashboard
-sv-conncheck design.sv --top my_top --format html -o reports/
-open reports/connect_report.html
+# Expected connectivity
+./build/svlens conn design.sv --top my_top --expect connectivity_spec.yaml
 
-# Compare against baseline (CI integration)
-sv-conncheck design.sv --top my_top --diff baseline/connect_report.json
+# Clock/reset naming heuristic summary
+./build/svlens conn design.sv --top my_top --check-clock-reset
 
-# Verify expected connectivity
-sv-conncheck design.sv --top my_top --expect connectivity_spec.yaml
-
-# Clock/reset topology analysis
-sv-conncheck design.sv --top my_top --check-clock-reset
-
-# Signal fan-in/fan-out tracing
-sv-conncheck design.sv --top my_top --trace "*.u_cpu.o_addr"
+# Signal trace
+./build/svlens conn design.sv --top my_top --trace "*.u_cpu.o_addr"
 ```
 
-## Checks
-
-| Check | Detects | Default |
-|-------|---------|---------|
-| Width Mismatch | Silent truncation or extension | ON |
-| Type Mismatch | signed/unsigned mismatch | ON |
-| Dangling Output | Unconnected output ports | ON |
-| Undriven Input | Input ports with no driver | ON |
-| Protocol Completeness | Missing AXI/AHB/APB signals | OFF (`--check-protocol`) |
-| Convention | Port/instance naming violations | OFF (`--check-convention`) |
-| Expected Connectivity | Missing or forbidden connections | OFF (`--expect <file>`) |
-| Clock/Reset Topology | Clock distribution, missing resets | OFF (`--check-clock-reset`) |
-
-## Analysis Features
-
-### Module Health Score
-Each module gets a 0-100% health score based on port connectivity and issue density.
-Displayed as progress bars in table output and as a gauge in the HTML dashboard.
-
-### Risk Assessment
-Issues are classified as HIGH/MEDIUM/LOW risk with human-readable explanations:
-- **HIGH**: Width truncation (data loss), undriven inputs, forbidden connections
-- **MEDIUM**: Type mismatch, missing expected connections, incomplete protocols
-- **LOW**: Dangling outputs, naming conventions, width extension
-
-### Coupling Matrix
-Shows connection counts between each module pair, sorted by coupling strength.
-The HTML dashboard includes an interactive heatmap with hierarchical drill-down.
-
-### Interface Grouping
-Automatically detects AXI4, AXI4-Lite, AXI-Stream, AHB, and APB interfaces
-by matching port name suffixes. Determines master/slave role from signal directions.
-
-### Signal Trace
-Traces a signal's fan-out (where does it go?) or fan-in (where does it come from?)
-across the module hierarchy using BFS traversal.
-
-## Output Formats
+### Connectivity outputs
 
 | Format | Description | File |
 |--------|-------------|------|
-| **table** | Terminal output with health scores, risks, coupling | stdout |
-| **json** | Machine-readable with full analysis data | `connect_report.json` |
-| **md** | Markdown review report | `connect_report.md` |
-| **csv** | Connection matrix spreadsheet | `connection_matrix.csv` |
-| **dot** | Graphviz block diagram | `connectivity.dot` |
-| **html** | Interactive dashboard (4 tabs: Overview, Graph, Heatmap, Details) | `connect_report.html` |
-| **all** | All formats (default) | all of the above |
+| `table` | terminal summary | stdout |
+| `json` | machine-readable report | `connect_report.json` |
+| `md` | markdown report | `connect_report.md` |
+| `csv` | connection matrix | `connection_matrix.csv` |
+| `dot` | graphviz block diagram | `connectivity.dot` |
+| `html` | interactive dashboard | `connect_report.html` |
 
-## Connection Diff
+---
 
-Compare current analysis against a baseline JSON report to detect connectivity changes:
+## CDC examples
 
 ```bash
-# Generate baseline
-sv-conncheck design.sv --top soc --format json -o baseline/
+# Basic CDC analysis
+./build/svlens cdc --top soc_top rtl/soc_top.sv rtl/subsystem.sv
 
-# After modifications, compare
-sv-conncheck design_v2.sv --top soc --diff baseline/connect_report.json
+# With SDC clock constraints
+./build/svlens cdc --top soc_top rtl/*.sv --sdc syn/clocks.sdc
+
+# With YAML clock specification
+./build/svlens cdc --top soc_top rtl/*.sv --clock-yaml clock_domains.yaml
+
+# Apply waivers
+./build/svlens cdc --top soc_top rtl/*.sv --waiver cdc_waivers.yaml
+
+# Require 3-stage synchronizers
+./build/svlens cdc --top soc_top rtl/*.sv --sync-stages 3
+
+# Strict CI mode
+./build/svlens cdc --top soc_top rtl/*.sv --format json --strict -q
+
+# Export DOT graph
+./build/svlens cdc --top soc_top rtl/*.sv --dump-graph cdc_graph.dot
 ```
 
-Output shows added, removed, and status-changed connections.
+### CDC outputs
 
-## Expected Connectivity
+| Format | Description | File |
+|--------|-------------|------|
+| `md` | markdown CDC report | `cdc_report.md` |
+| `json` | machine-readable CDC report | `cdc_report.json` |
+| `sdc` | timing / false-path helper constraints | `cdc_constraints.sdc` |
+| `waiver` | waiver template | `cdc_waiver_template.yaml` |
 
-Define expected and forbidden connections in YAML:
+---
+
+## `both` mode examples
+
+`both` mode runs connectivity analysis first, then CDC analysis, under one output root.
+
+```bash
+./build/svlens both rtl/top.sv --top soc_top -o reports \
+  --conn-format json \
+  --conn-check-protocol \
+  --cdc-format json \
+  --cdc-sync-stages 3
+```
+
+Typical output tree:
+
+```text
+reports/
+  conn/
+    connect_report.json
+    ...
+  cdc/
+    cdc_report.json
+    ...
+```
+
+`both` mode also accepts filelists through the shared compilation frontend:
+
+```bash
+./build/svlens both -F rtl/filelist.f --top soc_top -o reports \
+  --conn-format json \
+  --cdc-format json
+```
+
+---
+
+## Connectivity configuration
+
+### Expected connectivity
 
 ```yaml
 expected:
@@ -170,11 +233,10 @@ forbidden:
 ```
 
 ```bash
-sv-conncheck design.sv --top soc --expect connectivity_spec.yaml
+./build/svlens conn design.sv --top soc --expect connectivity_spec.yaml
+```
 
-## Custom Convention Rules
-
-Override the default `i_` / `o_` / `u_` prefixes with a YAML file:
+### Custom convention rules
 
 ```yaml
 input_prefix: in_
@@ -182,23 +244,70 @@ output_prefix: out_
 instance_prefix: inst_
 ```
 
-Nested `input.prefix`, `output.prefix`, and `instance.prefix` keys are also accepted.
+Nested keys such as `input.prefix`, `output.prefix`, and `instance.prefix` are also accepted.
 
 ```bash
-sv-conncheck design.sv --top soc --convention convention.yaml
+./build/svlens conn design.sv --top soc --convention convention.yaml
 ```
 
-## Current Limits
+---
 
-- `ConnectionExtractor` now follows named values, conversions, selects, struct-member access, continuous-assign aliases, and concatenation operands as approximate edges.
-- Whole-interface / modport ports and procedural glue logic are still only partially modeled, so complex interface-heavy designs can remain under-connected in the graph.
-- Clock/reset grouping is still name-based heuristic analysis, not semantic clock-domain tracing.
+## Current implementation limits
+
+### Connectivity mode
+
+- `ConnectionExtractor` follows named values, conversions, selects, struct-member access, continuous-assign aliases, and concatenation operands as approximate edges.
+- Whole-interface / modport ports and procedural glue logic are still only partially modeled.
+- Clock/reset analysis in `conn` mode remains name-based heuristic analysis, not semantic domain analysis.
+
+### CDC mode
+
+- SDC period data is used for reporting but not for full timing-aware crossing classification.
+- Some advanced CDC test coverage from the original CDC project has not yet been fully ported into this repository’s Catch2 suite, though core utility/unit tests and golden integration tests are now present.
+
+### Unified mode
+
+- `svlens both` shares the compilation frontend and routes outputs correctly, but there is still room to further reduce duplicated mode-specific CLI parsing.
+
+---
+
+## Project layout
+
+```text
+include/sv-cdccheck/    Imported CDC public headers
+src/                    Connectivity implementation + unified CLI + shared frontend
+src/cdc/                Imported CDC implementation
+tests/                  Catch2 tests + shell integration tests
+tests/cdc/basic/        CDC fixtures
+tests/cdc/golden/       CDC golden expectations
+docs/plan/              Unification specs and implementation plans
 ```
 
-## Tested Against
+---
 
-Validated on real open-source RTL projects:
-- **SERV** (serv_top) — 95 connections, 10 modules
-- **ibex** (ibex_core) — 130 connections, 26 modules
-- **picorv32** (picorv32_axi) — 7 connections, AXI4 interface detected
-- **wb2axip** (axixbar) — 8 connections, generate-for blocks
+## Planning documents
+
+- [`docs/plan/svlens-unification-spec.md`](docs/plan/svlens-unification-spec.md)
+- [`docs/plan/svlens-implementation-plan.md`](docs/plan/svlens-implementation-plan.md)
+
+---
+
+## Validation status
+
+This repository currently includes:
+
+- legacy `conn` unit/integration coverage
+- unified CLI integration coverage
+- CDC smoke + golden integration coverage
+- CDC utility/unit coverage for:
+  - clock database
+  - filelist parser
+  - waiver manager
+  - clock yaml parser
+  - report generator
+
+Run all checks with:
+
+```bash
+ctest --test-dir build --output-on-failure
+```

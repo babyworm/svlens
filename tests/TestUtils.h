@@ -1,7 +1,8 @@
 #pragma once
 
+#include "CompilationSession.h"
+
 #include <slang/ast/Compilation.h>
-#include <slang/driver/Driver.h>
 
 #include <filesystem>
 #include <memory>
@@ -10,8 +11,8 @@
 namespace testutils {
 
 struct CompileResult {
-    std::unique_ptr<slang::driver::Driver> driver;
-    std::unique_ptr<slang::ast::Compilation> compilation;
+    std::unique_ptr<connect::CompilationSession> session;
+    slang::ast::Compilation* compilation = nullptr;
     explicit operator bool() const { return compilation != nullptr; }
 };
 

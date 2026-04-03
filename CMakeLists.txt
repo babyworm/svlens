@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-project(sv-conncheck VERSION 0.2.2 LANGUAGES CXX)
+project(svlens VERSION 0.2.2 LANGUAGES CXX)
 
 # C++20 required by slang library headers
 set(CMAKE_CXX_STANDARD 20)
@@ -41,8 +41,19 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Catch2)
 
-# Library target (shared between main executable and tests)
-add_library(sv-conncheck-lib OBJECT
+# Shared/common frontend library
+add_library(svlens-common-lib STATIC
+    src/CommonCli.cpp
+    src/CompilationSession.cpp
+    src/cdc/filelist_parser.cpp
+)
+target_include_directories(svlens-common-lib PUBLIC src include)
+target_link_libraries(svlens-common-lib PUBLIC slang::slang)
+
+# conn analysis library
+add_library(svlens-conn-lib OBJECT
+    src/ConnRunner.cpp
+    src/ConnRunnerUtils.cpp
     src/ConnectionExtractor.cpp
     src/WidthChecker.cpp
     src/TypeChecker.cpp
@@ -66,14 +77,30 @@ add_library(sv-conncheck-lib OBJECT
     src/AnalysisEngine.cpp
     src/ConnectionFilters.cpp
 )
-target_include_directories(sv-conncheck-lib PUBLIC src)
-target_link_libraries(sv-conncheck-lib PUBLIC slang::slang ${FMT_TARGET} yaml-cpp::yaml-cpp)
+target_include_directories(svlens-conn-lib PUBLIC src include)
+target_link_libraries(svlens-conn-lib PUBLIC svlens-common-lib slang::slang ${FMT_TARGET} yaml-cpp::yaml-cpp)
 
-add_executable(sv-conncheck src/main.cpp)
-target_link_libraries(sv-conncheck PRIVATE sv-conncheck-lib)
-target_compile_definitions(sv-conncheck PRIVATE SV_CONN_CHECK_VERSION="${PROJECT_VERSION}")
+add_library(svlens-cdc-lib OBJECT
+    src/CdcRunnerUtils.cpp
+    src/cdc/ast_utils.cpp
+    src/cdc/clock_tree.cpp
+    src/cdc/clock_yaml_parser.cpp
+    src/cdc/connectivity.cpp
+    src/cdc/crossing_detector.cpp
+    src/cdc/ff_classifier.cpp
+    src/cdc/report_generator.cpp
+    src/cdc/sdc_parser.cpp
+    src/cdc/sync_verifier.cpp
+    src/cdc/waiver.cpp
+    src/CdcRunner.cpp
+)
+target_include_directories(svlens-cdc-lib PUBLIC src include)
+target_link_libraries(svlens-cdc-lib PUBLIC svlens-common-lib slang::slang)
 
-install(TARGETS sv-conncheck RUNTIME DESTINATION bin)
+add_executable(svlens src/svlens_main.cpp)
+target_link_libraries(svlens PRIVATE svlens-common-lib svlens-conn-lib svlens-cdc-lib ${FMT_TARGET})
+
+install(TARGETS svlens RUNTIME DESTINATION bin)
 
 enable_testing()
 add_subdirectory(tests)

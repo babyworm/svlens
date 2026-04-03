@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache slang install
+        uses: actions/cache@v4
+        with:
+          path: ~/.local
+          key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake git python3 ccache
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-svlens-ccache-${{ github.ref_name }}-${{ hashFiles('CMakeLists.txt', 'src/**', 'include/**', 'tests/**') }}
+          restore-keys: |
+            ${{ runner.os }}-svlens-ccache-${{ github.ref_name }}-
+            ${{ runner.os }}-svlens-ccache-
+
+      - name: Install slang
+        run: |
+          ./scripts/setup-deps.sh --prefix "$HOME/.local"
+
+      - name: Build
+        run: |
+          make build CMAKE_PREFIX_PATH="$HOME/.local"
+
+      - name: Test
+        run: |
+          make test CMAKE_PREFIX_PATH="$HOME/.local"

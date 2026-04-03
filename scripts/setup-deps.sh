@@ -1,18 +1,18 @@
 #!/bin/bash
 #
-# setup-deps.sh — Install external dependencies for sv-conncheck
+# setup-deps.sh — Install external dependencies for svlens
 #
 # Usage:
 #   ./scripts/setup-deps.sh [--prefix <install_dir>] [--slang-tag <version>]
 #
 # Defaults:
 #   --prefix     $HOME/.local
-#   --slang-tag  v7.0   (latest stable as of 2026-03)
+#   --slang-tag  v10.0  (default pinned version)
 #
 set -euo pipefail
 
 PREFIX="${HOME}/.local"
-SLANG_TAG="v7.0"
+SLANG_TAG="v10.0"
 JOBS="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
 # --- Parse arguments ---
@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "=== sv-conncheck dependency setup ==="
+echo "=== svlens dependency setup ==="
 echo "  Install prefix : $PREFIX"
 echo "  slang version  : $SLANG_TAG"
 echo "  Parallel jobs  : $JOBS"
@@ -90,6 +90,6 @@ cmake --install build
 echo ""
 echo "[OK] slang ${SLANG_TAG} installed to ${PREFIX}"
 echo ""
-echo "=== Ready to build sv-conncheck ==="
+echo "=== Ready to build svlens ==="
 echo "  cmake -B build -DCMAKE_PREFIX_PATH=\"${PREFIX}\""
 echo "  cmake --build build -j${JOBS}"

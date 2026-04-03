@@ -19,20 +19,13 @@ std::filesystem::path resolveSvFixturePath(const std::filesystem::path& requeste
 }
 
 CompileResult compileFile(const std::string& path) {
-    auto driver = std::make_unique<slang::driver::Driver>();
-    driver->addStandardArgs();
-
+    auto session = std::make_unique<connect::CompilationSession>();
     auto resolvedPath = resolveSvFixturePath(path).string();
-    std::vector<const char*> args = {"test", resolvedPath.c_str()};
-    if (!driver->parseCommandLine(static_cast<int>(args.size()), args.data()))
+    std::vector<std::string> args = {"test", resolvedPath};
+    if (!session->compile(args))
         return {};
-    if (!driver->processOptions())
-        return {};
-    if (!driver->parseAllSources())
-        return {};
-
-    auto compilation = driver->createCompilation();
-    return {std::move(driver), std::move(compilation)};
+    auto* compilation = &session->compilation();
+    return {std::move(session), compilation};
 }
 
 } // namespace testutils

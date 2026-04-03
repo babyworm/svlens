@@ -1,16 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include "TypeChecker.h"
+#include "TestUtils.h"
 
 using namespace connect;
 using slang::ast::ArgumentDirection;
-
-static PortInfo makePort(const std::string& inst, const std::string& name,
-                         ArgumentDirection dir, uint32_t width, bool isSigned) {
-    PortInfo p;
-    p.instancePath = inst; p.portName = name; p.direction = dir;
-    p.width = width; p.isSigned = isSigned;
-    return p;
-}
+using testutils::makePort;
 
 TEST_CASE("TypeChecker: same signedness produces no issues") {
     ConnectionGraph graph;

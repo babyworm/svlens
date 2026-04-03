@@ -1,26 +1,18 @@
 #include <catch2/catch_test_macros.hpp>
 #include "ExpectChecker.h"
+#include "TestUtils.h"
 #include <cstdio>
 #include <fstream>
 
 using namespace connect;
 using slang::ast::ArgumentDirection;
+using testutils::makePort;
 
 // RAII guard to ensure temp files are cleaned up even on assertion failure
 struct YamlCleanup {
     std::string path;
     ~YamlCleanup() { std::remove(path.c_str()); }
 };
-
-static PortInfo makePort(const std::string& inst, const std::string& name,
-                         ArgumentDirection dir, uint32_t width = 1) {
-    PortInfo p;
-    p.instancePath = inst;
-    p.portName = name;
-    p.direction = dir;
-    p.width = width;
-    return p;
-}
 
 static Connection makeConn(const std::string& srcInst, const std::string& srcPort,
                            const std::string& dstInst, const std::string& dstPort) {

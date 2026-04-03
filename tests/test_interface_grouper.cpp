@@ -1,18 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include "InterfaceGrouper.h"
+#include "TestUtils.h"
 
 using namespace connect;
 using slang::ast::ArgumentDirection;
-
-static PortInfo makePort(const std::string& inst, const std::string& name,
-                         ArgumentDirection dir, uint32_t width = 1) {
-    PortInfo p;
-    p.instancePath = inst;
-    p.portName = name;
-    p.direction = dir;
-    p.width = width;
-    return p;
-}
+using testutils::makePort;
 
 // Helper: add full AXI4 write+read channels (25 key signals) to a graph for an instance
 static void addAxi4Ports(ConnectionGraph& graph, const std::string& inst,

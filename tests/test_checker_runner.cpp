@@ -2,17 +2,11 @@
 #include "CheckerRunner.h"
 #include "WidthChecker.h"
 #include "TypeChecker.h"
+#include "TestUtils.h"
 
 using namespace connect;
 using slang::ast::ArgumentDirection;
-
-static PortInfo makePort(const std::string& inst, const std::string& name,
-                         ArgumentDirection dir, uint32_t width, bool isSigned = false) {
-    PortInfo p;
-    p.instancePath = inst; p.portName = name; p.direction = dir;
-    p.width = width; p.isSigned = isSigned;
-    return p;
-}
+using testutils::makePort;
 
 TEST_CASE("CheckerRunner: no checkers produces no issues") {
     ConnectionGraph graph;

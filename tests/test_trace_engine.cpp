@@ -1,20 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
 #include "TraceEngine.h"
+#include "TestUtils.h"
 
 #include <set>
 
 using namespace connect;
 using slang::ast::ArgumentDirection;
-
-static PortInfo makePort(const std::string& inst, const std::string& name,
-                         ArgumentDirection dir, uint32_t width = 1) {
-    PortInfo p;
-    p.instancePath = inst;
-    p.portName = name;
-    p.direction = dir;
-    p.width = width;
-    return p;
-}
+using testutils::makePort;
 
 static ConnectionGraph makeTraceTestGraph() {
     ConnectionGraph graph;

@@ -1,19 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "AnalysisEngine.h"
+#include "TestUtils.h"
 
 using namespace connect;
 using slang::ast::ArgumentDirection;
-
-static PortInfo makePort(const std::string& inst, const std::string& name,
-                         ArgumentDirection dir, uint32_t width = 1) {
-    PortInfo p;
-    p.instancePath = inst;
-    p.portName = name;
-    p.direction = dir;
-    p.width = width;
-    return p;
-}
+using testutils::makePort;
 
 static Issue makeIssue(Issue::Type type, Issue::Severity sev,
                        const PortInfo& port, const std::string& detail,

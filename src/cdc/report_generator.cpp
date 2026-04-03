@@ -87,6 +87,11 @@ ClockSource* ClockDatabase::addSource(std::unique_ptr<ClockSource> src) {
 ClockNet* ClockDatabase::addNet(std::unique_ptr<ClockNet> net) {
     auto* ptr = net.get();
     net_by_path[net->hier_path] = ptr;
+    // Link net to its domain if one exists
+    if (net->source) {
+        auto* dom = findOrCreateDomain(net->source, net->edge);
+        dom->nets.push_back(ptr);
+    }
     nets.push_back(std::move(net));
     return ptr;
 }

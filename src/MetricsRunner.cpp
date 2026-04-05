@@ -456,15 +456,25 @@ int runMetricsWithCompilation(slang::ast::Compilation& compilation,
             ffQNames[ff.q_ref.canonical()] = ff.name;
 
         // For each FF, check its D-side cone for references to other FF Qs
+        ConeAnalyzer ffConeAnalyzer(graph, opts.maxDepth);
+        std::unordered_map<std::string, ConeSummary> dConeCache;
+
         for (auto& destFf : graph.flip_flops) {
-            // Find the cone for this FF's D-side
             ValueRef dRoot;
             dRoot.hier_path = destFf.d_ref.canonical();
             dRoot.base_name = destFf.d_ref.base_name;
             dRoot.kind = ValueRef::FfDSink;
 
-            ConeAnalyzer tempAnalyzer(graph, opts.maxDepth);
-            ConeSummary dCone = tempAnalyzer.analyzeCone(dRoot);
+            auto cacheKey = dRoot.canonical();
+            auto [cacheIt, inserted] = dConeCache.try_emplace(cacheKey);
+            if (inserted)
+                cacheIt->second = ffConeAnalyzer.analyzeCone(dRoot);
+            auto& dCone = cacheIt->second;
+
+            // Normalize once per D-side cone
+            auto normResult = normalizeCone(graph, dCone.cone_nodes,
+                                            opts.normalizeBitLanes,
+                                            opts.laneMinWidth);
 
             // Check which signals in the cone are FF Q outputs
             std::unordered_set<std::string> visitedSignals;
@@ -479,10 +489,6 @@ int runMetricsWithCompilation(slang::ast::Compilation& compilation,
                         fp.dest_ff = destFf.name;
                         fp.has_comb_logic = (dCone.raw_node_count > 1);
                         fp.comb_signal_count = dCone.raw_node_count;
-
-                        auto normResult = normalizeCone(graph, dCone.cone_nodes,
-                                                        opts.normalizeBitLanes,
-                                                        opts.laneMinWidth);
                         fp.normalized_comb_count = normResult.normalized_count;
                         fp.path = dCone.signal_chain;
                         fp.sync_type = fp.has_comb_logic ? "combinational" : "direct";
@@ -521,11 +527,11 @@ int runMetricsWithCompilation(slang::ast::Compilation& compilation,
                   });
     }
 
-    // Step 6: Baseline diff
+    // Step 6: Baseline diff (always against full results, not topK-filtered)
     BaselineDiffResult diff;
     if (!opts.baselineFile.empty()) {
         std::vector<std::tuple<std::string, std::string, uint32_t, uint32_t, uint32_t>> currentRoots;
-        for (auto& r : displayResults)
+        for (auto& r : results)
             currentRoots.emplace_back(r.root_id, r.root_kind,
                                       r.cone.raw_node_count, r.cone.logic_depth_est,
                                       r.norm.normalized_count);

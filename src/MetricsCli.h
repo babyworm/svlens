@@ -73,6 +73,22 @@ inline void printMetricsUsage() {
     fmt::print("Docs:\n  {}\n\n", commoncli::docsHint());
 }
 
+namespace detail {
+inline int safeStoi(const char* flag, const char* val, int minVal = 0) {
+    int n;
+    try { n = std::stoi(val); }
+    catch (...) {
+        fmt::print(stderr, "Error: {} requires a numeric value, got '{}'\n", flag, val);
+        std::exit(1);
+    }
+    if (n < minVal) {
+        fmt::print(stderr, "Error: {} must be >= {}, got {}\n", flag, minVal, n);
+        std::exit(1);
+    }
+    return n;
+}
+} // namespace detail
+
 inline MetricsCliOptions parseMetricsArgs(int argc, const char* const* argv,
                                           std::vector<std::string>& compilationArgs) {
     MetricsCliOptions opts;
@@ -104,7 +120,7 @@ inline MetricsCliOptions parseMetricsArgs(int argc, const char* const* argv,
             continue;
         }
         if (arg == "--max-depth" && i + 1 < argc) {
-            opts.maxDepth = std::stoi(argv[++i]);
+            opts.maxDepth = detail::safeStoi("--max-depth", argv[++i], 1);
             continue;
         }
         if (arg == "--normalize-bit-lanes") {
@@ -116,7 +132,7 @@ inline MetricsCliOptions parseMetricsArgs(int argc, const char* const* argv,
             continue;
         }
         if (arg == "--lane-min-width" && i + 1 < argc) {
-            opts.laneMinWidth = std::stoi(argv[++i]);
+            opts.laneMinWidth = detail::safeStoi("--lane-min-width", argv[++i], 1);
             continue;
         }
         if (arg == "--baseline" && i + 1 < argc) {
@@ -128,11 +144,11 @@ inline MetricsCliOptions parseMetricsArgs(int argc, const char* const* argv,
             continue;
         }
         if (arg == "--topk" && i + 1 < argc) {
-            opts.topK = std::stoi(argv[++i]);
+            opts.topK = detail::safeStoi("--topk", argv[++i]);
             continue;
         }
         if (arg == "--max-for-unroll" && i + 1 < argc) {
-            opts.maxForUnroll = std::stoi(argv[++i]);
+            opts.maxForUnroll = detail::safeStoi("--max-for-unroll", argv[++i]);
             continue;
         }
         if (arg == "--emit-cones") {

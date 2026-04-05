@@ -18,8 +18,14 @@ std::string extractJsonString(const std::string& json, const std::string& key) {
     if (pos == std::string::npos) return "";
     pos = json.find('"', pos + 1);
     if (pos == std::string::npos) return "";
-    auto end = json.find('"', pos + 1);
-    if (end == std::string::npos) return "";
+    // Skip escaped quotes within the string value
+    auto end = pos + 1;
+    while (end < json.size()) {
+        if (json[end] == '\\') { end += 2; continue; }
+        if (json[end] == '"') break;
+        ++end;
+    }
+    if (end >= json.size()) return "";
     return json.substr(pos + 1, end - pos - 1);
 }
 
@@ -45,22 +51,37 @@ struct BaselineRoot {
     uint32_t normalized_transform_count = 0;
 };
 
-// Parse roots array from baseline JSON. Simple block-level extraction.
+// Find matching bracket/brace accounting for nesting and quoted strings.
+size_t findMatchingClose(const std::string& json, size_t openPos, char open, char close) {
+    int depth = 1;
+    bool inString = false;
+    for (size_t i = openPos + 1; i < json.size(); ++i) {
+        char c = json[i];
+        if (c == '\\' && inString) { ++i; continue; } // skip escaped char
+        if (c == '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (c == open) ++depth;
+        else if (c == close) { --depth; if (depth == 0) return i; }
+    }
+    return std::string::npos;
+}
+
+// Parse roots array from baseline JSON with nesting-aware bracket matching.
 std::vector<BaselineRoot> parseBaselineRoots(const std::string& json) {
     std::vector<BaselineRoot> roots;
     auto arrStart = json.find("\"roots\"");
     if (arrStart == std::string::npos) return roots;
     arrStart = json.find('[', arrStart);
     if (arrStart == std::string::npos) return roots;
-    auto arrEnd = json.find(']', arrStart);
+    auto arrEnd = findMatchingClose(json, arrStart, '[', ']');
     if (arrEnd == std::string::npos) return roots;
 
-    // Find each { ... } block within the array
-    size_t pos = arrStart;
+    // Find each { ... } block within the array, nesting-aware
+    size_t pos = arrStart + 1;
     while (pos < arrEnd) {
         auto objStart = json.find('{', pos);
         if (objStart == std::string::npos || objStart >= arrEnd) break;
-        auto objEnd = json.find('}', objStart);
+        auto objEnd = findMatchingClose(json, objStart, '{', '}');
         if (objEnd == std::string::npos) break;
 
         std::string obj = json.substr(objStart, objEnd - objStart + 1);
@@ -137,6 +158,9 @@ BaselineDiffResult computeBaselineDiff(
         diff.root_kind = base.root_kind;
         diff.is_removed = true;
         diff.raw_delta = -static_cast<int32_t>(base.raw_node_count);
+        diff.norm_delta = -static_cast<int32_t>(base.normalized_transform_count);
+        result.total_raw_delta += diff.raw_delta;
+        result.total_norm_delta += diff.norm_delta;
         ++result.removed_roots;
         result.root_diffs.push_back(std::move(diff));
     }

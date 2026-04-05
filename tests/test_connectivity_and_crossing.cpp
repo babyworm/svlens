@@ -172,6 +172,72 @@ TEST_CASE("CrossingDetector: crossing has source and dest domain info", "[crossi
     CHECK(!c.dest_signal.empty());
 }
 
+TEST_CASE("CrossingDetector: logically exclusive crossing is informational", "[crossing][exclusive]") {
+    ClockDatabase db;
+
+    auto srcA = std::make_unique<ClockSource>();
+    srcA->name = "mux_clk_a";
+    auto* a = db.addSource(std::move(srcA));
+    auto srcB = std::make_unique<ClockSource>();
+    srcB->name = "mux_clk_b";
+    auto* b = db.addSource(std::move(srcB));
+    db.relationships.push_back({a, b, DomainRelationship::Type::LogicallyExclusive});
+
+    auto* domA = db.findOrCreateDomain(a, Edge::Posedge);
+    auto* domB = db.findOrCreateDomain(b, Edge::Posedge);
+
+    FFNode ffA{"top.q_a", domA, nullptr, {}};
+    FFNode ffB{"top.q_b", domB, nullptr, {}};
+    std::vector<FFEdge> edges{{&ffA, &ffB, {}, SyncType::None}};
+
+    CrossingDetector detector(edges, db);
+    detector.analyze();
+    auto crossings = detector.getCrossings();
+
+    REQUIRE(crossings.size() == 1);
+    CHECK(crossings[0].category == ViolationCategory::Info);
+    CHECK(crossings[0].severity == Severity::Info);
+    CHECK(crossings[0].relationship == "logically_exclusive");
+    CHECK(crossings[0].rationale.find("exclusive") != std::string::npos);
+}
+
+TEST_CASE("CrossingDetector: divided crossing captures timing basis and rationale", "[crossing][divided]") {
+    ClockDatabase db;
+
+    auto srcA = std::make_unique<ClockSource>();
+    srcA->name = "clk_a";
+    srcA->period_ns = 10.0;
+    auto* a = db.addSource(std::move(srcA));
+
+    auto srcB = std::make_unique<ClockSource>();
+    srcB->name = "clk_div2";
+    srcB->master = a;
+    srcB->divide_by = 2;
+    srcB->period_ns = 20.0;
+    auto* b = db.addSource(std::move(srcB));
+
+    db.relationships.push_back({a, b, DomainRelationship::Type::Divided});
+
+    auto* domA = db.findOrCreateDomain(a, Edge::Posedge);
+    auto* domB = db.findOrCreateDomain(b, Edge::Posedge);
+
+    FFNode ffA{"top.q_a", domA, nullptr, {}};
+    FFNode ffB{"top.q_b", domB, nullptr, {}};
+    std::vector<FFEdge> edges{{&ffA, &ffB, {}, SyncType::None}};
+
+    CrossingDetector detector(edges, db);
+    detector.analyze();
+    auto crossings = detector.getCrossings();
+
+    REQUIRE(crossings.size() == 1);
+    CHECK(crossings[0].category == ViolationCategory::Caution);
+    CHECK(crossings[0].severity == Severity::Medium);
+    CHECK(crossings[0].relationship == "divided");
+    REQUIRE(crossings[0].timing_basis_ns.has_value());
+    CHECK(*crossings[0].timing_basis_ns == 20.0);
+    CHECK(crossings[0].rationale.find("divided") != std::string::npos);
+}
+
 // ─── Additional Pass 3+4 Tests ───
 
 TEST_CASE("Connectivity: assign chain creates crossing", "[conn]") {

@@ -224,3 +224,92 @@ TEST_CASE("ClockResetAnalyzer: top-module ports are skipped", "[ClockReset]") {
     CHECK(topo.resetGroups.empty());
     CHECK(topo.warnings.empty());
 }
+
+TEST_CASE("ClockResetAnalyzer: semantic upstream clock source classifies generic input ports", "[ClockReset][semantic]") {
+    ConnectionGraph graph;
+    graph.topModule = "semantic_top";
+
+    auto srcClock = makePort("semantic_top.u_clkgen", "sys_clk", ArgumentDirection::Out);
+    auto dstClock = makePort("semantic_top.u_block", "i_ref", ArgumentDirection::In);
+    graph.allPorts.push_back(srcClock);
+    graph.allPorts.push_back(dstClock);
+    graph.connections.push_back(Connection{srcClock, dstClock});
+
+    ClockResetAnalyzer analyzer;
+    auto topo = analyzer.analyze(graph);
+
+    CHECK(topo.clockGroups.count("semantic_top.u_clkgen.sys_clk") == 1);
+    CHECK(topo.clockGroups.at("semantic_top.u_clkgen.sys_clk").size() == 1);
+    CHECK(topo.clockGroups.at("semantic_top.u_clkgen.sys_clk")[0] == "semantic_top.u_block");
+}
+
+TEST_CASE("ClockResetAnalyzer: semantic upstream reset source classifies generic input ports", "[ClockReset][semantic]") {
+    ConnectionGraph graph;
+    graph.topModule = "semantic_top";
+
+    auto srcClock = makePort("semantic_top.u_clkgen", "sys_clk", ArgumentDirection::Out);
+    auto dstClock = makePort("semantic_top.u_block", "i_ref", ArgumentDirection::In);
+    auto srcReset = makePort("semantic_top.u_rstgen", "sys_rst_n", ArgumentDirection::Out);
+    auto dstReset = makePort("semantic_top.u_block", "i_aux", ArgumentDirection::In);
+    graph.allPorts.push_back(srcClock);
+    graph.allPorts.push_back(dstClock);
+    graph.allPorts.push_back(srcReset);
+    graph.allPorts.push_back(dstReset);
+    graph.connections.push_back(Connection{srcClock, dstClock});
+    graph.connections.push_back(Connection{srcReset, dstReset});
+
+    ClockResetAnalyzer analyzer;
+    auto topo = analyzer.analyze(graph);
+
+    CHECK(topo.clockGroups.count("semantic_top.u_clkgen.sys_clk") == 1);
+    CHECK(topo.resetGroups.count("semantic_top.u_rstgen.sys_rst_n") == 1);
+    CHECK(topo.warnings.empty());
+}
+
+TEST_CASE("ClockResetAnalyzer: groups differently named clock ports by shared source", "[ClockReset][semantic]") {
+    ConnectionGraph graph;
+    graph.topModule = "soc_top";
+
+    auto src = makePort("soc_top.u_pll", "o_clk_core", ArgumentDirection::Out);
+    auto rst = makePort("soc_top.u_rst", "o_reset_n", ArgumentDirection::Out);
+    auto coreClk = makePort("soc_top.u_core", "i_clk_main", ArgumentDirection::In);
+    auto busClk = makePort("soc_top.u_bus", "clock_in", ArgumentDirection::In);
+    auto coreRst = makePort("soc_top.u_core", "reset_in", ArgumentDirection::In);
+    auto busRst = makePort("soc_top.u_bus", "rst_async_n", ArgumentDirection::In);
+
+    graph.allPorts = {src, rst, coreClk, busClk, coreRst, busRst};
+    graph.connections.push_back({src, coreClk, ConnectionKind::Direct});
+    graph.connections.push_back({src, busClk, ConnectionKind::Direct});
+    graph.connections.push_back({rst, coreRst, ConnectionKind::Direct});
+    graph.connections.push_back({rst, busRst, ConnectionKind::Direct});
+
+    ClockResetAnalyzer analyzer;
+    auto topo = analyzer.analyze(graph);
+
+    REQUIRE(topo.clockGroups.count("soc_top.u_pll.o_clk_core") == 1);
+    CHECK(topo.clockGroups.at("soc_top.u_pll.o_clk_core").size() == 2);
+    REQUIRE(topo.resetGroups.count("soc_top.u_rst.o_reset_n") == 1);
+    CHECK(topo.resetGroups.at("soc_top.u_rst.o_reset_n").size() == 2);
+    CHECK(topo.warnings.empty());
+}
+
+TEST_CASE("ClockResetAnalyzer: source naming can classify non-obvious destination port names", "[ClockReset][semantic]") {
+    ConnectionGraph graph;
+    graph.topModule = "soc_top";
+
+    auto clkSrc = makePort("soc_top.u_clkgen", "sys_clk_out", ArgumentDirection::Out);
+    auto rstSrc = makePort("soc_top.u_rstsync", "sys_rst_n_out", ArgumentDirection::Out);
+    auto clkDst = makePort("soc_top.u_dma", "i_main", ArgumentDirection::In);
+    auto rstDst = makePort("soc_top.u_dma", "i_clear", ArgumentDirection::In);
+
+    graph.allPorts = {clkSrc, rstSrc, clkDst, rstDst};
+    graph.connections.push_back({clkSrc, clkDst, ConnectionKind::Direct});
+    graph.connections.push_back({rstSrc, rstDst, ConnectionKind::Direct});
+
+    ClockResetAnalyzer analyzer;
+    auto topo = analyzer.analyze(graph);
+
+    REQUIRE(topo.clockGroups.count("soc_top.u_clkgen.sys_clk_out") == 1);
+    REQUIRE(topo.resetGroups.count("soc_top.u_rstsync.sys_rst_n_out") == 1);
+    CHECK(topo.warnings.empty());
+}

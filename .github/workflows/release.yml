@@ -1,0 +1,61 @@
+name: release-artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-release-archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build prerequisites and packaged deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            git \
+            python3 \
+            ccache \
+            catch2 \
+            libyaml-cpp-dev \
+            zip
+
+      - name: Cache slang install
+        uses: actions/cache@v4
+        with:
+          path: ~/.local
+          key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}
+
+      - name: Stage slang dependency
+        run: |
+          ./scripts/setup-deps.sh --prefix "$HOME/.local"
+
+      - name: Configure release build
+        run: |
+          cmake -B build-release \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$HOME/.local" \
+            -DSVLENS_FETCH_DEPS=OFF
+
+      - name: Build release binary
+        run: |
+          cmake --build build-release -j"$(nproc)"
+
+      - name: Package release archive
+        run: |
+          chmod +x scripts/package-release.sh
+          ./scripts/package-release.sh build-release svlens-linux-x86_64 dist
+
+      - name: Upload release archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: svlens-linux-x86_64
+          path: |
+            dist/svlens-linux-x86_64.tar.gz
+            dist/svlens-linux-x86_64.zip
+

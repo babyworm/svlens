@@ -12,6 +12,9 @@
 #include <slang/ast/expressions/AssignmentExpressions.h>
 #include <slang/ast/expressions/OperatorExpressions.h>
 #include <slang/ast/expressions/SelectExpressions.h>
+#include <slang/ast/Statement.h>
+#include <slang/ast/statements/ConditionalStatements.h>
+#include <slang/ast/statements/MiscStatements.h>
 #include <slang/ast/types/Type.h>
 
 #include <algorithm>
@@ -33,6 +36,33 @@ bool isConstantOnly(const slang::ast::Expression* expr) {
 
     auto* constant = expr->getConstant();
     return constant && *constant;
+}
+
+slang::ast::ArgumentDirection inferInterfaceDirection(const slang::ast::PortConnection& conn) {
+    const auto [_, modport] = conn.getIfaceConn();
+    if (!modport)
+        return slang::ast::ArgumentDirection::InOut;
+
+    bool hasInput = false;
+    bool hasOutput = false;
+    for (const auto& member : modport->members()) {
+        if (member.kind != slang::ast::SymbolKind::ModportPort)
+            continue;
+
+        const auto direction = member.as<slang::ast::ModportPortSymbol>().direction;
+        if (direction == slang::ast::ArgumentDirection::In)
+            hasInput = true;
+        else if (direction == slang::ast::ArgumentDirection::Out)
+            hasOutput = true;
+        else if (direction == slang::ast::ArgumentDirection::InOut)
+            return slang::ast::ArgumentDirection::InOut;
+    }
+
+    if (hasOutput && !hasInput)
+        return slang::ast::ArgumentDirection::Out;
+    if (hasInput && !hasOutput)
+        return slang::ast::ArgumentDirection::In;
+    return slang::ast::ArgumentDirection::InOut;
 }
 
 } // namespace
@@ -96,13 +126,14 @@ ConnectionExtractor::ResolvedExpr ConnectionExtractor::resolveExpr(
         case slang::ast::ExpressionKind::MemberAccess: {
             auto& access = expr->as<slang::ast::MemberAccessExpression>();
             result = resolveExpr(&access.value());
-            for (auto& name : result.netNames)
-                name += "." + std::string(access.member.name);
-
             if (access.member.kind == slang::ast::SymbolKind::Modport ||
                 access.member.kind == slang::ast::SymbolKind::ModportPort) {
                 result.approximate = true;
+                return result;
             }
+
+            for (auto& name : result.netNames)
+                name += "." + std::string(access.member.name);
             return result;
         }
         case slang::ast::ExpressionKind::Concatenation: {
@@ -157,6 +188,7 @@ ConnectionGraph ConnectionExtractor::extract() {
     graph_.topModule = topModule_;
     netMap_.clear();
     netAliases_.clear();
+    approximateAliases_.clear();
 
     auto& root = compilation_.getRoot();
 
@@ -195,6 +227,9 @@ void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
                 break;
             case slang::ast::SymbolKind::ContinuousAssign:
                 processContinuousAssign(member.as<slang::ast::ContinuousAssignSymbol>(), scopePath);
+                break;
+            case slang::ast::SymbolKind::ProceduralBlock:
+                processProceduralBlock(member.as<slang::ast::ProceduralBlockSymbol>(), scopePath);
                 break;
             case slang::ast::SymbolKind::GenerateBlock: {
                 auto& genBlock = member.as<slang::ast::GenerateBlockSymbol>();
@@ -236,19 +271,26 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
     auto portConns = childInst.getPortConnections();
     for (auto* conn : portConns) {
         auto& portSym = conn->port;
-        if (portSym.kind != slang::ast::SymbolKind::Port)
+        if (portSym.kind != slang::ast::SymbolKind::Port &&
+            portSym.kind != slang::ast::SymbolKind::InterfacePort)
             continue;
-
-        auto& port = portSym.as<slang::ast::PortSymbol>();
-        auto& portType = port.getType();
 
         PortInfo pinfo;
         pinfo.instancePath = childPath;
-        pinfo.portName = std::string(port.name);
-        pinfo.direction = port.direction;
-        pinfo.width = portType.getBitWidth();
-        pinfo.isSigned = portType.isSigned();
-        pinfo.location = port.location;
+        pinfo.portName = std::string(portSym.name);
+        pinfo.location = portSym.location;
+
+        if (portSym.kind == slang::ast::SymbolKind::Port) {
+            auto& port = portSym.as<slang::ast::PortSymbol>();
+            auto& portType = port.getType();
+            pinfo.direction = port.direction;
+            pinfo.width = portType.getBitWidth();
+            pinfo.isSigned = portType.isSigned();
+        } else {
+            pinfo.direction = inferInterfaceDirection(*conn);
+            pinfo.width = 0;
+            pinfo.isSigned = false;
+        }
 
         // Always add to allPorts
         graph_.allPorts.push_back(pinfo);
@@ -271,18 +313,19 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
         if (resolved.netNames.empty())
             continue;
 
-        const ConnectionKind kind = resolved.approximate
+        const ConnectionKind kind = (portSym.kind == slang::ast::SymbolKind::InterfacePort ||
+                                     resolved.approximate)
             ? ConnectionKind::Approximate
             : ConnectionKind::Direct;
 
         for (const auto& netName : resolved.netNames) {
             std::string netKey = scopePath + "::" + netName;
 
-            if (port.direction == slang::ast::ArgumentDirection::InOut) {
+            if (pinfo.direction == slang::ast::ArgumentDirection::InOut) {
                 netMap_[netKey].push_back({pinfo, true, kind});   // driver
                 netMap_[netKey].push_back({pinfo, false, kind});  // load
             } else {
-                bool isDriver = (port.direction == slang::ast::ArgumentDirection::Out);
+                bool isDriver = (pinfo.direction == slang::ast::ArgumentDirection::Out);
                 netMap_[netKey].push_back({pinfo, isDriver, kind});
             }
         }
@@ -311,11 +354,86 @@ void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAs
     if (lhsKey == rhsKey)
         return;
 
-    // Record alias: lhsKey and rhsKey refer to the same net
+    recordAlias(lhsKey, rhsKey, false);
+}
+
+void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlockSymbol& block,
+                                                 const std::string& scopePath) {
+    if (block.procedureKind != slang::ast::ProceduralBlockKind::Always &&
+        block.procedureKind != slang::ast::ProceduralBlockKind::AlwaysComb) {
+        return;
+    }
+    processProceduralStatement(block.getBody(), scopePath);
+}
+
+void ConnectionExtractor::processProceduralStatement(const slang::ast::Statement& stmt,
+                                                     const std::string& scopePath) {
+    using SK = slang::ast::StatementKind;
+
+    switch (stmt.kind) {
+        case SK::ExpressionStatement: {
+            auto& exprStmt = stmt.as<slang::ast::ExpressionStatement>();
+            auto& expr = exprStmt.expr;
+            if (expr.kind != slang::ast::ExpressionKind::Assignment)
+                return;
+
+            auto& assign = expr.as<slang::ast::AssignmentExpression>();
+            auto lhs = resolveExpr(&assign.left());
+            auto rhs = resolveExpr(&assign.right());
+            if (lhs.tieOff || rhs.tieOff ||
+                lhs.netNames.size() != 1 || rhs.netNames.size() != 1)
+                return;
+
+            recordAlias(scopePath + "::" + lhs.netNames.front(),
+                        scopePath + "::" + rhs.netNames.front(),
+                        true);
+            return;
+        }
+        case SK::Timed: {
+            auto& timed = stmt.as<slang::ast::TimedStatement>();
+            processProceduralStatement(timed.stmt, scopePath);
+            return;
+        }
+        case SK::Block: {
+            auto& block = stmt.as<slang::ast::BlockStatement>();
+            processProceduralStatement(block.body, scopePath);
+            return;
+        }
+        case SK::List: {
+            auto& list = stmt.as<slang::ast::StatementList>();
+            for (auto* child : list.list) {
+                if (child)
+                    processProceduralStatement(*child, scopePath);
+            }
+            return;
+        }
+        case SK::Conditional: {
+            auto& cond = stmt.as<slang::ast::ConditionalStatement>();
+            processProceduralStatement(cond.ifTrue, scopePath);
+            if (cond.ifFalse)
+                processProceduralStatement(*cond.ifFalse, scopePath);
+            return;
+        }
+        default:
+            return;
+    }
+}
+
+void ConnectionExtractor::recordAlias(const std::string& lhsKey,
+                                      const std::string& rhsKey,
+                                      bool approximate) {
     std::string lhsCanon = findCanonical(lhsKey);
     std::string rhsCanon = findCanonical(rhsKey);
-    if (lhsCanon != rhsCanon)
-        netAliases_[rhsCanon] = lhsCanon;
+    if (lhsCanon == rhsCanon) {
+        if (approximate)
+            approximateAliases_.insert(lhsCanon);
+        return;
+    }
+
+    netAliases_[rhsCanon] = lhsCanon;
+    if (approximate || approximateAliases_.count(lhsCanon) || approximateAliases_.count(rhsCanon))
+        approximateAliases_.insert(lhsCanon);
+    approximateAliases_.erase(rhsCanon);
 }
 
 std::string ConnectionExtractor::findCanonical(const std::string& key) {
@@ -362,7 +480,8 @@ void ConnectionExtractor::resolveConnections() {
                 conn.source = driver->port;
                 conn.dest = load->port;
                 if (driver->kind == ConnectionKind::Approximate ||
-                    load->kind == ConnectionKind::Approximate) {
+                    load->kind == ConnectionKind::Approximate ||
+                    approximateAliases_.count(canon)) {
                     conn.kind = ConnectionKind::Approximate;
                 }
                 graph_.connections.push_back(conn);

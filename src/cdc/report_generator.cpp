@@ -43,6 +43,17 @@ static const char* syncTypeToString(SyncType st) {
     return "unknown";
 }
 
+static const char* relationshipToString(DomainRelationship::Type rel) {
+    switch (rel) {
+        case DomainRelationship::Type::Asynchronous: return "asynchronous";
+        case DomainRelationship::Type::SameSource: return "same_source";
+        case DomainRelationship::Type::Divided: return "divided";
+        case DomainRelationship::Type::PhysicallyExclusive: return "physically_exclusive";
+        case DomainRelationship::Type::LogicallyExclusive: return "logically_exclusive";
+    }
+    return "unknown";
+}
+
 int AnalysisResult::violation_count() const {
     int count = 0;
     for (auto& c : crossings)
@@ -134,16 +145,25 @@ bool ClockDatabase::isAsynchronous(const ClockDomain* a, const ClockDomain* b) c
     if (!a || !b) return true; // unknown -> conservative
     if (a->source == b->source) return false; // same source
 
+    if (auto rel = relationshipBetween(a, b))
+        return *rel == DomainRelationship::Type::Asynchronous;
+    return true; // no relationship found -> assume async
+}
+
+std::optional<DomainRelationship::Type> ClockDatabase::relationshipBetween(const ClockDomain* a,
+                                                                           const ClockDomain* b) const {
+    if (!a || !b)
+        return std::nullopt;
+    if (a->source == b->source)
+        return DomainRelationship::Type::SameSource;
+
     for (auto& rel : relationships) {
         if ((rel.a == a->source && rel.b == b->source) ||
             (rel.a == b->source && rel.b == a->source)) {
-            // Only Asynchronous needs CDC synchronization.
-            // Exclusive clocks (Physically/Logically) never coexist per SDC semantics.
-            // SameSource and Divided are related clocks — no crossing needed.
-            return rel.relationship == DomainRelationship::Type::Asynchronous;
+            return rel.relationship;
         }
     }
-    return true; // no relationship found -> assume async
+    return std::nullopt;
 }
 
 ReportGenerator::ReportGenerator(const AnalysisResult& result)
@@ -245,6 +265,12 @@ void ReportGenerator::generateMarkdown(const std::filesystem::path& output_path)
         }
         if (!c.recommendation.empty())
             out << "- Fix: " << mdEscape(c.recommendation) << "\n";
+        if (!c.relationship.empty())
+            out << "- Relationship: " << mdEscape(c.relationship) << "\n";
+        if (!c.rationale.empty())
+            out << "- Rationale: " << mdEscape(c.rationale) << "\n";
+        if (c.timing_basis_ns.has_value())
+            out << "- Timing Basis: " << c.timing_basis_ns.value() << " ns\n";
         out << "\n";
     }
 }
@@ -300,6 +326,12 @@ void ReportGenerator::generateJSON(const std::filesystem::path& output_path) con
 
         // Recommendation
         out << ", \"recommendation\": \"" << jsonEscape(c.recommendation) << "\"";
+        out << ", \"relationship\": \"" << jsonEscape(c.relationship) << "\"";
+        out << ", \"rationale\": \"" << jsonEscape(c.rationale) << "\"";
+        if (c.timing_basis_ns.has_value())
+            out << ", \"timing_basis_ns\": " << c.timing_basis_ns.value();
+        else
+            out << ", \"timing_basis_ns\": null";
 
         out << "}";
         if (i + 1 < result_.crossings.size()) out << ",";

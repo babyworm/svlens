@@ -38,6 +38,11 @@ It also supports:
 
 ## Build
 
+For the detailed install guide, including offline / preinstalled dependency flows, see
+[`docs/install.md`](docs/install.md).
+For help output expectations and stable schema contracts, see
+[`docs/cli-help.md`](docs/cli-help.md) and [`docs/schema/`](docs/schema/).
+
 ### Prerequisites
 
 | Dependency | Version | Install |
@@ -46,13 +51,24 @@ It also supports:
 | CMake | 3.20+ | system package |
 | [slang](https://github.com/MikePopoloski/slang) | v10+ | see below |
 
-**Auto-fetched** (no manual install needed): yaml-cpp 0.8.0, Catch2 v3.5.2, fmt (bundled by slang)
+By default, CMake can fetch missing `yaml-cpp` and `Catch2` dependencies.
+For preinstalled / no-network builds, configure with `-DSVLENS_FETCH_DEPS=OFF`
+after installing dependencies into your prefix or system package paths.
+`fmt` is provided by `slang` when bundled, otherwise a system `fmt` install is used.
 
 ### Quick setup
 
 ```bash
 ./scripts/setup-deps.sh
 ./scripts/setup-deps.sh --prefix /opt/sv-deps
+```
+
+Offline / preinstalled dependency check:
+
+```bash
+./scripts/setup-deps.sh --prefix "$HOME/.local" --offline
+cmake -B build-offline -DCMAKE_PREFIX_PATH="$HOME/.local" -DSVLENS_FETCH_DEPS=OFF
+cmake --build build-offline -j$(nproc)
 ```
 
 ### Manual slang install
@@ -72,11 +88,30 @@ cmake -B build -DCMAKE_PREFIX_PATH="$HOME/.local"
 cmake --build build -j$(nproc)
 ```
 
+Offline / preinstalled dependency build:
+
+```bash
+cmake -B build-offline -DCMAKE_PREFIX_PATH="$HOME/.local" -DSVLENS_FETCH_DEPS=OFF
+cmake --build build-offline -j$(nproc)
+```
+
 ### Run tests
 
 ```bash
 ctest --test-dir build --output-on-failure
 ```
+
+### Install
+
+```bash
+cmake --install build --prefix "$HOME/.local"
+```
+
+For additional install paths and planned distribution routes
+(prebuilt archives / Homebrew), see [`docs/install.md`](docs/install.md).
+
+Release archive packaging and Homebrew/tap validation guidance live in
+[`docs/release.md`](docs/release.md).
 
 ---
 
@@ -86,6 +121,7 @@ ctest --test-dir build --output-on-failure
 svlens conn [OPTIONS] <SV_FILES...>
 svlens cdc  [OPTIONS] <SV_FILES...>
 svlens both [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] <SV_FILES...>
+svlens help [conn|cdc|both]
 ```
 
 ### Help
@@ -94,7 +130,12 @@ svlens both [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] <SV_FILES...>
 ./build/svlens --help
 ./build/svlens conn --help
 ./build/svlens cdc --help
+./build/svlens both --help
+./build/svlens help conn
 ```
+
+For the detailed help contract and structure, see [`docs/cli-help.md`](docs/cli-help.md).
+Stable JSON contracts are documented under [`docs/schema/`](docs/schema/).
 
 ### Version
 
@@ -289,6 +330,12 @@ docs/plan/              Unification specs and implementation plans
 
 - [`docs/plan/svlens-unification-spec.md`](docs/plan/svlens-unification-spec.md)
 - [`docs/plan/svlens-implementation-plan.md`](docs/plan/svlens-implementation-plan.md)
+
+## Output schema documentation
+
+- [`docs/schema/connect_report.md`](docs/schema/connect_report.md)
+- [`docs/schema/cdc_report.md`](docs/schema/cdc_report.md)
+- [`docs/schema/svlens_summary.md`](docs/schema/svlens_summary.md)
 
 ---
 

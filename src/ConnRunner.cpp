@@ -11,16 +11,19 @@
 #include <vector>
 
 void connect::printConnUsage() {
-    fmt::print(
-        "svlens conn v" SVLENS_VERSION " -- Module interconnect verification and analysis\n\n"
+    const std::string usage =
+        std::string("svlens conn v") + SVLENS_VERSION + " -- Module interconnect verification and analysis\n\n"
         "Usage: svlens conn [OPTIONS] <SV_FILES...>\n\n"
         "Required:\n"
-        "  --top <module>          Top-level module\n\n"
-        "Options:\n"
-        "  -o, --output <dir>      Output directory (default: ./connect_reports/)\n"
-        "  --format <fmt>          json|md|csv|table|dot|html|all (default: all)\n"
-        "  --help                  Show this help message\n\n"
-        "Analysis (all enabled by default, --no-* to disable):\n"
+        "  --top <module>                 Top-level module\n"
+        "  <SV_FILES...>                  SystemVerilog source files\n\n"
+        "Common:\n"
+        "  -o, --output <dir>             Output directory (default: ./connect_reports/)\n"
+        "  --format <fmt>                 json|md|csv|table|dot|html|all (default: all)\n"
+        "  --version                      Show version\n"
+        "  --help                         Show this help message\n"
+        "  " + commoncli::passThroughNote() + "\n\n"
+        "Analysis (all enabled by default, use --no-* to disable):\n"
         "  --no-check-width        Disable width mismatch checking\n"
         "  --no-check-type         Disable type mismatch checking\n"
         "  --no-check-dangling     Disable dangling output checking\n"
@@ -39,7 +42,29 @@ void connect::printConnUsage() {
         "  --trace <pattern>       Trace signal fan-out and fan-in (glob pattern)\n\n"
         "Comparison:\n"
         "  --diff <file>           Compare against a baseline JSON report\n\n"
-        "All other options (e.g. -I, -D, --std, -f) are passed to slang.\n");
+        "Outputs:\n"
+        "  json  -> connect_report.json\n"
+        "  md    -> connect_report.md\n"
+        "  csv   -> connection_matrix.csv\n"
+        "  dot   -> connectivity.dot\n"
+        "  html  -> connect_report.html\n"
+        "  table -> stdout summary\n\n"
+        "Examples:\n"
+        "  svlens conn design.sv --top my_top\n"
+        "  svlens conn -F rtl/filelist.f --top soc_top --format all -o reports\n"
+        "  svlens conn design.sv --top my_top --check-protocol --check-convention\n"
+        "  svlens conn design.sv --top my_top --trace \"*.u_cpu.o_addr\"\n\n"
+        "Exit Codes:\n"
+        "  Returns the number of active issues, capped at 255.\n"
+        "  0 means no active issues after waiver filtering.\n\n"
+        "Limitations:\n"
+        "  Whole-interface / modport ports and procedural glue logic are only partially modeled.\n"
+        "  Clock/reset analysis in conn mode is still heuristic and name-oriented, not full semantic domain analysis.\n\n"
+        "Notes:\n"
+        "  Use docs/schema/connect_report.md for the stable JSON contract.\n"
+        "  Use 'svlens help both' for combined-run output behavior.\n"
+        "  " + commoncli::productBoundaryNote() + "\n";
+    fmt::print("{}", usage);
 }
 
 // Parse our custom CLI args and return a cleaned argv for slang.

@@ -91,3 +91,19 @@ add_test(NAME integration_cdc_golden
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_cdc_golden.sh
             $<TARGET_FILE:svlens>
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME install_smoke
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_install_smoke.sh
+            $<TARGET_FILE:svlens>
+            ${CMAKE_BINARY_DIR}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME help_contract
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_help_contract.sh
+            $<TARGET_FILE:svlens>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME schema_contract
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_schema_contract.sh
+            $<TARGET_FILE:svlens>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

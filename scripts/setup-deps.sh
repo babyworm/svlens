@@ -3,16 +3,18 @@
 # setup-deps.sh — Install external dependencies for svlens
 #
 # Usage:
-#   ./scripts/setup-deps.sh [--prefix <install_dir>] [--slang-tag <version>]
+#   ./scripts/setup-deps.sh [--prefix <install_dir>] [--slang-tag <version>] [--offline]
 #
 # Defaults:
 #   --prefix     $HOME/.local
 #   --slang-tag  v10.0  (default pinned version)
+#   --offline    Do not download slang; validate existing install and print offline build guidance
 #
 set -euo pipefail
 
 PREFIX="${HOME}/.local"
 SLANG_TAG="v10.0"
+OFFLINE=0
 JOBS="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
 # --- Parse arguments ---
@@ -20,8 +22,9 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --prefix)  PREFIX="$2"; shift 2 ;;
         --slang-tag) SLANG_TAG="$2"; shift 2 ;;
+        --offline) OFFLINE=1; shift ;;
         -h|--help)
-            sed -n '3,10p' "$0"
+            sed -n '3,11p' "$0"
             exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
@@ -30,8 +33,20 @@ done
 echo "=== svlens dependency setup ==="
 echo "  Install prefix : $PREFIX"
 echo "  slang version  : $SLANG_TAG"
+echo "  Offline mode   : $OFFLINE"
 echo "  Parallel jobs  : $JOBS"
 echo ""
+
+print_ready_to_build() {
+    echo "=== Ready to build ==="
+    echo "  Online / fallback-fetch build:"
+    echo "    cmake -B build -DCMAKE_PREFIX_PATH=\"${PREFIX}\""
+    echo "    cmake --build build -j${JOBS}"
+    echo ""
+    echo "  Offline / preinstalled dependency build:"
+    echo "    cmake -B build-offline -DCMAKE_PREFIX_PATH=\"${PREFIX}\" -DSVLENS_FETCH_DEPS=OFF"
+    echo "    cmake --build build-offline -j${JOBS}"
+}
 
 # --- 1. Check prerequisites ---
 check_cmd() {
@@ -42,9 +57,14 @@ check_cmd() {
 }
 
 check_cmd cmake
-check_cmd g++ || check_cmd clang++
-check_cmd git
-
+if command -v g++ &>/dev/null; then
+    :
+elif command -v clang++ &>/dev/null; then
+    :
+else
+    echo "ERROR: neither 'g++' nor 'clang++' was found. Please install a C++20 compiler first."
+    exit 1
+fi
 # Check C++20 support
 CXX="${CXX:-$(command -v g++ || command -v clang++)}"
 CXX_VER=$("$CXX" -dumpversion 2>/dev/null || echo "0")
@@ -63,14 +83,24 @@ if [ -f "$SLANG_CMAKE" ]; then
     echo ""
     echo "To rebuild, remove ${PREFIX}/lib/cmake/slang/ and re-run this script."
     echo ""
-    echo "=== Ready to build ==="
-    echo "  cmake -B build -DCMAKE_PREFIX_PATH=\"${PREFIX}\""
-    echo "  cmake --build build -j${JOBS}"
+    print_ready_to_build
     exit 0
+fi
+
+if [ "$OFFLINE" -eq 1 ]; then
+    echo "ERROR: slang is not installed at ${PREFIX}."
+    echo "Offline mode cannot download missing dependencies."
+    echo ""
+    echo "Either:"
+    echo "  1) preinstall slang into ${PREFIX}, or"
+    echo "  2) rerun without --offline to bootstrap slang,"
+    echo "  3) see docs/install.md for preinstalled dependency guidance."
+    exit 1
 fi
 
 # --- 3. Build and install slang ---
 echo "[INSTALLING] slang ${SLANG_TAG} ..."
+check_cmd git
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 
@@ -90,6 +120,4 @@ cmake --install build
 echo ""
 echo "[OK] slang ${SLANG_TAG} installed to ${PREFIX}"
 echo ""
-echo "=== Ready to build svlens ==="
-echo "  cmake -B build -DCMAKE_PREFIX_PATH=\"${PREFIX}\""
-echo "  cmake --build build -j${JOBS}"
+print_ready_to_build

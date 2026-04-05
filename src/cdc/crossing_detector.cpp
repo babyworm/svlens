@@ -3,6 +3,29 @@
 
 namespace sv_cdccheck {
 
+namespace {
+
+const char* relationshipToString(DomainRelationship::Type rel) {
+    switch (rel) {
+        case DomainRelationship::Type::Asynchronous: return "asynchronous";
+        case DomainRelationship::Type::SameSource: return "same_source";
+        case DomainRelationship::Type::Divided: return "divided";
+        case DomainRelationship::Type::PhysicallyExclusive: return "physically_exclusive";
+        case DomainRelationship::Type::LogicallyExclusive: return "logically_exclusive";
+    }
+    return "unknown";
+}
+
+std::optional<double> timingBasis(const CrossingReport& report) {
+    if (report.dest_domain && report.dest_domain->source && report.dest_domain->source->period_ns)
+        return report.dest_domain->source->period_ns;
+    if (report.source_domain && report.source_domain->source && report.source_domain->source->period_ns)
+        return report.source_domain->source->period_ns;
+    return std::nullopt;
+}
+
+} // namespace
+
 CrossingDetector::CrossingDetector(const std::vector<FFEdge>& edges,
                                    const ClockDatabase& clock_db)
     : edges_(edges), clock_db_(clock_db) {}
@@ -29,8 +52,14 @@ void CrossingDetector::analyze() {
         }
 
         // Classify severity based on domain relationship FIRST
+        auto relationship = clock_db_.relationshipBetween(
+            edge.source->domain, edge.dest->domain);
         bool is_async = clock_db_.isAsynchronous(
             edge.source->domain, edge.dest->domain);
+        report.relationship = relationship
+            ? relationshipToString(*relationship)
+            : "inferred_asynchronous";
+        report.timing_basis_ns = timingBasis(report);
 
         // Check if this is a gated-clock crossing
         bool is_gated = false;
@@ -50,12 +79,27 @@ void CrossingDetector::analyze() {
             report.rule = "Ac_cdc01";
             report.recommendation = "[Ac_cdc01] Insert 2-FF synchronizer at " +
                 edge.dest->hier_path;
+            report.rationale =
+                "Source and destination domains are treated as asynchronous; CDC synchronization is required.";
+        } else if (relationship &&
+                   (*relationship == DomainRelationship::Type::PhysicallyExclusive ||
+                    *relationship == DomainRelationship::Type::LogicallyExclusive)) {
+            report.severity = Severity::Info;
+            report.category = ViolationCategory::Info;
+            report.id = "INFO-" + std::to_string(++info_counter_);
+            report.rule = "Ac_cdc01";
+            report.recommendation =
+                "[Ac_cdc01] Exclusive clock relationship detected — verify mux/select assumptions and SDC intent";
+            report.rationale =
+                "Clock groups are exclusive per constraints, so the crossing is informational rather than a synchronizer violation.";
         } else if (is_gated && !is_async) {
             report.severity = Severity::Low;
             report.category = ViolationCategory::Info;
             report.id = "INFO-" + std::to_string(++info_counter_);
             report.rule = "Ac_cdc01";
             report.recommendation = "[Ac_cdc01] Gated-clock crossing — verify clock gating is safe";
+            report.rationale =
+                "A gated clock is involved, so this crossing is downgraded to informational review.";
         } else {
             // Related domains (divided, gated) -- lower severity
             report.severity = Severity::Medium;
@@ -63,6 +107,16 @@ void CrossingDetector::analyze() {
             report.id = "CAUTION-" + std::to_string(++caution_counter_);
             report.rule = "Ac_cdc01";
             report.recommendation = "[Ac_cdc01] Verify timing constraints for related-clock crossing";
+            if (relationship && *relationship == DomainRelationship::Type::Divided) {
+                report.rationale =
+                    "Domains share a divided/generated relationship, so the crossing is timing-sensitive but not fully asynchronous.";
+            } else if (relationship && *relationship == DomainRelationship::Type::SameSource) {
+                report.rationale =
+                    "Domains share a common source; verify edge/phase assumptions and timing constraints for the related-clock crossing.";
+            } else {
+                report.rationale =
+                    "Crossing is not fully asynchronous, but timing and synchronization assumptions still need review.";
+            }
         }
 
         // Add CONVENTION annotation for non-standard clock naming
@@ -83,6 +137,10 @@ void CrossingDetector::analyze() {
             if (!dst_standard) bad_names += dst_clk_name;
             report.recommendation += ". Also: non-standard clock naming convention (" +
                 bad_names + "). Use *clk*/*clock*/*ck* naming convention";
+        }
+
+        if (report.timing_basis_ns.has_value() && report.category != ViolationCategory::Violation) {
+            report.recommendation += " (timing basis " + std::to_string(*report.timing_basis_ns) + " ns)";
         }
 
         crossings_.push_back(std::move(report));

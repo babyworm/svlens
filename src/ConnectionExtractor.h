@@ -2,10 +2,12 @@
 
 #include "ConnectionGraph.h"
 #include <slang/ast/Compilation.h>
+#include <slang/ast/Statement.h>
 #include <slang/ast/symbols/MemberSymbols.h>
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace connect {
@@ -37,9 +39,16 @@ private:
     void processContinuousAssign(const slang::ast::ContinuousAssignSymbol& assignSym,
                                  const std::string& scopePath);
 
+    void processProceduralBlock(const slang::ast::ProceduralBlockSymbol& block,
+                                const std::string& scopePath);
+
+    void processProceduralStatement(const slang::ast::Statement& stmt,
+                                    const std::string& scopePath);
+
     void resolveConnections();
 
     static ResolvedExpr resolveExpr(const slang::ast::Expression* expr);
+    void recordAlias(const std::string& lhsKey, const std::string& rhsKey, bool approximate);
 
     slang::ast::Compilation& compilation_;
     std::string topModule_;
@@ -58,6 +67,7 @@ private:
 
     // net alias map: key -> parent key (union-find without path compression)
     std::unordered_map<std::string, std::string> netAliases_;
+    std::unordered_set<std::string> approximateAliases_;
 };
 
 } // namespace connect

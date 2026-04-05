@@ -76,6 +76,8 @@ void ConeAnalyzer::traverse(const std::string& signalKey, int depth,
                                         nodeIds.begin(), nodeIds.end());
             }
         }
+        // Sort for deterministic traversal across unordered_map iteration orders
+        std::sort(collectedDrivers.begin(), collectedDrivers.end());
     }
 
     if (collectedDrivers.empty()) {

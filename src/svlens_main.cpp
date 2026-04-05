@@ -134,15 +134,16 @@ std::string statusForExitCode(int exitCode) {
     return exitCode == 0 ? "ok" : "issues";
 }
 
-void writeBothSummary(const std::string& outputBase,
-                      const std::string& topModule,
-                      const std::string& connFormat,
-                      const std::string& cdcFormat,
-                      bool explicitOutput,
-                      const std::vector<std::string>& filelists,
-                      const std::vector<std::string>& sourceFiles,
-                      int connExit,
-                      int cdcExit) {
+void writeSummary(const std::string& outputBase,
+                  const std::string& topModule,
+                  const std::string& connFormat,
+                  const std::string& cdcFormat,
+                  bool explicitOutput,
+                  const std::vector<std::string>& filelists,
+                  const std::vector<std::string>& sourceFiles,
+                  int connExit,
+                  int cdcExit,
+                  int metricsExit) {
     fs::create_directories(outputBase);
     std::ofstream ofs(fs::path(outputBase) / "svlens_summary.json");
     if (!ofs)
@@ -150,9 +151,10 @@ void writeBothSummary(const std::string& outputBase,
 
     const auto connDir = fs::path(outputBase) / "conn";
     const auto cdcDir = fs::path(outputBase) / "cdc";
+    const auto metricsDir = fs::path(outputBase) / "metrics";
 
     ofs << "{\n";
-    ofs << "  \"mode\": \"both\",\n";
+    ofs << "  \"mode\": \"all\",\n";
     ofs << fmt::format("  \"top\": \"{}\",\n", topModule);
     ofs << fmt::format("  \"conn_format\": \"{}\",\n", connFormat);
     ofs << fmt::format("  \"cdc_format\": \"{}\",\n", cdcFormat);
@@ -160,10 +162,12 @@ void writeBothSummary(const std::string& outputBase,
     ofs << fmt::format("  \"used_filelist\": {},\n", filelists.empty() ? "false" : "true");
     ofs << fmt::format("  \"conn_exit_code\": {},\n", connExit);
     ofs << fmt::format("  \"cdc_exit_code\": {},\n", cdcExit);
-    ofs << fmt::format("  \"exit_code\": {},\n", std::max(connExit, cdcExit));
+    ofs << fmt::format("  \"metrics_exit_code\": {},\n", metricsExit);
+    ofs << fmt::format("  \"exit_code\": {},\n", std::max({connExit, cdcExit, metricsExit}));
     ofs << fmt::format("  \"source_file_count\": {},\n", sourceFiles.size());
     ofs << fmt::format("  \"conn_status\": \"{}\",\n", statusForExitCode(connExit));
     ofs << fmt::format("  \"cdc_status\": \"{}\",\n", statusForExitCode(cdcExit));
+    ofs << fmt::format("  \"metrics_status\": \"{}\",\n", statusForExitCode(metricsExit));
     ofs << "  \"filelists\": [\n";
     for (size_t i = 0; i < filelists.size(); ++i) {
         ofs << fmt::format("    \"{}\"", filelists[i]);
@@ -183,12 +187,15 @@ void writeBothSummary(const std::string& outputBase,
     ofs << "  \"outputs\": {\n";
     ofs << fmt::format("    \"conn\": \"{}\",\n", connDir.string());
     ofs << fmt::format("    \"cdc\": \"{}\",\n", cdcDir.string());
+    ofs << fmt::format("    \"metrics\": \"{}\",\n", metricsDir.string());
     ofs << fmt::format("    \"conn_dir\": \"{}\",\n", connDir.string());
-    ofs << fmt::format("    \"cdc_dir\": \"{}\"\n", cdcDir.string());
+    ofs << fmt::format("    \"cdc_dir\": \"{}\",\n", cdcDir.string());
+    ofs << fmt::format("    \"metrics_dir\": \"{}\"\n", metricsDir.string());
     ofs << "  },\n";
     ofs << "  \"reports\": {\n";
     ofs << fmt::format("    \"connect_report\": \"{}\",\n", (connDir / "connect_report.json").string());
-    ofs << fmt::format("    \"cdc_report\": \"{}\"\n", (cdcDir / "cdc_report.json").string());
+    ofs << fmt::format("    \"cdc_report\": \"{}\",\n", (cdcDir / "cdc_report.json").string());
+    ofs << fmt::format("    \"metrics_report\": \"{}\"\n", (metricsDir / "metrics_report.json").string());
     ofs << "  }\n";
     ofs << "}\n";
 }
@@ -303,9 +310,9 @@ int main(int argc, char* argv[]) {
         int connExit = connect::runConnWithCompilation(session.compilation(), connOpts);
         int cdcExit = cdccli::runCdcWithCompilation(session.compilation(), cdcOpts);
 
-        // Run metrics if top module is available and output is explicit
+        // Run metrics if top module is available
         int metricsExit = 0;
-        if (dispatch.explicitOutput && !connOpts.topModule.empty()) {
+        if (!connOpts.topModule.empty()) {
             metrics::MetricsCliOptions metricsOpts;
             metricsOpts.topModule = connOpts.topModule;
             metricsOpts.outputDir = dispatch.outputBase + "/metrics";
@@ -316,15 +323,16 @@ int main(int argc, char* argv[]) {
         if (dispatch.explicitOutput) {
             auto filelists = extractFilelists(connCompilationArgs);
             auto sourceFiles = extractSourceFiles(session.expandedArgs());
-            writeBothSummary(dispatch.outputBase,
-                             connOpts.topModule,
-                             connOpts.format,
-                             cdcOpts.format,
-                             dispatch.explicitOutput,
-                             filelists,
-                             sourceFiles,
-                             connExit,
-                             cdcExit);
+            writeSummary(dispatch.outputBase,
+                         connOpts.topModule,
+                         connOpts.format,
+                         cdcOpts.format,
+                         dispatch.explicitOutput,
+                         filelists,
+                         sourceFiles,
+                         connExit,
+                         cdcExit,
+                         metricsExit);
         }
         return std::max({connExit, cdcExit, metricsExit});
     }

@@ -83,6 +83,4 @@ based on backward transformation cones and repeated bit-lane normalization.
 
 ## Out of scope for MVP
 - per-module aggregate scoring / CI threshold profiles
-- baseline / diff comparison
-- `svlens both` integration for metrics
-- full procedural semantics (general `always_comb` blocks)
+- full procedural semantics (general `always_comb` blocks beyond case/for)

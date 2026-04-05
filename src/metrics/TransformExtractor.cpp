@@ -273,6 +273,14 @@ void TransformExtractor::processCase(const slang::ast::CaseStatement& caseStmt,
 void TransformExtractor::processForLoop(const slang::ast::ForLoopStatement& forStmt,
                                         const std::string& scopePath) {
     // Try to evaluate constant bounds
+    if (!forStmt.stopExpr) {
+        UnsupportedEvent evt;
+        evt.kind = "for_loop_no_stop";
+        evt.detail = "for loop with no stop expression";
+        graph_.unsupported_events.push_back(std::move(evt));
+        processStatement(forStmt.body, scopePath, true);
+        return;
+    }
     auto* stopConst = forStmt.stopExpr->getConstant();
     if (!stopConst || !*stopConst) {
         // Dynamic bounds — cannot unroll

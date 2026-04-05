@@ -107,7 +107,7 @@ if ! grep -q '"violations": 1' "$OUTDIR/svlens_both/cdc/cdc_report.json"; then
     echo "FAIL: svlens both cdc report unexpected"
     exit 1
 fi
-if ! grep -q '"mode": "both"' "$OUTDIR/svlens_both/svlens_summary.json"; then
+if ! grep -q '"mode": "all"' "$OUTDIR/svlens_both/svlens_summary.json"; then
     echo "FAIL: svlens_summary.json missing mode"
     exit 1
 fi

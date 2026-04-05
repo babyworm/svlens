@@ -68,9 +68,9 @@ cdc_summary = {'violations', 'cautions', 'conventions', 'info', 'waived'}
 cdc_domain = {'name', 'source'}
 cdc_crossing = {'id', 'source', 'dest', 'source_domain', 'dest_domain', 'path', 'category', 'severity', 'sync_type', 'rule', 'recommendation'}
 
-both_top = {'mode', 'top', 'conn_format', 'cdc_format', 'explicit_output', 'used_filelist', 'conn_exit_code', 'cdc_exit_code', 'exit_code', 'source_file_count', 'conn_status', 'cdc_status', 'filelists', 'source_files', 'outputs', 'reports'}
-both_outputs = {'conn', 'cdc', 'conn_dir', 'cdc_dir'}
-both_reports = {'connect_report', 'cdc_report'}
+both_top = {'mode', 'top', 'conn_format', 'cdc_format', 'explicit_output', 'used_filelist', 'conn_exit_code', 'cdc_exit_code', 'metrics_exit_code', 'exit_code', 'source_file_count', 'conn_status', 'cdc_status', 'metrics_status', 'filelists', 'source_files', 'outputs', 'reports'}
+both_outputs = {'conn', 'cdc', 'metrics', 'conn_dir', 'cdc_dir', 'metrics_dir'}
+both_reports = {'connect_report', 'cdc_report', 'metrics_report'}
 
 assert conn_top.issubset(conn.keys()), conn.keys()
 assert conn_summary.issubset(conn['summary'].keys()), conn['summary'].keys()
@@ -94,7 +94,7 @@ assert cdc['summary']['violations'] == 1, cdc['summary']
 assert both_top.issubset(both.keys()), both.keys()
 assert both_outputs.issubset(both['outputs'].keys()), both['outputs'].keys()
 assert both_reports.issubset(both['reports'].keys()), both['reports'].keys()
-assert both['mode'] == 'both', both['mode']
+assert both['mode'] == 'all', both['mode']
 assert both['conn_status'] == 'ok', both['conn_status']
 assert both['cdc_status'] == 'issues', both['cdc_status']
 assert both['used_filelist'] is False, both['used_filelist']

@@ -8,10 +8,10 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Cache slang install
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.local
           key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}
@@ -22,7 +22,7 @@ jobs:
           sudo apt-get install -y build-essential cmake git python3 ccache
 
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-svlens-ccache-${{ github.ref_name }}-${{ hashFiles('CMakeLists.txt', 'src/**', 'include/**', 'tests/**') }}
@@ -49,7 +49,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Ubuntu prerequisites
         if: runner.os == 'Linux'
@@ -70,7 +70,7 @@ jobs:
           brew install catch2 yaml-cpp fmt ccache
 
       - name: Cache slang install
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.local
           key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}
@@ -97,7 +97,7 @@ jobs:
   preinstalled-offline-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install build prerequisites and preinstalled deps
         run: |
@@ -112,7 +112,7 @@ jobs:
             libyaml-cpp-dev
 
       - name: Cache slang install
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.local
           key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}
@@ -138,7 +138,7 @@ jobs:
   macos-offline-smoke:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install preinstalled dependencies
         run: |
@@ -146,7 +146,7 @@ jobs:
           brew install catch2 yaml-cpp fmt ccache
 
       - name: Cache slang install
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.local
           key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}

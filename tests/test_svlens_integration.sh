@@ -9,7 +9,8 @@ if [ ! -x "$SVLENS_BINARY" ]; then
 fi
 
 OUTDIR="/tmp/svlens-integration-test"
-rm -rf "$OUTDIR"
+OUTDIR="$(mktemp -d "${TMPDIR:-/tmp}/svlens-integration-test.XXXXXX")"
+trap 'rm -rf "$OUTDIR"' EXIT
 
 echo "=== svlens Integration Test ==="
 
@@ -27,13 +28,13 @@ fi
 echo "PASS: svlens help/version"
 
 # Test 1: svlens conn runs and produces expected report
-"$SVLENS_BINARY" conn --help >/tmp/svlens_conn_help.txt
-if ! grep -q 'svlens conn v0.2.4' /tmp/svlens_conn_help.txt; then
+"$SVLENS_BINARY" conn --help >"$OUTDIR/svlens_conn_help.txt"
+if ! grep -q 'svlens conn v0.2.4' "$OUTDIR/svlens_conn_help.txt"; then
     echo "FAIL: svlens conn --help missing banner"
     exit 1
 fi
-"$SVLENS_BINARY" conn --version >/tmp/svlens_conn_version.txt
-if ! grep -q '^svlens conn 0\.2\.4$' /tmp/svlens_conn_version.txt; then
+"$SVLENS_BINARY" conn --version >"$OUTDIR/svlens_conn_version.txt"
+if ! grep -q '^svlens conn 0\.2\.4$' "$OUTDIR/svlens_conn_version.txt"; then
     echo "FAIL: svlens conn --version unexpected"
     exit 1
 fi
@@ -50,13 +51,13 @@ echo "PASS: svlens conn"
 
 # Test 2: svlens cdc forwards to CDC mode
 set +e
-"$SVLENS_BINARY" cdc --help >/tmp/svlens_cdc_help.txt
-if ! grep -q 'svlens cdc v0.2.4' /tmp/svlens_cdc_help.txt; then
+"$SVLENS_BINARY" cdc --help >"$OUTDIR/svlens_cdc_help.txt"
+if ! grep -q 'svlens cdc v0.2.4' "$OUTDIR/svlens_cdc_help.txt"; then
     echo "FAIL: svlens cdc --help missing banner"
     exit 1
 fi
-"$SVLENS_BINARY" cdc --version >/tmp/svlens_cdc_version.txt
-if ! grep -q '^svlens cdc 0\.2\.4$' /tmp/svlens_cdc_version.txt; then
+"$SVLENS_BINARY" cdc --version >"$OUTDIR/svlens_cdc_version.txt"
+if ! grep -q '^svlens cdc 0\.2\.4$' "$OUTDIR/svlens_cdc_version.txt"; then
     echo "FAIL: svlens cdc --version unexpected"
     exit 1
 fi

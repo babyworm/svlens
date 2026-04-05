@@ -4,15 +4,23 @@
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "slang/ast/symbols/BlockSymbols.h"
+#include <atomic>
+#include <chrono>
 #include <fstream>
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <unistd.h>
 
 namespace sv_cdccheck::test {
 inline std::unique_ptr<slang::ast::Compilation> compileSV(const std::string& sv_code, const std::string& prefix = "test") {
-    static int counter = 0;
-    auto path = std::filesystem::temp_directory_path() / (prefix + "_" + std::to_string(counter++) + ".sv");
+    static std::atomic<uint64_t> counter{0};
+    const auto unique_id =
+        std::to_string(static_cast<long long>(::getpid())) + "_" +
+        std::to_string(static_cast<unsigned long long>(
+            std::chrono::steady_clock::now().time_since_epoch().count())) + "_" +
+        std::to_string(counter.fetch_add(1, std::memory_order_relaxed));
+    auto path = std::filesystem::temp_directory_path() / (prefix + "_" + unique_id + ".sv");
     std::ofstream(path) << sv_code;
     std::string path_str = path.string();
     slang::driver::Driver driver;

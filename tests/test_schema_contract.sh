@@ -17,6 +17,10 @@ CONN_EXIT=$?
 CDC_EXIT=$?
 "$SVLENS_BINARY" both tests/cdc/basic/02_missing_sync.sv --top missing_sync -o "$OUTDIR/both" --conn-format json --cdc-format json
 BOTH_EXIT=$?
+"$SVLENS_BINARY" metrics tests/sv/metrics/simple_cone.sv --top simple_cone -o "$OUTDIR/metrics"
+METRICS_EXIT=$?
+"$SVLENS_BINARY" metrics tests/sv/metrics/unsupported_construct.sv --top unsupported_construct -o "$OUTDIR/metrics_unsup"
+METRICS_UNSUP_EXIT=$?
 set -e
 
 if [ "$CONN_EXIT" -eq 0 ]; then
@@ -31,8 +35,12 @@ if [ "$BOTH_EXIT" -ne 1 ]; then
     echo "FAIL: expected both canary exit 1, got $BOTH_EXIT" >&2
     exit 1
 fi
+if [ "$METRICS_EXIT" -ne 0 ]; then
+    echo "FAIL: expected metrics canary exit 0, got $METRICS_EXIT" >&2
+    exit 1
+fi
 
-for doc in docs/schema/connect_report.md docs/schema/cdc_report.md docs/schema/svlens_summary.md; do
+for doc in docs/schema/connect_report.md docs/schema/cdc_report.md docs/schema/svlens_summary.md docs/schema/metrics_report.md; do
     if [ ! -f "$doc" ]; then
         echo "FAIL: missing schema doc $doc" >&2
         exit 1
@@ -90,6 +98,37 @@ assert both['mode'] == 'both', both['mode']
 assert both['conn_status'] == 'ok', both['conn_status']
 assert both['cdc_status'] == 'issues', both['cdc_status']
 assert both['used_filelist'] is False, both['used_filelist']
+
+# --- metrics schema ---
+metrics = json.loads((outdir / 'metrics' / 'metrics_report.json').read_text())
+metrics_top = {'version', 'top', 'summary', 'analysis', 'roots', 'ff_paths', 'normalization', 'unsupported'}
+metrics_summary = {'outputs_analyzed', 'ff_d_roots_analyzed', 'cones_analyzed', 'approximate_cones', 'unsupported_count'}
+metrics_analysis = {'raw_transform_count', 'normalized_transform_count', 'repeated_lane_groups', 'ff_to_ff_paths', 'max_output_cone', 'max_ffd_cone'}
+metrics_root = {'root_id', 'root_kind', 'raw_node_count', 'logic_depth_est', 'normalized_transform_count', 'repeated_lane_group_count', 'source_inputs', 'source_ffs', 'approximate'}
+metrics_norm = {'enabled', 'lane_min_width', 'groups'}
+
+assert metrics_top.issubset(metrics.keys()), f"metrics top keys: {metrics.keys()}"
+assert metrics_summary.issubset(metrics['summary'].keys()), f"metrics summary: {metrics['summary'].keys()}"
+assert metrics_analysis.issubset(metrics['analysis'].keys()), f"metrics analysis: {metrics['analysis'].keys()}"
+assert metrics['version'] == '1.1', f"schema version: {metrics['version']}"
+assert 'tool_version' in metrics, 'missing tool_version field'
+assert metrics['top'] == 'simple_cone', metrics['top']
+assert isinstance(metrics['roots'], list), type(metrics['roots'])
+assert len(metrics['roots']) >= 1, 'metrics should have at least one root'
+assert metrics_root.issubset(metrics['roots'][0].keys()), f"root keys: {metrics['roots'][0].keys()}"
+assert isinstance(metrics['ff_paths'], list), type(metrics['ff_paths'])
+assert metrics_norm.issubset(metrics['normalization'].keys()), f"norm keys: {metrics['normalization'].keys()}"
+assert isinstance(metrics['unsupported'], list), type(metrics['unsupported'])
+assert metrics['summary']['outputs_analyzed'] >= 1, metrics['summary']
+
+# --- metrics unsupported schema ---
+m_unsup = json.loads((outdir / 'metrics_unsup' / 'metrics_report.json').read_text())
+assert m_unsup['summary']['unsupported_count'] >= 1, f"unsupported_count should be >= 1, got {m_unsup['summary']['unsupported_count']}"
+assert len(m_unsup['unsupported']) >= 1, 'unsupported[] should not be empty for unsupported_construct fixture'
+unsup_item = m_unsup['unsupported'][0]
+assert 'kind' in unsup_item, f"unsupported item missing 'kind': {unsup_item}"
+assert 'count' in unsup_item, f"unsupported item missing 'count': {unsup_item}"
+assert unsup_item['count'] >= 1, f"unsupported count should be >= 1: {unsup_item}"
 PY
 
 echo "PASS: schema contract"

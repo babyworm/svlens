@@ -137,14 +137,25 @@ add_library(svlens-cdc-lib OBJECT
 target_include_directories(svlens-cdc-lib PUBLIC src include)
 target_link_libraries(svlens-cdc-lib PUBLIC svlens-common-lib slang::slang)
 
+add_library(svlens-metrics-lib OBJECT
+    src/MetricsRunner.cpp
+    src/metrics/TransformExtractor.cpp
+    src/metrics/ConeAnalyzer.cpp
+    src/metrics/Normalization.cpp
+    src/metrics/BaselineDiff.cpp
+)
+target_include_directories(svlens-metrics-lib PUBLIC src include)
+target_link_libraries(svlens-metrics-lib PUBLIC svlens-common-lib slang::slang ${FMT_TARGET})
+
 add_executable(svlens src/svlens_main.cpp)
-target_link_libraries(svlens PRIVATE svlens-common-lib svlens-conn-lib svlens-cdc-lib ${FMT_TARGET})
+target_link_libraries(svlens PRIVATE svlens-common-lib svlens-conn-lib svlens-cdc-lib svlens-metrics-lib ${FMT_TARGET})
 
 install(TARGETS svlens RUNTIME DESTINATION bin)
 
 target_compile_definitions(svlens PRIVATE SVLENS_VERSION="${PROJECT_VERSION}")
 target_compile_definitions(svlens-conn-lib PRIVATE SVLENS_VERSION="${PROJECT_VERSION}")
 target_compile_definitions(svlens-cdc-lib PRIVATE SVLENS_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(svlens-metrics-lib PRIVATE SVLENS_VERSION="${PROJECT_VERSION}")
 
 if(BUILD_TESTING)
     add_subdirectory(tests)

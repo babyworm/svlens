@@ -107,3 +107,8 @@ add_test(NAME schema_contract
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_schema_contract.sh
             $<TARGET_FILE:svlens>
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME metrics_determinism
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_metrics_determinism.sh
+            $<TARGET_FILE:svlens>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

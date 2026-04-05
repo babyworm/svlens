@@ -2,6 +2,8 @@
 #include "CdcRunner.h"
 #include "CommonCli.h"
 #include "ConnRunner.h"
+#include "MetricsCli.h"
+#include "MetricsRunner.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -23,14 +25,16 @@ void printUsage() {
     const std::string usage =
         std::string("svlens v") + SVLENS_VERSION + " -- Unified SystemVerilog structural analysis\n\n"
         "Usage:\n"
-        "  svlens conn [OPTIONS] <SV_FILES...>\n"
-        "  svlens cdc  [OPTIONS] <SV_FILES...>\n"
-        "  svlens both [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] <SV_FILES...>\n"
-        "  svlens help [conn|cdc|both]\n\n"
+        "  svlens conn    [OPTIONS] <SV_FILES...>\n"
+        "  svlens cdc     [OPTIONS] <SV_FILES...>\n"
+        "  svlens metrics [OPTIONS] <SV_FILES...>\n"
+        "  svlens both    [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] <SV_FILES...>\n"
+        "  svlens help [conn|cdc|metrics|both]\n\n"
         "Modes:\n"
-        "  conn   Port / connectivity analysis\n"
-        "  cdc    Clock-domain crossing analysis\n"
-        "  both   Run conn then cdc sequentially\n\n"
+        "  conn      Port / connectivity analysis\n"
+        "  cdc       Clock-domain crossing analysis\n"
+        "  metrics   RTL transformation complexity analysis\n"
+        "  both      Run conn then cdc sequentially\n\n"
         "Quick start:\n"
         "  svlens conn design.sv --top my_top\n"
         "  svlens cdc --top soc_top rtl/top.sv --format json\n"
@@ -217,6 +221,10 @@ int main(int argc, char* argv[]) {
             cdccli::printCdcUsage();
             return 0;
         }
+        if (submode == "metrics") {
+            metrics::printMetricsUsage();
+            return 0;
+        }
         if (submode == "both") {
             printBothUsage();
             return 0;
@@ -236,6 +244,12 @@ int main(int argc, char* argv[]) {
         for (int i = 2; i < argc; ++i)
             args.emplace_back(argv[i]);
         return invoke(runCdcMain, std::move(args));
+    }
+    if (mode == "metrics") {
+        std::vector<std::string> args = {"svlens-metrics"};
+        for (int i = 2; i < argc; ++i)
+            args.emplace_back(argv[i]);
+        return invoke(runMetricsMain, std::move(args));
     }
     if (mode == "both") {
         auto dispatch = commoncli::routeBothModeArgs(argc, argv, 2,
@@ -285,6 +299,17 @@ int main(int argc, char* argv[]) {
 
         int connExit = connect::runConnWithCompilation(session.compilation(), connOpts);
         int cdcExit = cdccli::runCdcWithCompilation(session.compilation(), cdcOpts);
+
+        // Run metrics if top module is available and output is explicit
+        int metricsExit = 0;
+        if (dispatch.explicitOutput && !connOpts.topModule.empty()) {
+            metrics::MetricsCliOptions metricsOpts;
+            metricsOpts.topModule = connOpts.topModule;
+            metricsOpts.outputDir = dispatch.outputBase + "/metrics";
+            metricsOpts.format = "json";
+            metricsExit = metrics::runMetricsWithCompilation(session.compilation(), metricsOpts);
+        }
+
         if (dispatch.explicitOutput) {
             auto filelists = extractFilelists(connCompilationArgs);
             auto sourceFiles = extractSourceFiles(session.expandedArgs());
@@ -298,7 +323,7 @@ int main(int argc, char* argv[]) {
                              connExit,
                              cdcExit);
         }
-        return std::max(connExit, cdcExit);
+        return std::max({connExit, cdcExit, metricsExit});
     }
 
     fmt::print(stderr, "Unknown mode '{}'\n\n", mode);

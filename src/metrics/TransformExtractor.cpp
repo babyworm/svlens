@@ -110,6 +110,42 @@ void TransformExtractor::visitScope(const slang::ast::Scope& scope,
                     member.as<slang::ast::ProceduralBlockSymbol>(), scopePath);
                 break;
 
+            case slang::ast::SymbolKind::Instance: {
+                auto& childInst = member.as<slang::ast::InstanceSymbol>();
+                std::string childPath = scopePath.empty()
+                    ? std::string(childInst.name)
+                    : scopePath + "." + std::string(childInst.name);
+                visitScope(childInst.body, childPath);
+                break;
+            }
+
+            case slang::ast::SymbolKind::GenerateBlock: {
+                auto& genBlock = member.as<slang::ast::GenerateBlockSymbol>();
+                std::string blockScope = scopePath;
+                if (!genBlock.name.empty())
+                    blockScope = scopePath.empty()
+                        ? std::string(genBlock.name)
+                        : scopePath + "." + std::string(genBlock.name);
+                visitScope(genBlock, blockScope);
+                break;
+            }
+
+            case slang::ast::SymbolKind::GenerateBlockArray: {
+                auto& genArray = member.as<slang::ast::GenerateBlockArraySymbol>();
+                for (auto& elem : genArray.members()) {
+                    if (elem.kind == slang::ast::SymbolKind::GenerateBlock) {
+                        auto& block = elem.as<slang::ast::GenerateBlockSymbol>();
+                        std::string blockScope = scopePath.empty()
+                            ? std::string(genArray.name)
+                            : scopePath + "." + std::string(genArray.name);
+                        if (block.arrayIndex)
+                            blockScope += "[" + block.arrayIndex->toString() + "]";
+                        visitScope(block, blockScope);
+                    }
+                }
+                break;
+            }
+
             default:
                 break;
         }
@@ -146,14 +182,19 @@ void TransformExtractor::processProceduralBlock(
     }
 
     if (block.procedureKind == slang::ast::ProceduralBlockKind::AlwaysFF) {
-        // Detect FFs: scan for assignments in always_ff
         detectFFs(block.getBody(), scopePath);
+        return;
+    }
+
+    if (block.procedureKind == slang::ast::ProceduralBlockKind::Always) {
+        // Legacy always @(*) — treat as combinational (approximate)
+        processStatement(block.getBody(), scopePath, true);
         return;
     }
 
     UnsupportedEvent evt;
     evt.kind = "procedural_block";
-    evt.detail = "non-always_comb/ff procedural block";
+    evt.detail = "unsupported procedural block kind";
     graph_.unsupported_events.push_back(std::move(evt));
 }
 
@@ -429,19 +470,23 @@ void TransformExtractor::detectFFs(const slang::ast::Statement& stmt,
 
                 if (lhsName.empty()) break;
 
+                std::string scopedLhs = scopePath.empty() ? lhsName : scopePath + "." + lhsName;
+                std::string scopedRhs = (rhsName.empty() || rhsName == "__const" || rhsName == "__unknown")
+                    ? rhsName : (scopePath.empty() ? rhsName : scopePath + "." + rhsName);
+
                 ValueRef qRef;
-                qRef.hier_path = lhsName;
+                qRef.hier_path = scopedLhs;
                 qRef.base_name = lhsName;
                 qRef.kind = ValueRef::FfQ;
 
                 ValueRef dRef;
-                dRef.hier_path = rhsName.empty() ? "__unknown" : rhsName;
-                dRef.base_name = dRef.hier_path;
+                dRef.hier_path = scopedRhs.empty() ? "__unknown" : scopedRhs;
+                dRef.base_name = rhsName.empty() ? "__unknown" : rhsName;
                 dRef.kind = (rhsName == "__const") ? ValueRef::Const : ValueRef::FfDSink;
                 dRef.approximate = rhsName.empty();
 
                 FFInfo ff;
-                ff.name = lhsName;
+                ff.name = scopedLhs;
                 ff.q_ref = qRef;
                 ff.d_ref = dRef;
                 graph_.flip_flops.push_back(std::move(ff));
@@ -489,8 +534,9 @@ ValueRef TransformExtractor::decomposeExpr(const slang::ast::Expression& expr,
         case slang::ast::ExpressionKind::ArbitrarySymbol: {
             auto& sym = expr.as<slang::ast::ArbitrarySymbolExpression>();
             ValueRef ref;
-            ref.hier_path = std::string(sym.symbol->name);
-            ref.base_name = ref.hier_path;
+            std::string name(sym.symbol->name);
+            ref.hier_path = scopePath.empty() ? name : scopePath + "." + name;
+            ref.base_name = name;
             ref.kind = ValueRef::Net;
             return ref;
         }
@@ -694,8 +740,9 @@ ValueRef TransformExtractor::makeNamedRef(const slang::ast::Expression& expr,
     switch (expr.kind) {
         case slang::ast::ExpressionKind::NamedValue: {
             auto& named = expr.as<slang::ast::NamedValueExpression>();
-            ref.hier_path = std::string(named.symbol.name);
-            ref.base_name = ref.hier_path;
+            std::string name(named.symbol.name);
+            ref.base_name = name;
+            ref.hier_path = scopePath.empty() ? name : scopePath + "." + name;
             break;
         }
         case slang::ast::ExpressionKind::RangeSelect: {
@@ -706,8 +753,7 @@ ValueRef TransformExtractor::makeNamedRef(const slang::ast::Expression& expr,
                 left = c->toString();
             if (auto* c = sel.right().getConstant(); c && *c)
                 right = c->toString();
-            ref.selector = "[" + left + ":" + right + "]";
-            ref.hier_path += ref.selector;
+            ref.selector += "[" + left + ":" + right + "]";
             break;
         }
         case slang::ast::ExpressionKind::ElementSelect: {
@@ -716,8 +762,7 @@ ValueRef TransformExtractor::makeNamedRef(const slang::ast::Expression& expr,
             std::string idx = "?";
             if (auto* c = sel.selector().getConstant(); c && *c)
                 idx = c->toString();
-            ref.selector = "[" + idx + "]";
-            ref.hier_path += ref.selector;
+            ref.selector += "[" + idx + "]";
             break;
         }
         case slang::ast::ExpressionKind::Conversion: {

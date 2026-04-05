@@ -22,7 +22,8 @@ ConeSummary ConeAnalyzer::analyzeCone(const ValueRef& root) {
     uint32_t sourceFfs = 0;
     uint32_t approxCount = 0;
 
-    traverse(root.canonical(), 0, summary.cone_nodes, visited,
+    std::unordered_set<uint32_t> coneNodeSet;
+    traverse(root.canonical(), 0, summary.cone_nodes, coneNodeSet, visited,
              maxDepthReached, sourceInputs, sourceFfs, approxCount,
              summary.signal_chain);
 
@@ -46,6 +47,7 @@ ConeSummary ConeAnalyzer::analyzeCone(const ValueRef& root) {
 
 void ConeAnalyzer::traverse(const std::string& signalKey, int depth,
                             std::vector<uint32_t>& coneNodes,
+                            std::unordered_set<uint32_t>& coneNodeSet,
                             std::unordered_map<std::string, bool>& visited,
                             int& maxDepthReached,
                             uint32_t& sourceInputs, uint32_t& sourceFfs,
@@ -70,14 +72,14 @@ void ConeAnalyzer::traverse(const std::string& signalKey, int depth,
         collectedDrivers = it->second;
     } else {
         std::string prefix = signalKey + "[";
-        for (auto& [key, nodeIds] : graph_.drivers_by_value) {
-            if (key.compare(0, prefix.size(), prefix) == 0) {
-                collectedDrivers.insert(collectedDrivers.end(),
-                                        nodeIds.begin(), nodeIds.end());
-            }
+        // O(log N + k) prefix scan using std::map's ordered iteration
+        auto lo = graph_.drivers_by_value.lower_bound(prefix);
+        for (auto it = lo; it != graph_.drivers_by_value.end(); ++it) {
+            if (it->first.compare(0, prefix.size(), prefix) != 0)
+                break;
+            collectedDrivers.insert(collectedDrivers.end(),
+                                    it->second.begin(), it->second.end());
         }
-        // Sort for deterministic traversal across unordered_map iteration orders
-        std::sort(collectedDrivers.begin(), collectedDrivers.end());
     }
 
     if (collectedDrivers.empty()) {
@@ -100,6 +102,9 @@ void ConeAnalyzer::traverse(const std::string& signalKey, int depth,
 
     for (auto nodeId : collectedDrivers) {
         auto& node = graph_.nodes[nodeId];
+        // O(1) dedup: a node can be reached via different signal paths
+        if (!coneNodeSet.insert(nodeId).second)
+            continue;
         coneNodes.push_back(nodeId);
 
         if (node.approximate)
@@ -107,9 +112,9 @@ void ConeAnalyzer::traverse(const std::string& signalKey, int depth,
 
         // Recurse into inputs
         for (auto& input : node.inputs) {
-            traverse(input.canonical(), depth + 1, coneNodes, visited,
-                     maxDepthReached, sourceInputs, sourceFfs, approxCount,
-                     signalChain);
+            traverse(input.canonical(), depth + 1, coneNodes, coneNodeSet,
+                     visited, maxDepthReached, sourceInputs, sourceFfs,
+                     approxCount, signalChain);
         }
     }
 }

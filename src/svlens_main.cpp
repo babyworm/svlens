@@ -2,6 +2,7 @@
 #include "CdcRunner.h"
 #include "CommonCli.h"
 #include "ConnRunner.h"
+#include "JsonUtils.h"
 #include "MetricsCli.h"
 #include "MetricsRunner.h"
 
@@ -155,9 +156,9 @@ void writeSummary(const std::string& outputBase,
 
     ofs << "{\n";
     ofs << "  \"mode\": \"all\",\n";
-    ofs << fmt::format("  \"top\": \"{}\",\n", topModule);
-    ofs << fmt::format("  \"conn_format\": \"{}\",\n", connFormat);
-    ofs << fmt::format("  \"cdc_format\": \"{}\",\n", cdcFormat);
+    ofs << "  \"top\": " << svlens::jsonStr(topModule) << ",\n";
+    ofs << "  \"conn_format\": " << svlens::jsonStr(connFormat) << ",\n";
+    ofs << "  \"cdc_format\": " << svlens::jsonStr(cdcFormat) << ",\n";
     ofs << fmt::format("  \"explicit_output\": {},\n", explicitOutput ? "true" : "false");
     ofs << fmt::format("  \"used_filelist\": {},\n", filelists.empty() ? "false" : "true");
     ofs << fmt::format("  \"conn_exit_code\": {},\n", connExit);
@@ -165,12 +166,12 @@ void writeSummary(const std::string& outputBase,
     ofs << fmt::format("  \"metrics_exit_code\": {},\n", metricsExit);
     ofs << fmt::format("  \"exit_code\": {},\n", std::max({connExit, cdcExit, metricsExit}));
     ofs << fmt::format("  \"source_file_count\": {},\n", sourceFiles.size());
-    ofs << fmt::format("  \"conn_status\": \"{}\",\n", statusForExitCode(connExit));
-    ofs << fmt::format("  \"cdc_status\": \"{}\",\n", statusForExitCode(cdcExit));
-    ofs << fmt::format("  \"metrics_status\": \"{}\",\n", statusForExitCode(metricsExit));
+    ofs << "  \"conn_status\": " << svlens::jsonStr(statusForExitCode(connExit)) << ",\n";
+    ofs << "  \"cdc_status\": " << svlens::jsonStr(statusForExitCode(cdcExit)) << ",\n";
+    ofs << "  \"metrics_status\": " << svlens::jsonStr(statusForExitCode(metricsExit)) << ",\n";
     ofs << "  \"filelists\": [\n";
     for (size_t i = 0; i < filelists.size(); ++i) {
-        ofs << fmt::format("    \"{}\"", filelists[i]);
+        ofs << "    " << svlens::jsonStr(filelists[i]);
         if (i + 1 < filelists.size())
             ofs << ",";
         ofs << "\n";
@@ -178,24 +179,24 @@ void writeSummary(const std::string& outputBase,
     ofs << "  ],\n";
     ofs << "  \"source_files\": [\n";
     for (size_t i = 0; i < sourceFiles.size(); ++i) {
-        ofs << fmt::format("    \"{}\"", sourceFiles[i]);
+        ofs << "    " << svlens::jsonStr(sourceFiles[i]);
         if (i + 1 < sourceFiles.size())
             ofs << ",";
         ofs << "\n";
     }
     ofs << "  ],\n";
     ofs << "  \"outputs\": {\n";
-    ofs << fmt::format("    \"conn\": \"{}\",\n", connDir.string());
-    ofs << fmt::format("    \"cdc\": \"{}\",\n", cdcDir.string());
-    ofs << fmt::format("    \"metrics\": \"{}\",\n", metricsDir.string());
-    ofs << fmt::format("    \"conn_dir\": \"{}\",\n", connDir.string());
-    ofs << fmt::format("    \"cdc_dir\": \"{}\",\n", cdcDir.string());
-    ofs << fmt::format("    \"metrics_dir\": \"{}\"\n", metricsDir.string());
+    ofs << "    \"conn\": " << svlens::jsonStr(connDir.string()) << ",\n";
+    ofs << "    \"cdc\": " << svlens::jsonStr(cdcDir.string()) << ",\n";
+    ofs << "    \"metrics\": " << svlens::jsonStr(metricsDir.string()) << ",\n";
+    ofs << "    \"conn_dir\": " << svlens::jsonStr(connDir.string()) << ",\n";
+    ofs << "    \"cdc_dir\": " << svlens::jsonStr(cdcDir.string()) << ",\n";
+    ofs << "    \"metrics_dir\": " << svlens::jsonStr(metricsDir.string()) << "\n";
     ofs << "  },\n";
     ofs << "  \"reports\": {\n";
-    ofs << fmt::format("    \"connect_report\": \"{}\",\n", (connDir / "connect_report.json").string());
-    ofs << fmt::format("    \"cdc_report\": \"{}\",\n", (cdcDir / "cdc_report.json").string());
-    ofs << fmt::format("    \"metrics_report\": \"{}\"\n", (metricsDir / "metrics_report.json").string());
+    ofs << "    \"connect_report\": " << svlens::jsonStr((connDir / "connect_report.json").string()) << ",\n";
+    ofs << "    \"cdc_report\": " << svlens::jsonStr((cdcDir / "cdc_report.json").string()) << ",\n";
+    ofs << "    \"metrics_report\": " << svlens::jsonStr((metricsDir / "metrics_report.json").string()) << "\n";
     ofs << "  }\n";
     ofs << "}\n";
 }

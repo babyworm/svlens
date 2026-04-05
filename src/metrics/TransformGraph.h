@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -113,8 +114,9 @@ struct FFInfo {
 struct TransformGraph {
     std::vector<TransformNode> nodes;
 
-    // Maps a signal canonical name -> indices into nodes[] that drive it
-    std::unordered_map<std::string, std::vector<uint32_t>> drivers_by_value;
+    // Maps a signal canonical name -> indices into nodes[] that drive it.
+    // std::map for deterministic iteration and O(log N) prefix lookup.
+    std::map<std::string, std::vector<uint32_t>> drivers_by_value;
 
     // Root signals (output ports, FF D-side sinks)
     std::vector<ValueRef> roots;

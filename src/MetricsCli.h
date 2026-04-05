@@ -109,6 +109,8 @@ inline MetricsCliOptions parseMetricsArgs(int argc, const char* const* argv,
 
         if (arg == "--top" && i + 1 < argc) {
             opts.topModule = argv[++i];
+            compilationArgs.push_back("--top");
+            compilationArgs.push_back(opts.topModule);
             continue;
         }
         if (arg == "--format" && i + 1 < argc) {

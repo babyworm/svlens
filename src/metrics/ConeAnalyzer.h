@@ -37,6 +37,7 @@ public:
 private:
     void traverse(const std::string& signalKey, int depth,
                   std::vector<uint32_t>& coneNodes,
+                  std::unordered_set<uint32_t>& coneNodeSet,
                   std::unordered_map<std::string, bool>& visited,
                   int& maxDepthReached,
                   uint32_t& sourceInputs, uint32_t& sourceFfs,

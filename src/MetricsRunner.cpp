@@ -1,5 +1,6 @@
 #include "MetricsRunner.h"
 #include "CompilationSession.h"
+#include "JsonUtils.h"
 #include "metrics/TransformExtractor.h"
 #include "metrics/TransformGraph.h"
 #include "metrics/BaselineDiff.h"
@@ -47,20 +48,7 @@ struct FfPathResult {
 
 std::string jsonBool(bool v) { return v ? "true" : "false"; }
 
-std::string jsonStr(const std::string& s) {
-    // Simple JSON string escaping
-    std::string out;
-    out.reserve(s.size() + 2);
-    out += '"';
-    for (char c : s) {
-        if (c == '"') out += "\\\"";
-        else if (c == '\\') out += "\\\\";
-        else if (c == '\n') out += "\\n";
-        else out += c;
-    }
-    out += '"';
-    return out;
-}
+using svlens::jsonStr;
 
 void writeJsonReport(const std::string& outputDir,
                      const std::string& topModule,

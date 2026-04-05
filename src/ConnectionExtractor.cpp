@@ -397,7 +397,8 @@ void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAs
 void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlockSymbol& block,
                                                  const std::string& scopePath) {
     if (block.procedureKind != slang::ast::ProceduralBlockKind::Always &&
-        block.procedureKind != slang::ast::ProceduralBlockKind::AlwaysComb) {
+        block.procedureKind != slang::ast::ProceduralBlockKind::AlwaysComb &&
+        block.procedureKind != slang::ast::ProceduralBlockKind::AlwaysFF) {
         return;
     }
     processProceduralStatement(block.getBody(), scopePath);

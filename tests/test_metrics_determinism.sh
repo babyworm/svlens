@@ -12,7 +12,7 @@ OUTDIR2="$(mktemp -d)"
 trap 'rm -rf "$OUTDIR1" "$OUTDIR2"' EXIT
 
 # Run metrics twice on each fixture and compare JSON output
-for fixture in tests/sv/metrics/simple_cone.sv tests/sv/metrics/repeated_lanes.sv tests/sv/metrics/alias_only.sv tests/sv/metrics/ff_path.sv tests/sv/metrics/case_mux.sv tests/sv/metrics/mux_heavy.sv tests/sv/metrics/ff_deep_pipeline.sv tests/sv/metrics/slice_concat.sv; do
+for fixture in tests/sv/metrics/simple_cone.sv tests/sv/metrics/repeated_lanes.sv tests/sv/metrics/alias_only.sv tests/sv/metrics/ff_path.sv tests/sv/metrics/case_mux.sv tests/sv/metrics/mux_heavy.sv tests/sv/metrics/ff_deep_pipeline.sv tests/sv/metrics/slice_concat.sv tests/sv/metrics/hierarchy_cone.sv tests/sv/metrics/generate_lanes.sv tests/sv/metrics/unsupported_construct.sv; do
     BASENAME="$(basename "$fixture" .sv)"
     TOP="$BASENAME"
 

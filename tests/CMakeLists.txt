@@ -117,3 +117,13 @@ add_test(NAME metrics_features
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_metrics_features.sh
             $<TARGET_FILE:svlens>
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME metrics_errors
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_metrics_errors.sh
+            $<TARGET_FILE:svlens>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME metrics_normalization
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_metrics_normalization.sh
+            $<TARGET_FILE:svlens>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

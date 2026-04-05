@@ -5,8 +5,8 @@ if [ ! -x "$BINARY" ]; then
     echo "ERROR: $BINARY not found or not executable"
     exit 1
 fi
-OUTDIR="/tmp/svlens-conn-integration-test"
-rm -rf "$OUTDIR"
+OUTDIR="$(mktemp -d "${TMPDIR:-/tmp}/svlens-conn-integration-test.XXXXXX")"
+trap 'rm -rf "$OUTDIR"' EXIT
 
 echo "=== Integration Test ==="
 

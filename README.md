@@ -2,45 +2,53 @@
 
 Unified structural analysis toolkit for SystemVerilog RTL designs.
 
-This repository now ships a single user-facing executable:
-
-- `svlens`
-
 Built on [slang](https://github.com/MikePopoloski/slang) v10+.
 
 ---
 
 ## Quick start
 
-Build `svlens`, then run one of the four primary modes:
-
 ```bash
 ./scripts/setup-deps.sh --prefix "$HOME/.local"
 cmake -B build -DCMAKE_PREFIX_PATH="$HOME/.local"
 cmake --build build -j4
-
-# connectivity
-./build/svlens conn tests/sv/clean_design.sv --top clean_top
-
-# CDC
-./build/svlens cdc --top missing_sync tests/cdc/basic/02_missing_sync.sv
-
-# metrics (transformation complexity)
-./build/svlens metrics design.sv --top my_top
-
-# both modes under one output root (includes metrics)
-./build/svlens all tests/cdc/basic/02_missing_sync.sv --top missing_sync \
-  -o reports --conn-format json --cdc-format json
 ```
 
-If you just want the command surface first:
+Every mode accepts source files directly or via filelist.
+For real projects, **always use `-f` or `-F`**:
 
 ```bash
-./build/svlens --help
-./build/svlens conn --help
-./build/svlens cdc --help
-./build/svlens metrics --help
-./build/svlens all --help
+# connectivity
+svlens conn -f rtl/filelist.f --top soc_top
+
+# CDC
+svlens cdc -f rtl/filelist.f --top soc_top --sdc syn/clocks.sdc
+
+# metrics (transformation complexity)
+svlens metrics -f rtl/filelist.f --top soc_top
+
+# all three under one output root
+svlens all -f rtl/filelist.f --top soc_top -o reports
+```
+
+Both `-f` and `-F` resolve relative paths from the **filelist location**.
+Place the filelist at the project root alongside the RTL tree, or use absolute paths.
+
+Single-file usage also works for quick checks:
+
+```bash
+svlens conn design.sv --top my_top
+svlens metrics design.sv --top my_top
+```
+
+Command reference:
+
+```bash
+svlens --help
+svlens help conn
+svlens help cdc
+svlens help metrics
+svlens help all
 ```
 
 ## Reference docs
@@ -54,149 +62,72 @@ If you just want the command surface first:
 
 ---
 
+## Source file input
+
+svlens supports three ways to specify SystemVerilog sources:
+
+| Method | Example | When to use |
+|--------|---------|-------------|
+| `-f <filelist>` | `svlens conn -f rtl/filelist.f --top soc_top` | **Standard for all projects.** Paths resolved from filelist location. |
+| `-F <filelist>` | `svlens cdc -F rtl/filelist.f --top soc_top` | Same behavior as `-f` in slang. |
+| Positional files | `svlens conn top.sv sub.sv --top my_top` | Quick single-file checks or small testbenches. |
+
+A filelist (`.f` file) contains one source path per line, and can include
+`-I`, `-D`, `--std`, and nested `-f` directives:
+
+```text
+// rtl/filelist.f
+-I rtl/include
+-D SYNTHESIS
+rtl/pkg/soc_pkg.sv
+rtl/top/soc_top.sv
+rtl/sub/cpu.sv
+rtl/sub/bus.sv
+rtl/sub/uart.sv
+```
+
+All pass-through flags (`-I`, `-D`, `--std`, `-f`, `-F`, `-y`, `-v`) are forwarded directly to the slang compiler frontend.
+
+---
+
 ## What it does
 
-`svlens` currently exposes three analysis modes:
+`svlens` exposes three analysis modes plus a combined mode:
 
-- **Connectivity / interconnect analysis**
+- **`conn`** -- Port / connectivity analysis
   - port-to-port connectivity extraction
   - width mismatch, type mismatch, dangling output, undriven input
   - protocol completeness, naming convention checks
   - diff / trace / interface grouping / report generation
 
-- **CDC (Clock Domain Crossing) analysis**
+- **`cdc`** -- Clock-domain crossing analysis
   - clock source and domain analysis
-  - FF classification
-  - FF-to-FF crossing detection
+  - FF classification and FF-to-FF crossing detection
   - synchronizer recognition
   - CDC waiver / SDC / report generation
 
-- **Metrics (transformation complexity) analysis**
+- **`metrics`** -- RTL transformation complexity analysis
   - output-rooted and FF-D-rooted backward transformation cones
   - repeated bit-lane normalization
   - FF-to-FF combinational complexity with provenance levels
   - case/casez/for always_comb decomposition
   - baseline diff with regression detection
-  - JSON and markdown report generation
 
-It also supports:
-
-- **`svlens all`**
-  - sequential `conn` + `cdc` execution
+- **`all`** -- Run conn + cdc + metrics under one output root
   - shared elaboration frontend
-  - split output trees under one output root
-
----
-
-## Build
-
-For the detailed install guide, including offline / preinstalled dependency flows, see
-[`docs/install.md`](docs/install.md).
-For help output expectations and stable schema contracts, see
-[`docs/cli-help.md`](docs/cli-help.md) and [`docs/schema/`](docs/schema/).
-
-### Prerequisites
-
-| Dependency | Version | Install |
-|------------|---------|---------|
-| C++ compiler | C++20 support (GCC 13+, Clang 16+) | system package |
-| CMake | 3.20+ | system package |
-| [slang](https://github.com/MikePopoloski/slang) | v10+ | see below |
-
-By default, CMake can fetch missing `yaml-cpp` and `Catch2` dependencies.
-For preinstalled / no-network builds, configure with `-DSVLENS_FETCH_DEPS=OFF`
-after installing dependencies into your prefix or system package paths.
-`fmt` is provided by `slang` when bundled, otherwise a system `fmt` install is used.
-
-### Quick setup
-
-```bash
-./scripts/setup-deps.sh
-./scripts/setup-deps.sh --prefix /opt/sv-deps
-```
-
-Offline / preinstalled dependency check:
-
-```bash
-./scripts/setup-deps.sh --prefix "$HOME/.local" --offline
-cmake -B build-offline -DCMAKE_PREFIX_PATH="$HOME/.local" -DSVLENS_FETCH_DEPS=OFF
-cmake --build build-offline -j$(nproc)
-```
-
-### Manual slang install
-
-```bash
-git clone --depth 1 --branch v10.0 https://github.com/MikePopoloski/slang.git
-cd slang
-cmake -B build -DCMAKE_INSTALL_PREFIX=$HOME/.local -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-cmake --install build
-```
-
-### Build this project
-
-```bash
-cmake -B build -DCMAKE_PREFIX_PATH="$HOME/.local"
-cmake --build build -j$(nproc)
-```
-
-Offline / preinstalled dependency build:
-
-```bash
-cmake -B build-offline -DCMAKE_PREFIX_PATH="$HOME/.local" -DSVLENS_FETCH_DEPS=OFF
-cmake --build build-offline -j$(nproc)
-```
-
-### Run tests
-
-```bash
-ctest --test-dir build --output-on-failure
-```
-
-### Install
-
-```bash
-cmake --install build --prefix "$HOME/.local"
-```
-
-For additional install paths and planned distribution routes
-(prebuilt archives / Homebrew), see [`docs/install.md`](docs/install.md).
-
-Release archive packaging and Homebrew/tap validation guidance live in
-[`docs/release.md`](docs/release.md).
+  - split output trees (`conn/`, `cdc/`, `metrics/`)
+  - `both` accepted as backward-compatible alias
 
 ---
 
 ## Primary CLI
 
 ```bash
-svlens conn    [OPTIONS] <SV_FILES...>
-svlens cdc     [OPTIONS] <SV_FILES...>
-svlens metrics [OPTIONS] <SV_FILES...>
-svlens all    [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] <SV_FILES...>
+svlens conn    [OPTIONS] {-f <filelist> | <SV_FILES...>}
+svlens cdc     [OPTIONS] {-f <filelist> | <SV_FILES...>}
+svlens metrics [OPTIONS] {-f <filelist> | <SV_FILES...>}
+svlens all     [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] {-f <filelist> | <SV_FILES...>}
 svlens help [conn|cdc|metrics|all]
-```
-
-### Help
-
-```bash
-./build/svlens --help
-./build/svlens conn --help
-./build/svlens cdc --help
-./build/svlens metrics --help
-./build/svlens all --help
-./build/svlens help conn
-```
-
-For the detailed help contract and structure, see [`docs/cli-help.md`](docs/cli-help.md).
-Stable JSON contracts are documented under [`docs/schema/`](docs/schema/).
-For large-SoC waiver / baseline rollout guidance, see
-[`docs/waiver-baselines.md`](docs/waiver-baselines.md).
-
-### Version
-
-```bash
-./build/svlens --version
 ```
 
 ---
@@ -204,32 +135,29 @@ For large-SoC waiver / baseline rollout guidance, see
 ## Connectivity examples
 
 ```bash
-# Basic connectivity analysis
-./build/svlens conn design.sv --top my_top
-
-# All output formats
-./build/svlens conn -f filelist.f --top soc_top --format all -o reports/
+# Standard project analysis
+svlens conn -f rtl/filelist.f --top soc_top --format all -o reports/
 
 # Selective checks with waivers
-./build/svlens conn design.sv --top my_top --no-check-dangling --waiver waivers.yaml
+svlens conn -f rtl/filelist.f --top soc_top --no-check-dangling --waiver waivers.yaml
 
 # Protocol and convention checking
-./build/svlens conn design.sv --top my_top --check-protocol --check-convention
+svlens conn -f rtl/filelist.f --top soc_top --check-protocol --check-convention
 
 # Ignore intentional NC / tie-off ports
-./build/svlens conn design.sv --top my_top --ignore-nc --ignore-tie-off
+svlens conn -f rtl/filelist.f --top soc_top --ignore-nc --ignore-tie-off
 
 # Diff against baseline
-./build/svlens conn design.sv --top my_top --diff baseline/connect_report.json
+svlens conn -f rtl/filelist.f --top soc_top --diff baseline/connect_report.json
 
 # Expected connectivity
-./build/svlens conn design.sv --top my_top --expect connectivity_spec.yaml
+svlens conn -f rtl/filelist.f --top soc_top --expect connectivity_spec.yaml
 
 # Clock/reset naming heuristic summary
-./build/svlens conn design.sv --top my_top --check-clock-reset
+svlens conn -f rtl/filelist.f --top soc_top --check-clock-reset
 
 # Signal trace
-./build/svlens conn design.sv --top my_top --trace "*.u_cpu.o_addr"
+svlens conn -f rtl/filelist.f --top soc_top --trace "*.u_cpu.o_addr"
 ```
 
 ### Connectivity outputs
@@ -248,26 +176,20 @@ For large-SoC waiver / baseline rollout guidance, see
 ## CDC examples
 
 ```bash
-# Basic CDC analysis
-./build/svlens cdc --top soc_top rtl/soc_top.sv rtl/subsystem.sv
-
-# With SDC clock constraints
-./build/svlens cdc --top soc_top rtl/*.sv --sdc syn/clocks.sdc
+# Basic CDC analysis with SDC
+svlens cdc -f rtl/filelist.f --top soc_top --sdc syn/clocks.sdc
 
 # With YAML clock specification
-./build/svlens cdc --top soc_top rtl/*.sv --clock-yaml clock_domains.yaml
+svlens cdc -f rtl/filelist.f --top soc_top --clock-yaml clock_domains.yaml
 
-# Apply waivers
-./build/svlens cdc --top soc_top rtl/*.sv --waiver cdc_waivers.yaml
+# Apply waivers and require 3-stage synchronizers
+svlens cdc -f rtl/filelist.f --top soc_top --waiver cdc_waivers.yaml --sync-stages 3
 
-# Require 3-stage synchronizers
-./build/svlens cdc --top soc_top rtl/*.sv --sync-stages 3
-
-# Strict CI mode
-./build/svlens cdc --top soc_top rtl/*.sv --format json --strict -q
+# Strict CI mode (JSON only, quiet)
+svlens cdc -f rtl/filelist.f --top soc_top --format json --strict -q
 
 # Export DOT graph
-./build/svlens cdc --top soc_top rtl/*.sv --dump-graph cdc_graph.dot
+svlens cdc -f rtl/filelist.f --top soc_top --dump-graph cdc_graph.dot
 ```
 
 ### CDC outputs
@@ -281,61 +203,27 @@ For large-SoC waiver / baseline rollout guidance, see
 
 ---
 
-## `both` mode examples
-
-`both` mode runs connectivity analysis first, then CDC analysis, under one output root.
-
-```bash
-./build/svlens all rtl/top.sv --top soc_top -o reports \
-  --conn-format json \
-  --conn-check-protocol \
-  --cdc-format json \
-  --cdc-sync-stages 3
-```
-
-Typical output tree:
-
-```text
-reports/
-  conn/
-    connect_report.json
-    ...
-  cdc/
-    cdc_report.json
-    ...
-```
-
-`both` mode also accepts filelists through the shared compilation frontend:
-
-```bash
-./build/svlens all -F rtl/filelist.f --top soc_top -o reports \
-  --conn-format json \
-  --cdc-format json
-```
-
----
-
 ## Metrics examples
 
 ```bash
-# Basic transformation complexity analysis
-./build/svlens metrics design.sv --top my_top
+# Standard complexity analysis
+svlens metrics -f rtl/filelist.f --top soc_top
 
 # JSON + markdown reports
-./build/svlens metrics design.sv --top my_top --format both -o reports/
+svlens metrics -f rtl/filelist.f --top soc_top --format both -o reports/
 
 # Show only top-5 most complex roots
-./build/svlens metrics design.sv --top my_top --topk 5
+svlens metrics -f rtl/filelist.f --top soc_top --topk 5
 
-# Include per-root cone detail and raw graph
-./build/svlens metrics design.sv --top my_top --emit-cones --emit-raw-graph
+# Include per-root cone detail and raw transform graph
+svlens metrics -f rtl/filelist.f --top soc_top --emit-cones --emit-raw-graph
 
-# Compare against a baseline report
-./build/svlens metrics design.sv --top my_top \
+# CI regression guard: compare against baseline, fail on regression
+svlens metrics -f rtl/filelist.f --top soc_top \
   --baseline prev/metrics_report.json --fail-on-regression
 
-# Limit for-loop unrolling
-./build/svlens metrics design.sv --top my_top --max-for-unroll 512
+# Limit for-loop unrolling (default: 1024)
+svlens metrics -f rtl/filelist.f --top soc_top --max-for-unroll 512
 ```
 
 ### Metrics outputs
@@ -354,10 +242,10 @@ Key fields and how to interpret them:
 |-------|---------|-----------------|
 | `raw_node_count` | Total transform operations in backward cone | High values indicate complex datapath. Compare across roots to find hotspots. |
 | `logic_depth_est` | Estimated logic depth (levels of transformation) | Correlates with combinational timing paths. Values > 20 warrant review. |
-| `normalized_transform_count` | Node count after collapsing repeated bit-lanes | Compare with `raw_node_count` — large gap means repetitive structure (bus operations). |
+| `normalized_transform_count` | Node count after collapsing repeated bit-lanes | Compare with `raw_node_count` -- large gap means repetitive structure (bus operations). |
 | `source_inputs` | Number of primary inputs feeding the cone | High fan-in suggests complex convergence. |
 | `source_ffs` | Number of FF outputs feeding the cone | High values indicate cross-register dependencies. |
-| `approximate` | Whether the cone contains unsupported constructs | `true` means some operations could not be fully decomposed — treat metrics as lower bounds. |
+| `approximate` | Whether the cone contains unsupported constructs | `true` means some operations could not be fully decomposed -- treat metrics as lower bounds. |
 | `provenance_level` | Confidence in FF path analysis | `provenance_backed` = full extraction; `hint_only` = from CDC hints only; `partial_slice` = incomplete. |
 
 **Decision guide:**
@@ -368,6 +256,32 @@ Key fields and how to interpret them:
 - **High fan-in** (`source_inputs` + `source_ffs` > 20): Complex convergence point. Consider whether this is intentional.
 - **Approximate cones**: Unsupported constructs are listed in `unsupported[]`. Expand support or accept as lower-bound estimate.
 - **Baseline regression** (`--baseline`): Positive `raw_delta` means added complexity. Use `--fail-on-regression` in CI to catch unintended growth.
+
+---
+
+## `all` mode
+
+Runs all three analyses under one shared compilation, writing results into separate subdirectories.
+
+```bash
+svlens all -f rtl/filelist.f --top soc_top -o reports \
+  --conn-format json \
+  --cdc-format json \
+  --cdc-sync-stages 3
+```
+
+Output tree:
+
+```text
+reports/
+  conn/connect_report.json
+  cdc/cdc_report.json
+  metrics/metrics_report.json
+  svlens_summary.json
+```
+
+Use `--conn-*` and `--cdc-*` prefixed flags to pass mode-specific options.
+`svlens both` is accepted as a backward-compatible alias.
 
 ---
 
@@ -386,7 +300,7 @@ forbidden:
 ```
 
 ```bash
-./build/svlens conn design.sv --top soc --expect connectivity_spec.yaml
+svlens conn -f rtl/filelist.f --top soc --expect connectivity_spec.yaml
 ```
 
 ### Custom convention rules
@@ -400,7 +314,64 @@ instance_prefix: inst_
 Nested keys such as `input.prefix`, `output.prefix`, and `instance.prefix` are also accepted.
 
 ```bash
-./build/svlens conn design.sv --top soc --convention convention.yaml
+svlens conn -f rtl/filelist.f --top soc --convention convention.yaml
+```
+
+---
+
+## Build
+
+For the detailed install guide, including offline / preinstalled dependency flows, see
+[`docs/install.md`](docs/install.md).
+
+### Prerequisites
+
+| Dependency | Version | Install |
+|------------|---------|---------|
+| C++ compiler | C++20 support (GCC 13+, Clang 16+) | system package |
+| CMake | 3.20+ | system package |
+| [slang](https://github.com/MikePopoloski/slang) | v10+ | see below |
+
+By default, CMake can fetch missing `yaml-cpp` and `Catch2` dependencies.
+For preinstalled / no-network builds, configure with `-DSVLENS_FETCH_DEPS=OFF`.
+`fmt` is provided by `slang` when bundled, otherwise a system `fmt` install is used.
+
+### Quick setup
+
+```bash
+./scripts/setup-deps.sh --prefix "$HOME/.local"
+cmake -B build -DCMAKE_PREFIX_PATH="$HOME/.local"
+cmake --build build -j$(nproc)
+```
+
+### Manual slang install
+
+```bash
+git clone --depth 1 --branch v10.0 https://github.com/MikePopoloski/slang.git
+cd slang
+cmake -B build -DCMAKE_INSTALL_PREFIX=$HOME/.local -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+cmake --install build
+```
+
+### Offline / preinstalled build
+
+```bash
+./scripts/setup-deps.sh --prefix "$HOME/.local" --offline
+cmake -B build-offline -DCMAKE_PREFIX_PATH="$HOME/.local" -DSVLENS_FETCH_DEPS=OFF
+cmake --build build-offline -j$(nproc)
+```
+
+### Run tests
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+### Install
+
+```bash
+cmake --install build --prefix "$HOME/.local"
 ```
 
 ---
@@ -416,11 +387,11 @@ Nested keys such as `input.prefix`, `output.prefix`, and `instance.prefix` are a
 ### CDC mode
 
 - SDC period data is used for reporting but not for full timing-aware crossing classification.
-- Some advanced CDC test coverage from the original CDC project has not yet been fully ported into this repository’s Catch2 suite, though core utility/unit tests and golden integration tests are now present.
 
-### Unified mode
+### Metrics mode
 
-- `svlens all` shares the compilation frontend and routes outputs correctly, but there is still room to further reduce duplicated mode-specific CLI parsing.
+- Full `always_comb` support covers case/casez/casex/for. General function calls and complex procedural blocks report as `unsupported`/`approximate`.
+- `all` mode runs metrics with default options; use `svlens metrics` directly for `--topk`, `--baseline`, `--emit-cones`, etc.
 
 ---
 
@@ -428,20 +399,13 @@ Nested keys such as `input.prefix`, `output.prefix`, and `instance.prefix` are a
 
 ```text
 include/sv-cdccheck/    Imported CDC public headers
-src/                    Connectivity implementation + unified CLI + shared frontend
-src/cdc/                Imported CDC implementation
+src/                    Connectivity + unified CLI + shared frontend
+src/cdc/                CDC implementation
+src/metrics/            Metrics engine (TransformExtractor, ConeAnalyzer, Normalization, BaselineDiff)
 tests/                  Catch2 tests + shell integration tests
-tests/cdc/basic/        CDC fixtures
-tests/cdc/golden/       CDC golden expectations
-docs/plan/              Unification specs and implementation plans
+tests/sv/metrics/       Metrics SV fixtures
+docs/schema/            Stable JSON schema contracts
 ```
-
----
-
-## Planning documents
-
-- [`docs/plan/svlens-unification-spec.md`](docs/plan/svlens-unification-spec.md)
-- [`docs/plan/svlens-implementation-plan.md`](docs/plan/svlens-implementation-plan.md)
 
 ## Output schema documentation
 
@@ -452,21 +416,7 @@ docs/plan/              Unification specs and implementation plans
 
 ---
 
-## Validation status
-
-This repository currently includes:
-
-- legacy `conn` unit/integration coverage
-- unified CLI integration coverage
-- CDC smoke + golden integration coverage
-- CDC utility/unit coverage for:
-  - clock database
-  - filelist parser
-  - waiver manager
-  - clock yaml parser
-  - report generator
-
-Run all checks with:
+## Validation
 
 ```bash
 ctest --test-dir build --output-on-failure

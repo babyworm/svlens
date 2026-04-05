@@ -41,3 +41,130 @@ jobs:
       - name: Test
         run: |
           make test CMAKE_PREFIX_PATH="$HOME/.local"
+
+  portable-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ubuntu prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            git \
+            python3 \
+            ccache \
+            catch2 \
+            libyaml-cpp-dev
+
+      - name: Install macOS prerequisites
+        if: runner.os == 'macOS'
+        run: |
+          brew install catch2 yaml-cpp fmt ccache
+
+      - name: Cache slang install
+        uses: actions/cache@v4
+        with:
+          path: ~/.local
+          key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}
+
+      - name: Stage slang dependency
+        run: |
+          ./scripts/setup-deps.sh --prefix "$HOME/.local"
+
+      - name: Configure portable smoke build
+        run: |
+          cmake -B build-smoke \
+            -DCMAKE_PREFIX_PATH="$HOME/.local;/opt/homebrew" \
+            -DSVLENS_FETCH_DEPS=OFF
+
+      - name: Build portable smoke binary
+        run: |
+          cmake --build build-smoke -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
+
+      - name: Run portable smoke contract bundle
+        run: |
+          ctest --test-dir build-smoke --output-on-failure \
+            -R "install_smoke|help_contract|schema_contract|integration_shell|integration_svlens|integration_cdc_golden"
+
+  preinstalled-offline-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build prerequisites and preinstalled deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            git \
+            python3 \
+            ccache \
+            catch2 \
+            libyaml-cpp-dev
+
+      - name: Cache slang install
+        uses: actions/cache@v4
+        with:
+          path: ~/.local
+          key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}
+
+      - name: Stage slang dependency
+        run: |
+          ./scripts/setup-deps.sh --prefix "$HOME/.local"
+
+      - name: Configure offline with preinstalled deps only
+        run: |
+          cmake -B build-offline \
+            -DCMAKE_PREFIX_PATH="$HOME/.local" \
+            -DSVLENS_FETCH_DEPS=OFF
+
+      - name: Build offline
+        run: |
+          cmake --build build-offline -j"$(nproc)"
+
+      - name: Prove no-network install/html smoke
+        run: |
+          ctest --test-dir build-offline -R "install_smoke|HtmlReport" --output-on-failure
+
+  macos-offline-smoke:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install preinstalled dependencies
+        run: |
+          brew update
+          brew install catch2 yaml-cpp fmt ccache
+
+      - name: Cache slang install
+        uses: actions/cache@v4
+        with:
+          path: ~/.local
+          key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}
+
+      - name: Stage slang dependency
+        run: |
+          ./scripts/setup-deps.sh --prefix "$HOME/.local"
+
+      - name: Configure offline with preinstalled deps
+        run: |
+          cmake -B build-macos \
+            -DCMAKE_PREFIX_PATH="$HOME/.local;/opt/homebrew" \
+            -DSVLENS_FETCH_DEPS=OFF
+
+      - name: Build offline
+        run: |
+          cmake --build build-macos -j"$(sysctl -n hw.ncpu)"
+
+      - name: Run contract smoke bundle
+        run: |
+          ctest --test-dir build-macos -R "install_smoke|help_contract|schema_contract|integration_shell|integration_svlens|integration_cdc_golden|HtmlReport" --output-on-failure

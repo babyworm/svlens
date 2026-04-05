@@ -27,6 +27,22 @@ bool consumeBasicCliArg(std::string_view arg,
     return false;
 }
 
+std::string installHint() {
+    return "For offline/preinstalled builds, configure with: cmake -B build-offline -DCMAKE_PREFIX_PATH=\"$HOME/.local\" -DSVLENS_FETCH_DEPS=OFF";
+}
+
+std::string docsHint() {
+    return "docs/install.md, docs/cli-help.md, docs/schema/*.md";
+}
+
+std::string productBoundaryNote() {
+    return "svlens is a pre-signoff structural analysis tool for CI gates, design review, and pre-check flows.";
+}
+
+std::string passThroughNote() {
+    return "Pass-through flags such as -I, -D, --std, -f, and -F are forwarded to slang.";
+}
+
 BothModeDispatch routeBothModeArgs(int argc, char* argv[],
                                    int startIndex,
                                    const std::unordered_set<std::string>& connValueOptions,

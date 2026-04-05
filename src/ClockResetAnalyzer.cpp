@@ -4,6 +4,7 @@
 #include <cctype>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace connect {
 
@@ -27,6 +28,17 @@ static bool containsWord(const std::string& str, const std::string& keyword) {
         pos++;
     }
     return false;
+}
+
+static std::vector<const Connection*> upstreamConnections(const ConnectionGraph& graph,
+                                                          const PortInfo& port) {
+    std::vector<const Connection*> incoming;
+    const auto fullPath = port.fullPath();
+    for (const auto& conn : graph.connections) {
+        if (conn.dest.fullPath() == fullPath)
+            incoming.push_back(&conn);
+    }
+    return incoming;
 }
 
 bool ClockResetAnalyzer::isClockPort(const std::string& portName) {
@@ -56,11 +68,40 @@ ClockResetTopology ClockResetAnalyzer::analyze(const ConnectionGraph& graph) con
         if (port.instancePath == graph.topModule)
             continue;
 
-        if (isClockPort(port.portName)) {
-            topology.clockGroups[port.portName].push_back(port.instancePath);
+        const auto incoming = upstreamConnections(graph, port);
+        bool clockLike = isClockPort(port.portName);
+        bool resetLike = isResetPort(port.portName);
+        std::string semanticName = port.portName;
+
+        if (!clockLike && !resetLike) {
+            for (const auto* incomingConn : incoming) {
+                if (isClockPort(incomingConn->source.portName)) {
+                    clockLike = true;
+                    semanticName = incomingConn->source.fullPath();
+                    break;
+                }
+                if (isResetPort(incomingConn->source.portName)) {
+                    resetLike = true;
+                    semanticName = incomingConn->source.fullPath();
+                    break;
+                }
+            }
+        }
+
+        if (clockLike && semanticName == port.portName && incoming.size() == 1 &&
+            isClockPort(incoming.front()->source.portName)) {
+            semanticName = incoming.front()->source.fullPath();
+        }
+        if (resetLike && semanticName == port.portName && incoming.size() == 1 &&
+            isResetPort(incoming.front()->source.portName)) {
+            semanticName = incoming.front()->source.fullPath();
+        }
+
+        if (clockLike) {
+            topology.clockGroups[semanticName].push_back(port.instancePath);
             instancesWithClock.insert(port.instancePath);
-        } else if (isResetPort(port.portName)) {
-            topology.resetGroups[port.portName].push_back(port.instancePath);
+        } else if (resetLike) {
+            topology.resetGroups[semanticName].push_back(port.instancePath);
             instancesWithReset.insert(port.instancePath);
         }
     }

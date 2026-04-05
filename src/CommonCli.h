@@ -29,6 +29,11 @@ bool consumeBasicCliArg(std::string_view arg,
                         const char* const* argv,
                         BasicCliState& state);
 
+std::string installHint();
+std::string docsHint();
+std::string productBoundaryNote();
+std::string passThroughNote();
+
 BothModeDispatch routeBothModeArgs(int argc, char* argv[],
                                    int startIndex,
                                    const std::unordered_set<std::string>& connValueOptions,

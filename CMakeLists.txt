@@ -14,6 +14,7 @@ if(NOT slang_FOUND)
         "  ./scripts/setup-deps.sh --prefix \$HOME/.local\n"
         "Then re-run cmake with:\n"
         "  cmake -B build -DCMAKE_PREFIX_PATH=\$HOME/.local\n"
+        "For offline / preinstalled builds see docs/install.md.\n"
         "See README.md for details.")
 endif()
 # fmt: prefer slang's bundled copy; fall back to system install
@@ -24,24 +25,60 @@ else()
     set(FMT_TARGET slang::fmt)
 endif()
 
+option(SVLENS_FETCH_DEPS "Allow CMake to fetch missing third-party dependencies" ON)
+
 include(FetchContent)
 
-FetchContent_Declare(
-    yaml-cpp
-    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-    GIT_TAG 0.8.0
-)
-set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(yaml-cpp)
+find_package(yaml-cpp QUIET CONFIG)
+if(NOT TARGET yaml-cpp::yaml-cpp AND NOT TARGET yaml-cpp)
+    find_package(yaml-cpp QUIET)
+endif()
+if(TARGET yaml-cpp::yaml-cpp)
+    set(YAML_CPP_TARGET yaml-cpp::yaml-cpp)
+elseif(TARGET yaml-cpp)
+    set(YAML_CPP_TARGET yaml-cpp)
+elseif(SVLENS_FETCH_DEPS)
+    FetchContent_Declare(
+        yaml-cpp
+        GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+        GIT_TAG 0.8.0
+    )
+    set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(yaml-cpp)
+    set(YAML_CPP_TARGET yaml-cpp::yaml-cpp)
+else()
+    message(FATAL_ERROR
+        "yaml-cpp not found.\n"
+        "Install yaml-cpp and re-run cmake with your dependency prefix, or enable dependency fetching:\n"
+        "  cmake -B build -DCMAKE_PREFIX_PATH=\$HOME/.local -DSVLENS_FETCH_DEPS=ON\n"
+        "For offline / preinstalled builds use:\n"
+        "  cmake -B build-offline -DCMAKE_PREFIX_PATH=\$HOME/.local -DSVLENS_FETCH_DEPS=OFF")
+endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    FetchContent_Declare(
-        Catch2
-        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-        GIT_TAG v3.5.2
-    )
-    FetchContent_MakeAvailable(Catch2)
+    find_package(Catch2 3 QUIET CONFIG)
+    if(NOT TARGET Catch2::Catch2WithMain)
+        find_package(Catch2 3 QUIET)
+    endif()
+    if(NOT TARGET Catch2::Catch2WithMain)
+        if(SVLENS_FETCH_DEPS)
+            FetchContent_Declare(
+                Catch2
+                GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+                GIT_TAG v3.5.2
+            )
+            FetchContent_MakeAvailable(Catch2)
+        else()
+            message(FATAL_ERROR
+                "Catch2 not found while BUILD_TESTING is enabled.\n"
+                "Install Catch2 and re-run cmake with your dependency prefix, or enable dependency fetching:\n"
+                "  cmake -B build -DCMAKE_PREFIX_PATH=\$HOME/.local -DSVLENS_FETCH_DEPS=ON\n"
+                "For offline / preinstalled test builds use:\n"
+                "  cmake -B build-offline -DCMAKE_PREFIX_PATH=\$HOME/.local -DSVLENS_FETCH_DEPS=OFF")
+        endif()
+    endif()
 endif()
 
 # Shared/common frontend library
@@ -81,7 +118,7 @@ add_library(svlens-conn-lib OBJECT
     src/ConnectionFilters.cpp
 )
 target_include_directories(svlens-conn-lib PUBLIC src include)
-target_link_libraries(svlens-conn-lib PUBLIC svlens-common-lib slang::slang ${FMT_TARGET} yaml-cpp::yaml-cpp)
+target_link_libraries(svlens-conn-lib PUBLIC svlens-common-lib slang::slang ${FMT_TARGET} ${YAML_CPP_TARGET})
 
 add_library(svlens-cdc-lib OBJECT
     src/CdcRunnerUtils.cpp

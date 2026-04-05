@@ -82,3 +82,59 @@ TEST_CASE("Extractor: member access resolves and concat becomes approximate") {
     WidthChecker checker;
     CHECK(checker.check(graph).empty());
 }
+
+TEST_CASE("Extractor: interface modport ports preserve a bus-level connection", "[extractor][interface][modport]") {
+    auto result = compileFile("sv/interface_modport.sv");
+    REQUIRE(result);
+
+    ConnectionExtractor extractor(*result.compilation, "interface_modport_top");
+    auto graph = extractor.extract();
+
+    bool foundBusConnection = false;
+    for (const auto& conn : graph.connections) {
+        if (conn.source.fullPath() == "interface_modport_top.u_prod.bus" &&
+            conn.dest.fullPath() == "interface_modport_top.u_cons.bus") {
+            foundBusConnection = true;
+        }
+    }
+
+    CHECK(foundBusConnection);
+}
+
+TEST_CASE("Extractor: procedural always_comb glue creates an approximate alias connection", "[extractor][procedural]") {
+    auto result = compileFile("sv/procedural_glue.sv");
+    REQUIRE(result);
+
+    ConnectionExtractor extractor(*result.compilation, "procedural_glue_top");
+    auto graph = extractor.extract();
+
+    bool foundApproximateProceduralConnection = false;
+    for (const auto& conn : graph.connections) {
+        if (conn.source.fullPath() == "procedural_glue_top.u_prod.o_data" &&
+            conn.dest.fullPath() == "procedural_glue_top.u_cons.i_data") {
+            foundApproximateProceduralConnection = true;
+            CHECK(conn.kind == ConnectionKind::Approximate);
+        }
+    }
+
+    CHECK(foundApproximateProceduralConnection);
+}
+
+TEST_CASE("Extractor: modport connections create approximate interface links", "[extractor][modport]") {
+    auto result = compileFile("sv/interface_modport.sv");
+    REQUIRE(result);
+
+    ConnectionExtractor extractor(*result.compilation, "interface_modport_top");
+    auto graph = extractor.extract();
+
+    bool foundInterfaceLink = false;
+    for (const auto& conn : graph.connections) {
+        if (conn.source.instancePath == "interface_modport_top.u_prod" &&
+            conn.dest.instancePath == "interface_modport_top.u_cons") {
+            foundInterfaceLink = true;
+            CHECK(conn.kind == ConnectionKind::Approximate);
+        }
+    }
+
+    CHECK(foundInterfaceLink);
+}

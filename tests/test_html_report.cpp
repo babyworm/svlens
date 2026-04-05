@@ -57,14 +57,16 @@ TEST_CASE("HtmlReport: embeds JSON data with module and issues") {
     CHECK_THAT(html, ContainsSubstring("WIDTH_MISMATCH"));
 }
 
-TEST_CASE("HtmlReport: includes vis-network script reference") {
+TEST_CASE("HtmlReport: is self-contained and has no external CDN references") {
     auto data = makeHtmlTestData();
     std::ostringstream out;
     HtmlReportGenerator gen;
     gen.generate(data, out);
     auto html = out.str();
 
-    CHECK_THAT(html, ContainsSubstring("vis-network"));
+    CHECK_THAT(html, ContainsSubstring("window.vis"));
+    CHECK_THAT(html, !ContainsSubstring("https://"));
+    CHECK_THAT(html, !ContainsSubstring("unpkg.com"));
 }
 
 TEST_CASE("HtmlReport: empty graph produces valid HTML") {

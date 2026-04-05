@@ -143,6 +143,9 @@ struct CrossingReport {
     SyncType sync_type = SyncType::None;
     std::string recommendation;
     std::string rule;  // SpyGlass-compatible rule ID, e.g. "Ac_cdc01"
+    std::string relationship;   // asynchronous, divided, same_source, logically_exclusive, etc.
+    std::string rationale;      // human-readable explanation for the classification
+    std::optional<double> timing_basis_ns; // relevant timing period used for reasoning, if available
 };
 
 // ─── Clock Database: owns all clock-related objects ───
@@ -163,6 +166,8 @@ struct ClockDatabase {
     ClockDomain* findOrCreateDomain(ClockSource* source, Edge edge);
     ClockDomain* domainForSignal(const std::string& hier_path) const;
     bool isAsynchronous(const ClockDomain* a, const ClockDomain* b) const;
+    std::optional<DomainRelationship::Type> relationshipBetween(const ClockDomain* a,
+                                                                const ClockDomain* b) const;
 };
 
 /// Overall analysis result

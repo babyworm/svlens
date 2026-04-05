@@ -35,6 +35,8 @@ static AnalysisResult makeCdcResult() {
     violation.dest_domain = extDom;
     violation.sync_type = SyncType::None;
     violation.recommendation = "Insert 2-FF synchronizer";
+    violation.relationship = "asynchronous";
+    violation.rationale = "Async domains require a synchronizer";
     result.crossings.push_back(violation);
 
     CrossingReport info;
@@ -46,6 +48,9 @@ static AnalysisResult makeCdcResult() {
     info.source_domain = sysDom;
     info.dest_domain = extDom;
     info.sync_type = SyncType::TwoFF;
+    info.relationship = "divided";
+    info.rationale = "Related clocks share timing constraints";
+    info.timing_basis_ns = 8.0;
     result.crossings.push_back(info);
 
     return result;
@@ -94,4 +99,25 @@ TEST_CASE("CDC ReportGenerator: json output contains summary and crossing ids", 
     CHECK(content.find("\"violations\": 1") != std::string::npos);
     CHECK(content.find("VIOLATION-001") != std::string::npos);
     CHECK(content.find("INFO-001") != std::string::npos);
+    CHECK(content.find("\"relationship\": \"asynchronous\"") != std::string::npos);
+    CHECK(content.find("\"rationale\": \"Related clocks share timing constraints\"") != std::string::npos);
+    CHECK(content.find("\"timing_basis_ns\": 8") != std::string::npos);
+}
+
+TEST_CASE("CDC ReportGenerator: markdown output includes relationship and rationale details", "[cdc][report]") {
+    auto result = makeCdcResult();
+    ReportGenerator generator(result);
+
+    auto path = fs::temp_directory_path() / "svlens_cdc_report_details.md";
+    generator.generateMarkdown(path);
+
+    std::ifstream ifs(path);
+    REQUIRE(ifs.good());
+    std::string content((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    fs::remove(path);
+
+    CHECK(content.find("Relationship: asynchronous") != std::string::npos);
+    CHECK(content.find("Rationale: Async domains require a synchronizer") != std::string::npos);
+    CHECK(content.find("Timing Basis: 8") != std::string::npos);
 }

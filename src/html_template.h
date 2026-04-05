@@ -8,7 +8,310 @@ inline constexpr const char* HTML_TEMPLATE = R"HTMLTPL(<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>sv-conncheck: {{TOP_MODULE}}</title>
-<script src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js" integrity="sha384-Ux6phic9PEHJ38YtrijhkzyJ8yQlH8i/+buBR8s3mAZOJrP1gwyvAcIYl3GWtpX1" crossorigin="anonymous"></script>
+<script>
+window.vis = (function() {
+  function clone(item) {
+    return Object.assign({}, item);
+  }
+
+  function DataSet() {
+    this.items = new Map();
+    this.listeners = [];
+  }
+
+  DataSet.prototype.onChange = function(cb) {
+    this.listeners.push(cb);
+  };
+
+  DataSet.prototype._emit = function() {
+    this.listeners.forEach(function(cb) { cb(); });
+  };
+
+  DataSet.prototype.add = function(item) {
+    var arr = Array.isArray(item) ? item : [item];
+    var self = this;
+    arr.forEach(function(entry) {
+      self.items.set(entry.id, clone(entry));
+    });
+    this._emit();
+  };
+
+  DataSet.prototype.update = function(item) {
+    var arr = Array.isArray(item) ? item : [item];
+    var self = this;
+    arr.forEach(function(entry) {
+      var current = self.items.get(entry.id) || {};
+      self.items.set(entry.id, Object.assign({}, current, clone(entry)));
+    });
+    this._emit();
+  };
+
+  DataSet.prototype.get = function(id) {
+    if (Array.isArray(id)) {
+      var self = this;
+      return id.map(function(key) { return self.items.get(key) || null; });
+    }
+    return this.items.get(id) || null;
+  };
+
+  DataSet.prototype.forEach = function(cb) {
+    this.items.forEach(function(value) { cb(value); });
+  };
+
+  DataSet.prototype.remove = function(id) {
+    var arr = Array.isArray(id) ? id : [id];
+    var self = this;
+    arr.forEach(function(key) { self.items.delete(key); });
+    this._emit();
+  };
+
+  function Network(container, data, options) {
+    this.container = container;
+    this.data = data;
+    this.options = options || {};
+    this.handlers = {};
+    this.positions = {};
+    this.selectedNode = null;
+    this.canvas = { body: { container: container } };
+    var self = this;
+    if (data.nodes && data.nodes.onChange) data.nodes.onChange(function() { self.render(); });
+    if (data.edges && data.edges.onChange) data.edges.onChange(function() { self.render(); });
+    this.render();
+  }
+
+  Network.prototype.on = function(event, handler) {
+    if (!this.handlers[event]) this.handlers[event] = [];
+    this.handlers[event].push(handler);
+  };
+
+  Network.prototype._emit = function(event, payload) {
+    (this.handlers[event] || []).forEach(function(handler) { handler(payload); });
+  };
+
+  Network.prototype.getConnectedEdges = function(nodeId) {
+    var out = [];
+    this.data.edges.forEach(function(edge) {
+      if (!edge.hidden && (edge.from === nodeId || edge.to === nodeId)) out.push(edge.id);
+    });
+    return out;
+  };
+
+  Network.prototype.getPositions = function(ids) {
+    var out = {};
+    var self = this;
+    ids.forEach(function(id) {
+      if (self.positions[id]) out[id] = self.positions[id];
+    });
+    return out;
+  };
+
+  Network.prototype.focus = function(id) {
+    this.selectedNode = id;
+    this.render();
+  };
+
+  Network.prototype.fit = function() {
+    this.selectedNode = null;
+    this.render();
+  };
+
+  Network.prototype._visibleNodes = function() {
+    var nodes = [];
+    this.data.nodes.forEach(function(node) {
+      if (!node.hidden) nodes.push(node);
+    });
+    return nodes;
+  };
+
+  Network.prototype._visibleEdges = function() {
+    var nodes = new Set();
+    this._visibleNodes().forEach(function(node) { nodes.add(node.id); });
+    var edges = [];
+    this.data.edges.forEach(function(edge) {
+      if (!edge.hidden && nodes.has(edge.from) && nodes.has(edge.to)) edges.push(edge);
+    });
+    return edges;
+  };
+
+  Network.prototype._computeLayout = function(nodes, edges, width, height) {
+    var positions = {};
+    nodes.forEach(function(node) {
+      if (typeof node.x === 'number' && typeof node.y === 'number') {
+        positions[node.id] = { x: node.x, y: node.y };
+      }
+    });
+
+    var dynamicNodes = nodes.filter(function(node) {
+      return !positions[node.id] && !node.parentModule;
+    });
+    var indegree = {};
+    var outgoing = {};
+    dynamicNodes.forEach(function(node) {
+      indegree[node.id] = 0;
+      outgoing[node.id] = [];
+    });
+    edges.forEach(function(edge) {
+      if (indegree.hasOwnProperty(edge.to)) indegree[edge.to] += 1;
+      if (outgoing[edge.from]) outgoing[edge.from].push(edge.to);
+    });
+
+    var queue = [];
+    Object.keys(indegree).forEach(function(id) {
+      if (indegree[id] === 0) queue.push(id);
+    });
+    if (queue.length === 0) queue = dynamicNodes.map(function(node) { return node.id; });
+
+    var levels = {};
+    while (queue.length) {
+      var id = queue.shift();
+      var base = levels[id] || 0;
+      (outgoing[id] || []).forEach(function(next) {
+        levels[next] = Math.max(levels[next] || 0, base + 1);
+        indegree[next] -= 1;
+        if (indegree[next] === 0) queue.push(next);
+      });
+    }
+
+    var columns = {};
+    dynamicNodes.forEach(function(node) {
+      var level = levels[node.id] || 0;
+      if (!columns[level]) columns[level] = [];
+      columns[level].push(node);
+    });
+
+    var colKeys = Object.keys(columns).map(Number).sort(function(a, b) { return a - b; });
+    var colCount = Math.max(colKeys.length, 1);
+    colKeys.forEach(function(level, colIdx) {
+      var col = columns[level];
+      col.forEach(function(node, rowIdx) {
+        var x = 120 + (colIdx * Math.max(180, Math.floor((width - 240) / colCount)));
+        var y = 90 + rowIdx * 110;
+        positions[node.id] = { x: x, y: Math.min(y, height - 60) };
+      });
+    });
+
+    nodes.forEach(function(node, idx) {
+      if (!positions[node.id]) {
+        positions[node.id] = {
+          x: 120 + (idx % 4) * 180,
+          y: 90 + Math.floor(idx / 4) * 110
+        };
+      }
+    });
+    return positions;
+  };
+
+  Network.prototype.render = function() {
+    var width = this.container.clientWidth || 1200;
+    var height = this.container.clientHeight || 720;
+    var nodes = this._visibleNodes();
+    var edges = this._visibleEdges();
+    this.positions = this._computeLayout(nodes, edges, width, height);
+
+    this.container.innerHTML = '';
+    this.container.style.position = 'relative';
+    this.container.style.overflow = 'hidden';
+
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', width);
+    svg.setAttribute('height', height);
+    svg.style.position = 'absolute';
+    svg.style.inset = '0';
+    svg.style.pointerEvents = 'none';
+    this.container.appendChild(svg);
+
+    var nodesLayer = document.createElement('div');
+    nodesLayer.style.position = 'absolute';
+    nodesLayer.style.inset = '0';
+    this.container.appendChild(nodesLayer);
+
+    var self = this;
+    edges.forEach(function(edge) {
+      var from = self.positions[edge.from];
+      var to = self.positions[edge.to];
+      if (!from || !to) return;
+      var group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      group.style.pointerEvents = 'auto';
+      var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', from.x);
+      line.setAttribute('y1', from.y);
+      line.setAttribute('x2', to.x);
+      line.setAttribute('y2', to.y);
+      var color = (edge.color && edge.color.color) || '#3a3a5a';
+      line.setAttribute('stroke', color);
+      line.setAttribute('stroke-width', edge.width || 2);
+      line.setAttribute('opacity', edge.hidden ? 0 : 1);
+      group.appendChild(line);
+      if (edge.label) {
+        var text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', ((from.x + to.x) / 2));
+        text.setAttribute('y', ((from.y + to.y) / 2) - 6);
+        text.setAttribute('fill', '#888');
+        text.setAttribute('font-size', '10');
+        text.setAttribute('text-anchor', 'middle');
+        text.textContent = edge.label;
+        group.appendChild(text);
+      }
+      group.addEventListener('mouseenter', function() { self._emit('hoverEdge', { edge: edge.id }); });
+      group.addEventListener('mouseleave', function() { self._emit('blurEdge', { edge: edge.id }); });
+      group.addEventListener('click', function(event) {
+        event.stopPropagation();
+        self._emit('click', { nodes: [], edges: [edge.id] });
+      });
+      svg.appendChild(group);
+    });
+
+    nodes.forEach(function(node) {
+      var pos = self.positions[node.id];
+      var el = document.createElement('div');
+      el.dataset.nodeId = node.id;
+      el.style.position = 'absolute';
+      el.style.left = (pos.x - 45) + 'px';
+      el.style.top = (pos.y - 20) + 'px';
+      el.style.minWidth = '80px';
+      el.style.maxWidth = '160px';
+      el.style.padding = node.group === 'module' ? '10px 12px' : '6px 8px';
+      el.style.borderRadius = '8px';
+      el.style.border = '2px solid ' + (((node.color || {}).border) || '#0f3460');
+      el.style.background = (((node.color || {}).background) || '#16213e');
+      el.style.color = ((node.font || {}).color) || '#e0e0e0';
+      el.style.fontSize = ((node.font || {}).size || 12) + 'px';
+      el.style.fontWeight = node.group === 'module' ? '700' : '500';
+      el.style.textAlign = 'center';
+      el.style.whiteSpace = 'pre-line';
+      el.style.cursor = 'pointer';
+      el.style.opacity = (node.opacity === undefined ? 1 : node.opacity).toString();
+      el.style.boxShadow = self.selectedNode === node.id ? '0 0 0 2px #e94560' : 'none';
+      el.textContent = node.label || node.id;
+
+      var clickTimer = null;
+      el.addEventListener('click', function(event) {
+        event.stopPropagation();
+        if (clickTimer) return;
+        clickTimer = setTimeout(function() {
+          clickTimer = null;
+          self._emit('click', { nodes: [node.id], edges: [] });
+        }, 180);
+      });
+      el.addEventListener('dblclick', function(event) {
+        event.stopPropagation();
+        if (clickTimer) {
+          clearTimeout(clickTimer);
+          clickTimer = null;
+        }
+        self._emit('doubleClick', { nodes: [node.id], edges: [] });
+      });
+      nodesLayer.appendChild(el);
+    });
+
+    this.container.onclick = function() {
+      self._emit('click', { nodes: [], edges: [] });
+    };
+  };
+
+  return { DataSet: DataSet, Network: Network };
+})();
+</script>
 <style>
 :root {
   --bg-primary: #1a1a2e;
@@ -262,7 +565,7 @@ function esc(s) {
       if (btn.dataset.tab === 'graph' && !graphInit) {
         graphInit = true;
         if (typeof vis === 'undefined') {
-          document.getElementById('pane-graph').innerHTML = '<div class="no-data" style="padding-top:80px">Graph requires vis-network.js (CDN unreachable or offline).</div>';
+          document.getElementById('pane-graph').innerHTML = '<div class="no-data" style="padding-top:80px">Graph renderer unavailable.</div>';
         } else {
           try { initGraph(); } catch(e) {
             document.getElementById('pane-graph').innerHTML = '<div class="no-data" style="padding-top:80px">Graph init failed: ' + e.message + '</div>';
@@ -388,7 +691,7 @@ function switchToDetails(inst) {
 }
 
 // =============================================
-//   TAB 2: GRAPH (vis-network) - Progressive
+//   TAB 2: GRAPH (self-contained renderer) - Progressive
 // =============================================
 var graphNetwork = null;
 var graphNodes = null;
@@ -397,8 +700,6 @@ var focusedModule = null;
 var expandedModules = new Set();
 var graphModuleData = {};  // instPath -> { short, health, ports, connections, issues }
 var graphEdgeData = {};    // edgeId -> { from, to, signals[] }
-var graphOrigNodes = [];   // original module-level nodes for reset
-var graphOrigEdges = [];   // original module-level edges for reset
 
 function initGraph() {
   // --- Build module data from connections ---
@@ -524,7 +825,6 @@ function initGraph() {
   // --- Build vis nodes (Level 1: module overview) ---
   graphNodes = new vis.DataSet();
   graphEdges = new vis.DataSet();
-  var nodeIdCounter = 0;
   var instToNodeId = {};
 
   function healthColors(score) {
@@ -554,7 +854,6 @@ function initGraph() {
       instPath: instPath
     };
     graphNodes.add(nodeObj);
-    graphOrigNodes.push(Object.assign({}, nodeObj));
   });
 
   var sevColor = { ERROR: '#e94560', WARN: '#e97c00', INFO: '#4a90d9' };
@@ -577,7 +876,6 @@ function initGraph() {
       smooth: { type: 'cubicBezier' }
     };
     graphEdges.add(edgeObj);
-    graphOrigEdges.push(Object.assign({}, edgeObj));
     graphEdgeData[eid] = { from: g.from, to: g.to, signals: g.signals, severity: sev };
   });
 
@@ -718,10 +1016,7 @@ function initGraph() {
     });
     inputs.sort();
     outputs.sort();
-    var totalPorts = inputs.length + outputs.length;
     var spacing = 40;
-    // Add port nodes
-    var portNodes = [];
     function portColor(instPath, portName) {
       var pdata = md.ports[portName];
       var pkey = instPath + '::' + portName.replace(/\[.*/, '');
@@ -747,7 +1042,6 @@ function initGraph() {
         x: mx - 80, y: my + yOff, fixed: { x: true, y: true },
         parentModule: instPath
       });
-      portNodes.push(pid);
     });
     outputs.forEach(function(pn, idx) {
       var pc = portColor(instPath, pn);
@@ -765,7 +1059,6 @@ function initGraph() {
         x: mx + 80, y: my + yOff, fixed: { x: true, y: true },
         parentModule: instPath
       });
-      portNodes.push(pid);
     });
 
     // Replace module-level edges with port-level edges

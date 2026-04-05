@@ -112,3 +112,8 @@ add_test(NAME metrics_determinism
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_metrics_determinism.sh
             $<TARGET_FILE:svlens>
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME metrics_features
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_metrics_features.sh
+            $<TARGET_FILE:svlens>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

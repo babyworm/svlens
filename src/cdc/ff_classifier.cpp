@@ -131,6 +131,12 @@ struct FFAssignInfo {
     std::vector<std::string> rhs_signals;
 };
 
+static bool hasSequentialEdgeEvent(const std::vector<EventInfo>& events) {
+    return std::any_of(events.begin(), events.end(), [](const EventInfo& ev) {
+        return ev.is_posedge || ev.is_negedge;
+    });
+}
+
 // Collect variable names assigned in a statement (the FF registers) with fanin info
 static void collectAssignedVars(const slang::ast::Statement& stmt,
                                 std::vector<std::string>& vars,
@@ -186,6 +192,7 @@ static void collectAssignedVars(const slang::ast::Statement& stmt,
 // Forward declarations
 static void processInstance(const slang::ast::InstanceSymbol& inst,
                             const std::string& prefix,
+                            const std::string& primitive_name,
                             ClockDatabase& clock_db,
                             std::vector<std::unique_ptr<FFNode>>& ff_nodes,
                             std::vector<LatchWarning>& latch_warnings,
@@ -193,6 +200,7 @@ static void processInstance(const slang::ast::InstanceSymbol& inst,
 
 static void processMembers(const slang::ast::Scope& scope,
                            const std::string& inst_path,
+                           const std::string& primitive_name,
                            ClockDatabase& clock_db,
                            std::vector<std::unique_ptr<FFNode>>& ff_nodes,
                            std::vector<LatchWarning>& latch_warnings,
@@ -201,6 +209,7 @@ static void processMembers(const slang::ast::Scope& scope,
 // Walk an instance and extract FFs from always_ff blocks
 static void processInstance(const slang::ast::InstanceSymbol& inst,
                             const std::string& prefix,
+                            const std::string& primitive_name,
                             ClockDatabase& clock_db,
                             std::vector<std::unique_ptr<FFNode>>& ff_nodes,
                             std::vector<LatchWarning>& latch_warnings,
@@ -208,12 +217,13 @@ static void processInstance(const slang::ast::InstanceSymbol& inst,
     std::string inst_path = prefix.empty() ?
         std::string(inst.name) : prefix + "." + std::string(inst.name);
 
-    processMembers(inst.body, inst_path, clock_db, ff_nodes, latch_warnings, errors);
+    processMembers(inst.body, inst_path, primitive_name, clock_db, ff_nodes, latch_warnings, errors);
 }
 
 // Walk members of any scope (InstanceBody, GenerateBlock, etc.)
 static void processMembers(const slang::ast::Scope& scope,
                            const std::string& inst_path,
+                           const std::string& primitive_name,
                            ClockDatabase& clock_db,
                            std::vector<std::unique_ptr<FFNode>>& ff_nodes,
                            std::vector<LatchWarning>& latch_warnings,
@@ -249,6 +259,9 @@ static void processMembers(const slang::ast::Scope& scope,
 
             // Extract clock and reset from sensitivity list
             auto events = extractEvents(*timing);
+            if (block.procedureKind == slang::ast::ProceduralBlockKind::Always &&
+                !hasSequentialEdgeEvent(events))
+                continue;
             bool multi_clock = false;
             auto sens = classifyEvents(events, &multi_clock);
 
@@ -336,6 +349,7 @@ static void processMembers(const slang::ast::Scope& scope,
                     std::to_string(ff_nodes.size());
                 ff->domain = domain;
                 ff->reset = reset_ptr;
+                ff->primitive_name = primitive_name;
                 ff_nodes.push_back(std::move(ff));
             } else {
                 for (auto& var_name : assigned_vars) {
@@ -343,6 +357,7 @@ static void processMembers(const slang::ast::Scope& scope,
                     ff->hier_path = inst_path + "." + var_name;
                     ff->domain = domain;
                     ff->reset = reset_ptr;
+                    ff->primitive_name = primitive_name;
 
                     // Populate fanin_signals from all assignments to this variable
                     for (auto& ai : assign_infos) {
@@ -432,11 +447,12 @@ static void processMembers(const slang::ast::Scope& scope,
                 auto ff = std::make_unique<FFNode>();
                 ff->hier_path = child_path;
                 ff->domain = domain;
+                ff->primitive_name = def_name;
                 ff_nodes.push_back(std::move(ff));
             } else {
                 // Recurse into child instances (non-library cells)
                 processInstance(child_inst,
-                              inst_path, clock_db, ff_nodes, latch_warnings, errors);
+                              inst_path, def_name, clock_db, ff_nodes, latch_warnings, errors);
             }
         }
 
@@ -448,7 +464,7 @@ static void processMembers(const slang::ast::Scope& scope,
                 std::string gen_path = inst_path;
                 if (!gen_name.empty())
                     gen_path = inst_path + "." + gen_name;
-                processMembers(gen, gen_path, clock_db, ff_nodes, latch_warnings, errors);
+                processMembers(gen, gen_path, primitive_name, clock_db, ff_nodes, latch_warnings, errors);
             }
         }
 
@@ -460,7 +476,7 @@ static void processMembers(const slang::ast::Scope& scope,
                     if (entry_name.empty())
                         entry_name = std::string(arr.name);
                     std::string entry_path = inst_path + "." + entry_name;
-                    processMembers(*entry, entry_path, clock_db, ff_nodes,
+                    processMembers(*entry, entry_path, primitive_name, clock_db, ff_nodes,
                                    latch_warnings, errors);
                 }
             }
@@ -473,8 +489,10 @@ void FFClassifier::analyze() {
 
     for (auto& member : root.members()) {
         if (member.kind == slang::ast::SymbolKind::Instance) {
-            processInstance(member.as<slang::ast::InstanceSymbol>(),
-                          "", clock_db_, ff_nodes_, latch_warnings_, errors_);
+            auto& inst = member.as<slang::ast::InstanceSymbol>();
+            auto& def = inst.getDefinition();
+            processInstance(inst,
+                          "", std::string(def.name), clock_db_, ff_nodes_, latch_warnings_, errors_);
         }
     }
 }

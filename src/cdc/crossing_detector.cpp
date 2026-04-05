@@ -1,9 +1,68 @@
 #include "sv-cdccheck/crossing_detector.h"
 #include "sv-cdccheck/clock_tree.h"
 
+#include <algorithm>
+#include <cctype>
+
 namespace sv_cdccheck {
 
 namespace {
+
+std::string toLowerCopy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+std::string leafSignalName(const std::string& hier_path) {
+    auto pos = hier_path.rfind('.');
+    if (pos == std::string::npos)
+        return hier_path;
+    return hier_path.substr(pos + 1);
+}
+
+std::string instancePath(const std::string& hier_path) {
+    auto pos = hier_path.rfind('.');
+    if (pos == std::string::npos)
+        return {};
+    return hier_path.substr(0, pos);
+}
+
+bool samePrimitiveInstance(const FFEdge& edge) {
+    return edge.source && edge.dest &&
+           instancePath(edge.source->hier_path) == instancePath(edge.dest->hier_path);
+}
+
+bool isIsochronousHandshakePair(const FFEdge& edge) {
+    if (!edge.source || !edge.dest || !samePrimitiveInstance(edge))
+        return false;
+
+    auto src_primitive = toLowerCopy(edge.source->primitive_name);
+    auto dst_primitive = toLowerCopy(edge.dest->primitive_name);
+    if (src_primitive != "isochronous_4phase_handshake" ||
+        dst_primitive != "isochronous_4phase_handshake") {
+        return false;
+    }
+
+    const auto src_leaf = leafSignalName(edge.source->hier_path);
+    const auto dst_leaf = leafSignalName(edge.dest->hier_path);
+    return (src_leaf == "src_req_q" && dst_leaf == "dst_req_q") ||
+           (src_leaf == "dst_ack_q" && dst_leaf == "src_ack_q");
+}
+
+bool isSyncregPair(const FFEdge& edge) {
+    if (!edge.source || !edge.dest || !samePrimitiveInstance(edge))
+        return false;
+
+    auto src_primitive = toLowerCopy(edge.source->primitive_name);
+    auto dst_primitive = toLowerCopy(edge.dest->primitive_name);
+    if (src_primitive != "syncreg" || dst_primitive != "syncreg")
+        return false;
+
+    return leafSignalName(edge.source->hier_path) == "regA" &&
+           leafSignalName(edge.dest->hier_path) == "regB";
+}
 
 const char* relationshipToString(DomainRelationship::Type rel) {
     switch (rel) {
@@ -44,14 +103,11 @@ void CrossingDetector::analyze() {
         report.dest_domain = edge.dest->domain;
         report.source_signal = edge.source->hier_path;
         report.dest_signal = edge.dest->hier_path;
-        report.sync_type = SyncType::None; // Will be updated by SyncVerifier
+        report.sync_type = SyncType::None; // May be updated by SyncVerifier or intent recognizers
 
-        // Populate path from the edge's comb_path
-        if (!edge.comb_path.empty()) {
+        if (!edge.comb_path.empty())
             report.path = edge.comb_path;
-        }
 
-        // Classify severity based on domain relationship FIRST
         auto relationship = clock_db_.relationshipBetween(
             edge.source->domain, edge.dest->domain);
         bool is_async = clock_db_.isAsynchronous(
@@ -60,6 +116,34 @@ void CrossingDetector::analyze() {
             ? relationshipToString(*relationship)
             : "inferred_asynchronous";
         report.timing_basis_ns = timingBasis(report);
+
+        if (isIsochronousHandshakePair(edge)) {
+            report.severity = Severity::Info;
+            report.category = ViolationCategory::Info;
+            report.id = "INFO-" + std::to_string(++info_counter_);
+            report.rule = "Ac_cdc01";
+            report.sync_type = SyncType::Handshake;
+            report.recommendation =
+                "[Ac_cdc01] Intentional isochronous handshake primitive detected — verify primitive assumptions and integration constraints";
+            report.rationale =
+                "Recognized isochronous_4phase_handshake by primitive name plus src_req_q/dst_req_q or dst_ack_q/src_ack_q structural signature in the same instance; downgrade to informational review.";
+            crossings_.push_back(std::move(report));
+            continue;
+        }
+
+        if (isSyncregPair(edge)) {
+            report.severity = Severity::Info;
+            report.category = ViolationCategory::Info;
+            report.id = "INFO-" + std::to_string(++info_counter_);
+            report.rule = "Ac_cdc01";
+            report.sync_type = SyncType::TwoFF;
+            report.recommendation =
+                "[Ac_cdc01] Intentional syncreg primitive detected — verify the primitive is used as the designed CLKA/CLKB synchronizer";
+            report.rationale =
+                "Recognized syncreg by primitive name plus regA/regB structural signature in the same instance; downgrade to informational review.";
+            crossings_.push_back(std::move(report));
+            continue;
+        }
 
         // Check if this is a gated-clock crossing
         bool is_gated = false;
@@ -101,7 +185,6 @@ void CrossingDetector::analyze() {
             report.rationale =
                 "A gated clock is involved, so this crossing is downgraded to informational review.";
         } else {
-            // Related domains (divided, gated) -- lower severity
             report.severity = Severity::Medium;
             report.category = ViolationCategory::Caution;
             report.id = "CAUTION-" + std::to_string(++caution_counter_);
@@ -119,8 +202,6 @@ void CrossingDetector::analyze() {
             }
         }
 
-        // Add CONVENTION annotation for non-standard clock naming
-        // This is a separate note, NOT a replacement for the real category
         const std::string& src_clk_name = report.source_domain->source->origin_signal.empty()
             ? report.source_domain->source->name
             : report.source_domain->source->origin_signal;

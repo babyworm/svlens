@@ -10,6 +10,46 @@ Built on [slang](https://github.com/MikePopoloski/slang) v10+.
 
 ---
 
+## Quick start
+
+Build `svlens`, then run one of the three primary modes:
+
+```bash
+./scripts/setup-deps.sh --prefix "$HOME/.local"
+cmake -B build -DCMAKE_PREFIX_PATH="$HOME/.local"
+cmake --build build -j4
+
+# connectivity
+./build/svlens conn tests/sv/clean_design.sv --top clean_top
+
+# CDC
+./build/svlens cdc --top missing_sync tests/cdc/basic/02_missing_sync.sv
+
+# both modes under one output root
+./build/svlens both tests/cdc/basic/02_missing_sync.sv --top missing_sync \
+  -o reports --conn-format json --cdc-format json
+```
+
+If you just want the command surface first:
+
+```bash
+./build/svlens --help
+./build/svlens conn --help
+./build/svlens cdc --help
+./build/svlens both --help
+```
+
+## Reference docs
+
+- install / offline builds: [`docs/install.md`](docs/install.md)
+- CLI and help contract: [`docs/cli-help.md`](docs/cli-help.md)
+- JSON report schemas: [`docs/schema/`](docs/schema/)
+- large-SoC waiver / baseline rollout: [`docs/waiver-baselines.md`](docs/waiver-baselines.md)
+- release / packaging flow: [`docs/release.md`](docs/release.md)
+- current release notes: [`docs/releases/v0.2.5.md`](docs/releases/v0.2.5.md)
+
+---
+
 ## What it does
 
 `svlens` currently exposes two analysis modes:

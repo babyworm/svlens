@@ -44,7 +44,7 @@ done
 require_token "$BOTH_HELP" "svlens_summary.json" "both help"
 
 ALIAS_BOTH_HELP="$($SVLENS_BINARY help both)"
-require_token "$ALIAS_BOTH_HELP" "svlens both v0.2.3" "help alias both"
+require_token "$ALIAS_BOTH_HELP" "svlens both v0.2.4" "help alias both"
 require_token "$ALIAS_BOTH_HELP" "Exit Codes:" "help alias both"
 
 echo "PASS: help contract"

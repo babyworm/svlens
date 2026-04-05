@@ -19,7 +19,7 @@ require_token() {
 }
 
 ROOT_HELP="$($SVLENS_BINARY --help)"
-require_token "$ROOT_HELP" "svlens help [conn|cdc|metrics|both]" "root help"
+require_token "$ROOT_HELP" "svlens help [conn|cdc|metrics|all]" "root help"
 require_token "$ROOT_HELP" "Quick start:" "root help"
 require_token "$ROOT_HELP" "Install hint:" "root help"
 require_token "$ROOT_HELP" "Docs:" "root help"
@@ -37,12 +37,6 @@ for token in "Required:" "Common:" "Outputs:" "Examples:" "Exit Codes:" "Limitat
 done
 require_token "$CDC_HELP" "docs/schema/cdc_report.md" "cdc help"
 
-BOTH_HELP="$($SVLENS_BINARY both --help)"
-for token in "Required:" "Common:" "Outputs:" "Examples:" "Exit Codes:" "Limitations:" "Notes:"; do
-    require_token "$BOTH_HELP" "$token" "both help"
-done
-require_token "$BOTH_HELP" "svlens_summary.json" "both help"
-
 METRICS_HELP="$($SVLENS_BINARY help metrics)"
 for token in "Required:" "Common:" "Metrics-specific:" "Outputs:" "Examples:" "Exit Codes:" "Limitations:" "Notes:"; do
     require_token "$METRICS_HELP" "$token" "metrics help"
@@ -50,8 +44,16 @@ done
 require_token "$METRICS_HELP" "docs/schema/metrics_report.md" "metrics help"
 require_token "$METRICS_HELP" "svlens metrics v0.2.5" "metrics help"
 
-ALIAS_BOTH_HELP="$($SVLENS_BINARY help both)"
-require_token "$ALIAS_BOTH_HELP" "svlens both v0.2.5" "help alias both"
-require_token "$ALIAS_BOTH_HELP" "Exit Codes:" "help alias both"
+ALL_HELP="$($SVLENS_BINARY all --help)"
+for token in "Required:" "Common:" "Outputs:" "Examples:" "Exit Codes:" "Limitations:" "Notes:"; do
+    require_token "$ALL_HELP" "$token" "all help"
+done
+require_token "$ALL_HELP" "svlens all v0.2.5" "all help"
+require_token "$ALL_HELP" "metrics_report.json" "all help"
+
+# Backward compat: 'both' still works as alias
+BOTH_ALIAS="$($SVLENS_BINARY help both)"
+require_token "$BOTH_ALIAS" "svlens all v0.2.5" "both alias"
+require_token "$BOTH_ALIAS" "Exit Codes:" "both alias"
 
 echo "PASS: help contract"

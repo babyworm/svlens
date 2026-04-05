@@ -15,7 +15,7 @@ set +e
 CONN_EXIT=$?
 "$SVLENS_BINARY" cdc --top missing_sync tests/cdc/basic/02_missing_sync.sv --format json -o "$OUTDIR/cdc"
 CDC_EXIT=$?
-"$SVLENS_BINARY" both tests/cdc/basic/02_missing_sync.sv --top missing_sync -o "$OUTDIR/both" --conn-format json --cdc-format json
+"$SVLENS_BINARY" all tests/cdc/basic/02_missing_sync.sv --top missing_sync -o "$OUTDIR/both" --conn-format json --cdc-format json
 BOTH_EXIT=$?
 "$SVLENS_BINARY" metrics tests/sv/metrics/simple_cone.sv --top simple_cone -o "$OUTDIR/metrics"
 METRICS_EXIT=$?

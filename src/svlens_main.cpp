@@ -28,17 +28,17 @@ void printUsage() {
         "  svlens conn    [OPTIONS] <SV_FILES...>\n"
         "  svlens cdc     [OPTIONS] <SV_FILES...>\n"
         "  svlens metrics [OPTIONS] <SV_FILES...>\n"
-        "  svlens both    [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] <SV_FILES...>\n"
-        "  svlens help [conn|cdc|metrics|both]\n\n"
+        "  svlens all     [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] <SV_FILES...>\n"
+        "  svlens help [conn|cdc|metrics|all]\n\n"
         "Modes:\n"
         "  conn      Port / connectivity analysis\n"
         "  cdc       Clock-domain crossing analysis\n"
         "  metrics   RTL transformation complexity analysis\n"
-        "  both      Run conn then cdc sequentially\n\n"
+        "  all       Run conn + cdc + metrics under one output root\n\n"
         "Quick start:\n"
         "  svlens conn design.sv --top my_top\n"
         "  svlens cdc --top soc_top rtl/top.sv --format json\n"
-        "  svlens both rtl/top.sv --top soc_top -o reports --conn-format json --cdc-format json\n\n"
+        "  svlens all rtl/top.sv --top soc_top -o reports --conn-format json --cdc-format json\n\n"
         "Install hint:\n"
         "  " + commoncli::installHint() + "\n\n"
         "Product boundary:\n"
@@ -48,11 +48,11 @@ void printUsage() {
     printDocsPointer();
 }
 
-void printBothUsage() {
+void printAllUsage() {
     const std::string usage =
-        std::string("svlens both v") + SVLENS_VERSION + " -- Combined connectivity and CDC analysis\n\n"
+        std::string("svlens all v") + SVLENS_VERSION + " -- Combined connectivity, CDC, and metrics analysis\n\n"
         "Usage:\n"
-        "  svlens both [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] <SV_FILES...>\n\n"
+        "  svlens all [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] <SV_FILES...>\n\n"
         "Required:\n"
         "  --top <module>                 Top-level module name\n"
         "  <SV_FILES...> / -f / -F        SystemVerilog sources or filelists\n\n"
@@ -64,19 +64,22 @@ void printBothUsage() {
         "Outputs:\n"
         "  <output>/conn/connect_report.json\n"
         "  <output>/cdc/cdc_report.json\n"
+        "  <output>/metrics/metrics_report.json\n"
         "  <output>/svlens_summary.json\n\n"
         "Examples:\n"
-        "  svlens both rtl/top.sv --top soc_top -o reports --conn-format json --cdc-format json\n"
-        "  svlens both -F rtl/filelist.f --top soc_top -o reports --conn-check-protocol --cdc-sync-stages 3\n\n"
+        "  svlens all rtl/top.sv --top soc_top -o reports --conn-format json --cdc-format json\n"
+        "  svlens all -F rtl/filelist.f --top soc_top -o reports --conn-check-protocol --cdc-sync-stages 3\n\n"
         "Exit Codes:\n"
-        "  Returns max(conn_exit_code, cdc_exit_code).\n"
+        "  Returns max(conn_exit_code, cdc_exit_code, metrics_exit_code).\n"
         "  conn exit code is based on active issue count (capped at 255).\n"
-        "  cdc exit code is based on violation count, or violation+caution count in --cdc-strict mode (capped at 255).\n\n"
+        "  cdc exit code is based on violation count, or violation+caution count in --cdc-strict mode (capped at 255).\n"
+        "  metrics exit code is 0 on success, 1 on error, 2 on regression (--fail-on-regression).\n\n"
         "Limitations:\n"
-        "  both shares one elaboration frontend, but conn/cdc still keep separate analysis semantics and report schemas.\n"
+        "  all shares one elaboration frontend, but each mode keeps separate analysis semantics and report schemas.\n"
         "  Use prefixed analysis flags such as --conn-format / --cdc-format to avoid ambiguity.\n\n"
         "Notes:\n"
-        "  Run 'svlens help conn' or 'svlens help cdc' for mode-specific analysis details.\n\n";
+        "  Run 'svlens help conn', 'svlens help cdc', or 'svlens help metrics' for mode-specific details.\n"
+        "  'svlens both' is an alias for 'svlens all' for backward compatibility.\n\n";
     fmt::print("{}", usage);
     printDocsPointer();
 }
@@ -225,8 +228,8 @@ int main(int argc, char* argv[]) {
             metrics::printMetricsUsage();
             return 0;
         }
-        if (submode == "both") {
-            printBothUsage();
+        if (submode == "all" || submode == "both") {
+            printAllUsage();
             return 0;
         }
         fmt::print(stderr, "Unknown help topic '{}'\n\n", submode);
@@ -251,7 +254,7 @@ int main(int argc, char* argv[]) {
             args.emplace_back(argv[i]);
         return invoke(runMetricsMain, std::move(args));
     }
-    if (mode == "both") {
+    if (mode == "all" || mode == "both") {
         auto dispatch = commoncli::routeBothModeArgs(argc, argv, 2,
                                                      kConnValueOptions,
                                                      kCdcValueOptions);
@@ -275,11 +278,11 @@ int main(int argc, char* argv[]) {
                                             cdcCompilationArgs);
 
         if (connOpts.showHelp || cdcOpts.showHelp) {
-            printBothUsage();
+            printAllUsage();
             return 0;
         }
         if (connOpts.showVersion || cdcOpts.showVersion) {
-            fmt::print("svlens both " SVLENS_VERSION "\n");
+            fmt::print("svlens all " SVLENS_VERSION "\n");
             return 0;
         }
         if (!connect::validateConnOptions(connOpts))

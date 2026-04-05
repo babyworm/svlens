@@ -85,7 +85,7 @@ verify_help() {
     if ! grep -q 'svlens' <<<"$help_out" || \
        ! grep -q 'conn' <<<"$help_out" || \
        ! grep -q 'cdc' <<<"$help_out" || \
-       ! grep -q 'both' <<<"$help_out"; then
+       ! grep -q 'all' <<<"$help_out"; then
         echo "FAIL: installed binary help output missing expected command summary: $binary" >&2
         exit 1
     fi

@@ -12,7 +12,7 @@ Built on [slang](https://github.com/MikePopoloski/slang) v10+.
 
 ## Quick start
 
-Build `svlens`, then run one of the three primary modes:
+Build `svlens`, then run one of the four primary modes:
 
 ```bash
 ./scripts/setup-deps.sh --prefix "$HOME/.local"
@@ -25,8 +25,11 @@ cmake --build build -j4
 # CDC
 ./build/svlens cdc --top missing_sync tests/cdc/basic/02_missing_sync.sv
 
-# both modes under one output root
-./build/svlens both tests/cdc/basic/02_missing_sync.sv --top missing_sync \
+# metrics (transformation complexity)
+./build/svlens metrics design.sv --top my_top
+
+# both modes under one output root (includes metrics)
+./build/svlens all tests/cdc/basic/02_missing_sync.sv --top missing_sync \
   -o reports --conn-format json --cdc-format json
 ```
 
@@ -36,7 +39,8 @@ If you just want the command surface first:
 ./build/svlens --help
 ./build/svlens conn --help
 ./build/svlens cdc --help
-./build/svlens both --help
+./build/svlens metrics --help
+./build/svlens all --help
 ```
 
 ## Reference docs
@@ -52,7 +56,7 @@ If you just want the command surface first:
 
 ## What it does
 
-`svlens` currently exposes two analysis modes:
+`svlens` currently exposes three analysis modes:
 
 - **Connectivity / interconnect analysis**
   - port-to-port connectivity extraction
@@ -67,9 +71,17 @@ If you just want the command surface first:
   - synchronizer recognition
   - CDC waiver / SDC / report generation
 
+- **Metrics (transformation complexity) analysis**
+  - output-rooted and FF-D-rooted backward transformation cones
+  - repeated bit-lane normalization
+  - FF-to-FF combinational complexity with provenance levels
+  - case/casez/for always_comb decomposition
+  - baseline diff with regression detection
+  - JSON and markdown report generation
+
 It also supports:
 
-- **`svlens both`**
+- **`svlens all`**
   - sequential `conn` + `cdc` execution
   - shared elaboration frontend
   - split output trees under one output root
@@ -158,10 +170,11 @@ Release archive packaging and Homebrew/tap validation guidance live in
 ## Primary CLI
 
 ```bash
-svlens conn [OPTIONS] <SV_FILES...>
-svlens cdc  [OPTIONS] <SV_FILES...>
-svlens both [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] <SV_FILES...>
-svlens help [conn|cdc|both]
+svlens conn    [OPTIONS] <SV_FILES...>
+svlens cdc     [OPTIONS] <SV_FILES...>
+svlens metrics [OPTIONS] <SV_FILES...>
+svlens all    [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] <SV_FILES...>
+svlens help [conn|cdc|metrics|all]
 ```
 
 ### Help
@@ -170,7 +183,8 @@ svlens help [conn|cdc|both]
 ./build/svlens --help
 ./build/svlens conn --help
 ./build/svlens cdc --help
-./build/svlens both --help
+./build/svlens metrics --help
+./build/svlens all --help
 ./build/svlens help conn
 ```
 
@@ -272,7 +286,7 @@ For large-SoC waiver / baseline rollout guidance, see
 `both` mode runs connectivity analysis first, then CDC analysis, under one output root.
 
 ```bash
-./build/svlens both rtl/top.sv --top soc_top -o reports \
+./build/svlens all rtl/top.sv --top soc_top -o reports \
   --conn-format json \
   --conn-check-protocol \
   --cdc-format json \
@@ -294,10 +308,66 @@ reports/
 `both` mode also accepts filelists through the shared compilation frontend:
 
 ```bash
-./build/svlens both -F rtl/filelist.f --top soc_top -o reports \
+./build/svlens all -F rtl/filelist.f --top soc_top -o reports \
   --conn-format json \
   --cdc-format json
 ```
+
+---
+
+## Metrics examples
+
+```bash
+# Basic transformation complexity analysis
+./build/svlens metrics design.sv --top my_top
+
+# JSON + markdown reports
+./build/svlens metrics design.sv --top my_top --format both -o reports/
+
+# Show only top-5 most complex roots
+./build/svlens metrics design.sv --top my_top --topk 5
+
+# Include per-root cone detail and raw graph
+./build/svlens metrics design.sv --top my_top --emit-cones --emit-raw-graph
+
+# Compare against a baseline report
+./build/svlens metrics design.sv --top my_top \
+  --baseline prev/metrics_report.json --fail-on-regression
+
+# Limit for-loop unrolling
+./build/svlens metrics design.sv --top my_top --max-for-unroll 512
+```
+
+### Metrics outputs
+
+| Format | Description | File |
+|--------|-------------|------|
+| `json` | machine-readable metrics report | `metrics_report.json` |
+| `md` | markdown summary with tables | `metrics_report.md` |
+
+### Understanding metrics output
+
+The metrics report provides quantitative guardrails for RTL complexity.
+Key fields and how to interpret them:
+
+| Field | Meaning | What to look for |
+|-------|---------|-----------------|
+| `raw_node_count` | Total transform operations in backward cone | High values indicate complex datapath. Compare across roots to find hotspots. |
+| `logic_depth_est` | Estimated logic depth (levels of transformation) | Correlates with combinational timing paths. Values > 20 warrant review. |
+| `normalized_transform_count` | Node count after collapsing repeated bit-lanes | Compare with `raw_node_count` — large gap means repetitive structure (bus operations). |
+| `source_inputs` | Number of primary inputs feeding the cone | High fan-in suggests complex convergence. |
+| `source_ffs` | Number of FF outputs feeding the cone | High values indicate cross-register dependencies. |
+| `approximate` | Whether the cone contains unsupported constructs | `true` means some operations could not be fully decomposed — treat metrics as lower bounds. |
+| `provenance_level` | Confidence in FF path analysis | `provenance_backed` = full extraction; `hint_only` = from CDC hints only; `partial_slice` = incomplete. |
+
+**Decision guide:**
+
+- **Simple passthrough** (`raw_node_count` = 1, `logic_depth_est` = 1): Pure wiring, no concern.
+- **Bus operations** (`raw` >> `normalized`): Repetitive structure. The `normalized` count reflects true complexity.
+- **Deep cone** (`logic_depth_est` > 15): Potential timing risk. Review the transformation chain.
+- **High fan-in** (`source_inputs` + `source_ffs` > 20): Complex convergence point. Consider whether this is intentional.
+- **Approximate cones**: Unsupported constructs are listed in `unsupported[]`. Expand support or accept as lower-bound estimate.
+- **Baseline regression** (`--baseline`): Positive `raw_delta` means added complexity. Use `--fail-on-regression` in CI to catch unintended growth.
 
 ---
 
@@ -350,7 +420,7 @@ Nested keys such as `input.prefix`, `output.prefix`, and `instance.prefix` are a
 
 ### Unified mode
 
-- `svlens both` shares the compilation frontend and routes outputs correctly, but there is still room to further reduce duplicated mode-specific CLI parsing.
+- `svlens all` shares the compilation frontend and routes outputs correctly, but there is still room to further reduce duplicated mode-specific CLI parsing.
 
 ---
 
@@ -377,6 +447,7 @@ docs/plan/              Unification specs and implementation plans
 
 - [`docs/schema/connect_report.md`](docs/schema/connect_report.md)
 - [`docs/schema/cdc_report.md`](docs/schema/cdc_report.md)
+- [`docs/schema/metrics_report.md`](docs/schema/metrics_report.md)
 - [`docs/schema/svlens_summary.md`](docs/schema/svlens_summary.md)
 
 ---

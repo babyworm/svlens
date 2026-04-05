@@ -38,6 +38,41 @@ bool isConstantOnly(const slang::ast::Expression* expr) {
     return constant && *constant;
 }
 
+bool isConstantZero(const slang::ast::Expression* expr) {
+    if (!expr)
+        return false;
+
+    auto* constant = expr->getConstant();
+    if (!constant || !*constant)
+        return false;
+
+    std::string text = constant->toString();
+    text.erase(std::remove_if(text.begin(), text.end(),
+                              [](unsigned char c) { return std::isspace(c) != 0; }),
+               text.end());
+    std::transform(text.begin(), text.end(), text.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    if (text == "0" || text == "'0")
+        return true;
+
+    auto apostrophe = text.find('\'');
+    if (apostrophe != std::string::npos) {
+        auto base_pos = apostrophe + 1;
+        if (base_pos < text.size() && std::isalpha(static_cast<unsigned char>(text[base_pos])))
+            ++base_pos;
+        if (base_pos >= text.size())
+            return false;
+        for (size_t i = base_pos; i < text.size(); ++i) {
+            if (text[i] != '0')
+                return false;
+        }
+        return true;
+    }
+
+    return false;
+}
+
 slang::ast::ArgumentDirection inferInterfaceDirection(const slang::ast::PortConnection& conn) {
     const auto [_, modport] = conn.getIfaceConn();
     if (!modport)
@@ -309,6 +344,8 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
         auto resolved = resolveExpr(expr);
         if (resolved.tieOff)
             graph_.tieOffPorts.insert(pinfo.fullPath());
+        if (resolved.tieOff && isConstantZero(expr))
+            graph_.constantZeroTieOffPorts.insert(pinfo.fullPath());
 
         if (resolved.netNames.empty())
             continue;

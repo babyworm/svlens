@@ -83,6 +83,7 @@ struct FFNode {
     ClockDomain* domain;
     ResetSignal* reset = nullptr;
     std::vector<std::string> fanin_signals;
+    std::string primitive_name;
 };
 
 /// Synchronizer type

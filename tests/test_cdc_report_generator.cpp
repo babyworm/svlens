@@ -121,3 +121,35 @@ TEST_CASE("CDC ReportGenerator: markdown output includes relationship and ration
     CHECK(content.find("Rationale: Async domains require a synchronizer") != std::string::npos);
     CHECK(content.find("Timing Basis: 8") != std::string::npos);
 }
+
+
+TEST_CASE("CDC ReportGenerator: intentional primitive sync types remain visible in json output", "[cdc][report]") {
+    auto result = makeCdcResult();
+
+    CrossingReport handshakeInfo;
+    handshakeInfo.id = "INFO-INTENT-001";
+    handshakeInfo.category = ViolationCategory::Info;
+    handshakeInfo.severity = Severity::Info;
+    handshakeInfo.source_signal = "top.u_hs.src_req_q";
+    handshakeInfo.dest_signal = "top.u_hs.dst_req_q";
+    handshakeInfo.source_domain = result.clock_db.domains[0].get();
+    handshakeInfo.dest_domain = result.clock_db.domains[1].get();
+    handshakeInfo.sync_type = SyncType::Handshake;
+    handshakeInfo.relationship = "asynchronous";
+    handshakeInfo.rationale = "Intentional handshake primitive";
+    result.crossings.push_back(handshakeInfo);
+
+    ReportGenerator generator(result);
+    auto path = fs::temp_directory_path() / "svlens_cdc_report_intent.json";
+    generator.generateJSON(path);
+
+    std::ifstream ifs(path);
+    REQUIRE(ifs.good());
+    std::string content((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    fs::remove(path);
+
+    CHECK(content.find("INFO-INTENT-001") != std::string::npos);
+    CHECK(content.find("\"sync_type\": \"handshake\"") != std::string::npos);
+    CHECK(content.find("Intentional handshake primitive") != std::string::npos);
+}

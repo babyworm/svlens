@@ -34,3 +34,43 @@ TEST_CASE("UndrivenChecker: output ports are ignored") {
     UndrivenChecker checker;
     REQUIRE(checker.check(graph).empty());
 }
+
+TEST_CASE("UndrivenChecker: optional exists_* inputs are suppressed when exists_req_i is tied low") {
+    ConnectionGraph graph;
+    graph.allPorts.push_back(makePort("top.u_q", "exists_req_i", ArgumentDirection::In));
+    graph.allPorts.push_back(makePort("top.u_q", "exists_data_i", ArgumentDirection::In));
+    graph.allPorts.push_back(makePort("top.u_q", "exists_mask_i", ArgumentDirection::In));
+    graph.connectedPorts.insert("top.u_q.exists_req_i");
+    graph.constantZeroTieOffPorts.insert("top.u_q.exists_req_i");
+
+    UndrivenChecker checker;
+    auto issues = checker.check(graph);
+    CHECK(issues.empty());
+}
+
+TEST_CASE("UndrivenChecker: optional exists_* inputs still error when disable companion is not tied low") {
+    ConnectionGraph graph;
+    graph.allPorts.push_back(makePort("top.u_q", "exists_req_i", ArgumentDirection::In));
+    graph.allPorts.push_back(makePort("top.u_q", "exists_data_i", ArgumentDirection::In));
+    graph.allPorts.push_back(makePort("top.u_q", "exists_mask_i", ArgumentDirection::In));
+    graph.connectedPorts.insert("top.u_q.exists_req_i");
+
+    UndrivenChecker checker;
+    auto issues = checker.check(graph);
+    REQUIRE(issues.size() == 2);
+}
+
+TEST_CASE("UndrivenChecker: optional exists_* suppression is limited to same instance scope") {
+    ConnectionGraph graph;
+    graph.allPorts.push_back(makePort("top.u_a", "exists_req_i", ArgumentDirection::In));
+    graph.allPorts.push_back(makePort("top.u_b", "exists_data_i", ArgumentDirection::In));
+    graph.allPorts.push_back(makePort("top.u_b", "exists_mask_i", ArgumentDirection::In));
+    graph.connectedPorts.insert("top.u_a.exists_req_i");
+    graph.constantZeroTieOffPorts.insert("top.u_a.exists_req_i");
+
+    UndrivenChecker checker;
+    auto issues = checker.check(graph);
+    REQUIRE(issues.size() == 2);
+    CHECK(issues[0].type == Issue::Type::UNDRIVEN_INPUT);
+    CHECK(issues[1].type == Issue::Type::UNDRIVEN_INPUT);
+}

@@ -51,6 +51,50 @@ TEST_CASE("CDC EdgeCases: legacy always @(posedge) is classified as FF", "[cdc][
     CHECK(classifier.getFFNodes()[0]->domain != nullptr);
 }
 
+TEST_CASE("CDC EdgeCases: combinational always with sensitivity list is not classified as FF", "[cdc][edge]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module cdc_edge_comb(input logic a, b, sel);
+            logic y;
+            always @(sel or a or b) begin
+                if (sel) y = a;
+                else     y = b;
+            end
+        endmodule
+    )", "cdc_edge_comb");
+    REQUIRE(compiled);
+
+    ClockDatabase db;
+    ClockTreeAnalyzer clockAnalyzer(*compiled.compilation, db);
+    clockAnalyzer.analyze();
+
+    FFClassifier classifier(*compiled.compilation, db);
+    classifier.analyze();
+
+    CHECK(classifier.getFFNodes().empty());
+}
+
+
+TEST_CASE("CDC EdgeCases: combinational always @ (...) debug mux is not treated as FF", "[cdc][edge]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module debug_mux_only(input logic sel, a, b, output logic y);
+            always @(sel or a or b) begin
+                y = sel ? a : b;
+            end
+        endmodule
+    )", "cdc_edge_debug_mux");
+    REQUIRE(compiled);
+
+    ClockDatabase db;
+    ClockTreeAnalyzer clockAnalyzer(*compiled.compilation, db);
+    clockAnalyzer.analyze();
+
+    FFClassifier classifier(*compiled.compilation, db);
+    classifier.analyze();
+
+    CHECK(classifier.getFFNodes().empty());
+    CHECK(classifier.getErrors().empty());
+}
+
 TEST_CASE("CDC EdgeCases: empty module produces no crossings", "[cdc][edge]") {
     auto compiled = testutils::cdc::compileInlineSV(R"(
         module empty_mod(input logic clk, rst_n);

@@ -39,6 +39,7 @@ struct ConnectionGraph {
     std::vector<PortInfo> allPorts;
     std::unordered_set<std::string> connectedPorts; // ports with non-empty expressions
     std::unordered_set<std::string> tieOffPorts;    // ports connected only to compile-time constants
+    std::unordered_set<std::string> constantZeroTieOffPorts; // ports tied to an explicit constant zero
     std::string topModule;
 };
 

@@ -172,6 +172,62 @@ TEST_CASE("CrossingDetector: crossing has source and dest domain info", "[crossi
     CHECK(!c.dest_signal.empty());
 }
 
+TEST_CASE("CrossingDetector: isochronous handshake primitive is downgraded to INFO", "[crossing][intentional]") {
+    ClockDatabase db;
+
+    auto src = std::make_unique<ClockSource>();
+    src->name = "src_clk_i";
+    auto* srcPtr = db.addSource(std::move(src));
+    auto dst = std::make_unique<ClockSource>();
+    dst->name = "dst_clk_i";
+    auto* dstPtr = db.addSource(std::move(dst));
+    db.relationships.push_back({srcPtr, dstPtr, DomainRelationship::Type::Asynchronous});
+
+    auto* srcDom = db.findOrCreateDomain(srcPtr, Edge::Posedge);
+    auto* dstDom = db.findOrCreateDomain(dstPtr, Edge::Posedge);
+
+    FFNode srcReq{"u_handshake.src_req_q", srcDom, nullptr, {}, "isochronous_4phase_handshake"};
+    FFNode dstReq{"u_handshake.dst_req_q", dstDom, nullptr, {}, "isochronous_4phase_handshake"};
+    std::vector<FFEdge> edges{{&srcReq, &dstReq, {"src_req_q"}, SyncType::None}};
+
+    CrossingDetector detector(edges, db);
+    detector.analyze();
+    auto crossings = detector.getCrossings();
+
+    REQUIRE(crossings.size() == 1);
+    CHECK(crossings[0].category == ViolationCategory::Info);
+    CHECK(crossings[0].severity == Severity::Info);
+    CHECK(crossings[0].rationale.find("isochronous_4phase_handshake") != std::string::npos);
+}
+
+TEST_CASE("CrossingDetector: syncreg primitive is downgraded to INFO", "[crossing][intentional]") {
+    ClockDatabase db;
+
+    auto src = std::make_unique<ClockSource>();
+    src->name = "CLKA";
+    auto* srcPtr = db.addSource(std::move(src));
+    auto dst = std::make_unique<ClockSource>();
+    dst->name = "CLKB";
+    auto* dstPtr = db.addSource(std::move(dst));
+    db.relationships.push_back({srcPtr, dstPtr, DomainRelationship::Type::Asynchronous});
+
+    auto* srcDom = db.findOrCreateDomain(srcPtr, Edge::Posedge);
+    auto* dstDom = db.findOrCreateDomain(dstPtr, Edge::Posedge);
+
+    FFNode regA{"u_syncreg.regA", srcDom, nullptr, {}, "syncreg"};
+    FFNode regB{"u_syncreg.regB", dstDom, nullptr, {}, "syncreg"};
+    std::vector<FFEdge> edges{{&regA, &regB, {"regA"}, SyncType::None}};
+
+    CrossingDetector detector(edges, db);
+    detector.analyze();
+    auto crossings = detector.getCrossings();
+
+    REQUIRE(crossings.size() == 1);
+    CHECK(crossings[0].category == ViolationCategory::Info);
+    CHECK(crossings[0].severity == Severity::Info);
+    CHECK(crossings[0].rationale.find("syncreg") != std::string::npos);
+}
+
 TEST_CASE("CrossingDetector: logically exclusive crossing is informational", "[crossing][exclusive]") {
     ClockDatabase db;
 
@@ -457,4 +513,97 @@ TEST_CASE("CrossingDetector: crossing report has correct domain names", "[crossi
     CHECK((src_has_clk_a || src_has_clk_b));
     CHECK((dst_has_clk_a || dst_has_clk_b));
     CHECK(c.source_domain->canonical_name != c.dest_domain->canonical_name);
+}
+
+
+TEST_CASE("CrossingDetector: isochronous handshake primitive is downgraded to informational", "[crossing][primitive]") {
+    ClockDatabase db;
+
+    auto srcA = std::make_unique<ClockSource>();
+    srcA->name = "src_clk";
+    auto* a = db.addSource(std::move(srcA));
+    auto srcB = std::make_unique<ClockSource>();
+    srcB->name = "dst_clk";
+    auto* b = db.addSource(std::move(srcB));
+    db.relationships.push_back({a, b, DomainRelationship::Type::Asynchronous});
+
+    auto* domA = db.findOrCreateDomain(a, Edge::Posedge);
+    auto* domB = db.findOrCreateDomain(b, Edge::Posedge);
+
+    FFNode ffA{"top.u_hs.src_req_q", domA, nullptr, {}};
+    ffA.primitive_name = "isochronous_4phase_handshake";
+    FFNode ffB{"top.u_hs.dst_req_q", domB, nullptr, {}};
+    ffB.primitive_name = "isochronous_4phase_handshake";
+    std::vector<FFEdge> edges{{&ffA, &ffB, {}, SyncType::None}};
+
+    CrossingDetector detector(edges, db);
+    detector.analyze();
+    auto crossings = detector.getCrossings();
+
+    REQUIRE(crossings.size() == 1);
+    CHECK(crossings[0].category == ViolationCategory::Info);
+    CHECK(crossings[0].severity == Severity::Info);
+    CHECK(crossings[0].sync_type == SyncType::Handshake);
+    CHECK(crossings[0].rationale.find("isochronous_4phase_handshake") != std::string::npos);
+}
+
+TEST_CASE("CrossingDetector: syncreg primitive is downgraded to informational", "[crossing][primitive]") {
+    ClockDatabase db;
+
+    auto srcA = std::make_unique<ClockSource>();
+    srcA->name = "clka";
+    auto* a = db.addSource(std::move(srcA));
+    auto srcB = std::make_unique<ClockSource>();
+    srcB->name = "clkb";
+    auto* b = db.addSource(std::move(srcB));
+    db.relationships.push_back({a, b, DomainRelationship::Type::Asynchronous});
+
+    auto* domA = db.findOrCreateDomain(a, Edge::Posedge);
+    auto* domB = db.findOrCreateDomain(b, Edge::Posedge);
+
+    FFNode ffA{"top.u_sync.regA", domA, nullptr, {}};
+    ffA.primitive_name = "syncreg";
+    FFNode ffB{"top.u_sync.regB", domB, nullptr, {}};
+    ffB.primitive_name = "syncreg";
+    std::vector<FFEdge> edges{{&ffA, &ffB, {}, SyncType::None}};
+
+    CrossingDetector detector(edges, db);
+    detector.analyze();
+    auto crossings = detector.getCrossings();
+
+    REQUIRE(crossings.size() == 1);
+    CHECK(crossings[0].category == ViolationCategory::Info);
+    CHECK(crossings[0].severity == Severity::Info);
+    CHECK(crossings[0].sync_type == SyncType::TwoFF);
+    CHECK(crossings[0].rationale.find("syncreg") != std::string::npos);
+}
+
+TEST_CASE("CrossingDetector: raw async FF-to-FF remains violation when primitive signature does not match", "[crossing][primitive]") {
+    ClockDatabase db;
+
+    auto srcA = std::make_unique<ClockSource>();
+    srcA->name = "clk_a";
+    auto* a = db.addSource(std::move(srcA));
+    auto srcB = std::make_unique<ClockSource>();
+    srcB->name = "clk_b";
+    auto* b = db.addSource(std::move(srcB));
+    db.relationships.push_back({a, b, DomainRelationship::Type::Asynchronous});
+
+    auto* domA = db.findOrCreateDomain(a, Edge::Posedge);
+    auto* domB = db.findOrCreateDomain(b, Edge::Posedge);
+
+    FFNode ffA{"top.u_sync.regA", domA, nullptr, {}};
+    ffA.primitive_name = "syncreg";
+    FFNode ffB{"top.other.regB", domB, nullptr, {}};
+    ffB.primitive_name = "syncreg";
+    std::vector<FFEdge> edges{{&ffA, &ffB, {}, SyncType::None}};
+
+    CrossingDetector detector(edges, db);
+    detector.analyze();
+    auto crossings = detector.getCrossings();
+
+    REQUIRE(crossings.size() == 1);
+    CHECK(crossings[0].category == ViolationCategory::Violation);
+    CHECK(crossings[0].severity == Severity::High);
+    CHECK(crossings[0].sync_type == SyncType::None);
 }

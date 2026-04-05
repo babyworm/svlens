@@ -136,6 +136,8 @@ svlens help [conn|cdc|both]
 
 For the detailed help contract and structure, see [`docs/cli-help.md`](docs/cli-help.md).
 Stable JSON contracts are documented under [`docs/schema/`](docs/schema/).
+For large-SoC waiver / baseline rollout guidance, see
+[`docs/waiver-baselines.md`](docs/waiver-baselines.md).
 
 ### Version
 

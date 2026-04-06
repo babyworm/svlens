@@ -55,6 +55,7 @@ struct DomainRelationship {
         PhysicallyExclusive,  // set_clock_groups -physically_exclusive (mux)
         LogicallyExclusive    // set_clock_groups -logically_exclusive
     } relationship;
+    bool sdc_declared = false; // true when from SDC set_clock_groups, false when inferred
 };
 
 // ─── Clock Domain: a logical grouping of nets from the same physical clock ───
@@ -170,6 +171,8 @@ struct ClockDatabase {
     bool isAsynchronous(const ClockDomain* a, const ClockDomain* b) const;
     std::optional<DomainRelationship::Type> relationshipBetween(const ClockDomain* a,
                                                                 const ClockDomain* b) const;
+    /// Check if the relationship between two domains was declared via SDC constraint
+    bool isSdcDeclaredRelationship(const ClockDomain* a, const ClockDomain* b) const;
 };
 
 /// Overall analysis result

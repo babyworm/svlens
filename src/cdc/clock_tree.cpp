@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <unordered_set>
 
 namespace sv_cdccheck {
 
@@ -669,6 +670,26 @@ void ClockTreeAnalyzer::importSdcRelationships() {
                 rel_type = DomainRelationship::Type::LogicallyExclusive; break;
         }
 
+        // Handle single-group case: all unlisted clocks form implicit "other" group
+        if (group.groups.size() == 1) {
+            // Collect all clock names that are in the explicit group
+            std::unordered_set<std::string> listed_names(
+                group.groups[0].begin(), group.groups[0].end());
+
+            // Build implicit "other" group from all clock sources not listed
+            std::vector<std::string> other_group;
+            for (auto& src : clock_db_.sources) {
+                if (listed_names.find(src->name) == listed_names.end()) {
+                    other_group.push_back(src->name);
+                }
+            }
+
+            // If there are unlisted clocks, add as implicit group and proceed
+            if (!other_group.empty()) {
+                group.groups.push_back(other_group);
+            }
+        }
+
         // Register pairwise relationships between groups
         for (size_t i = 0; i < group.groups.size(); i++) {
             for (size_t j = i + 1; j < group.groups.size(); j++) {
@@ -682,7 +703,7 @@ void ClockTreeAnalyzer::importSdcRelationships() {
                         }
                         if (src_a && src_b) {
                             clock_db_.relationships.push_back(
-                                {src_a, src_b, rel_type});
+                                {src_a, src_b, rel_type, /*sdc_declared=*/true});
                         }
                     }
                 }

@@ -148,6 +148,36 @@ void CrossingDetector::analyze() {
             continue;
         }
 
+        // Check set_clock_groups auto-waive (physically_exclusive, logically_exclusive)
+        // Only exclusive relationships are waived — asynchronous still requires
+        // synchronizers, so Asynchronous is intentionally NOT auto-waived here.
+        // Only waive when the relationship was explicitly declared via SDC constraint,
+        // not when inferred by the analysis engine.
+        if (relationship &&
+            clock_db_.isSdcDeclaredRelationship(edge.source->domain, edge.dest->domain)) {
+            auto rel_type = *relationship;
+            if (rel_type == DomainRelationship::Type::PhysicallyExclusive ||
+                rel_type == DomainRelationship::Type::LogicallyExclusive) {
+                report.severity = Severity::Info;
+                report.category = ViolationCategory::Info;
+                report.id = "INFO-" + std::to_string(++info_counter_);
+                report.rule = "Ac_cdc01";
+                report.waive_reason = "sdc_clock_groups";
+                const char* rel_str = relationshipToString(rel_type);
+                report.recommendation =
+                    std::string("[Ac_cdc01] Crossing waived by SDC set_clock_groups (")
+                    + rel_str + ") constraint";
+                report.rationale =
+                    "SDC set_clock_groups declares " +
+                    report.source_domain->source->name + " and " +
+                    report.dest_domain->source->name +
+                    " as " + rel_str +
+                    " — crossing is intentionally excluded from timing analysis.";
+                crossings_.push_back(std::move(report));
+                continue;
+            }
+        }
+
         if (isIsochronousHandshakePair(edge)) {
             report.severity = Severity::Info;
             report.category = ViolationCategory::Info;

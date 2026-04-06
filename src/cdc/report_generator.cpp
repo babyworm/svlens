@@ -166,6 +166,17 @@ std::optional<DomainRelationship::Type> ClockDatabase::relationshipBetween(const
     return std::nullopt;
 }
 
+bool ClockDatabase::isSdcDeclaredRelationship(const ClockDomain* a, const ClockDomain* b) const {
+    if (!a || !b) return false;
+    for (auto& rel : relationships) {
+        if ((rel.a == a->source && rel.b == b->source) ||
+            (rel.a == b->source && rel.b == a->source)) {
+            return rel.sdc_declared;
+        }
+    }
+    return false;
+}
+
 ReportGenerator::ReportGenerator(const AnalysisResult& result)
     : result_(result) {}
 

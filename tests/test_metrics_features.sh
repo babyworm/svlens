@@ -270,5 +270,84 @@ assert any(rt['raw_node_count'] > 0 for rt in roots), f'expected some nodes, got
 " || { echo "FAIL: LHS concat decomposition" >&2; exit 1; }
 echo "PASS: LHS concat decomposition"
 
+# ============================================================
+# Test 17: nested function calls produce nodes, no unsupported 'expression'
+# ============================================================
+NESTFN="tests/sv/metrics/nested_function_call.sv"
+"$SVLENS_BINARY" metrics "$NESTFN" --top nested_function_call -o "$OUTDIR/nestfn" --emit-raw-graph >/dev/null 2>&1
+python3 -c "
+import json
+r = json.load(open('$OUTDIR/nestfn/metrics_report.json'))
+assert len(r['roots']) >= 1, f'expected >=1 root, got {len(r[\"roots\"])}'
+unsup_kinds = [u['kind'] for u in r.get('unsupported', [])]
+assert 'expression' not in unsup_kinds, f'nested function call still unsupported: {unsup_kinds}'
+nodes = r.get('raw_graph', {}).get('nodes', [])
+assert len(nodes) > 0, 'should have transform nodes from nested function calls'
+" || { echo "FAIL: nested function call support" >&2; exit 1; }
+echo "PASS: nested function call support"
+
+# ============================================================
+# Test 18: system function calls ($signed, $clog2) do not crash
+# ============================================================
+SYSCALL="tests/sv/metrics/system_call.sv"
+"$SVLENS_BINARY" metrics "$SYSCALL" --top system_call -o "$OUTDIR/syscall" --emit-raw-graph >/dev/null 2>&1
+python3 -c "
+import json
+r = json.load(open('$OUTDIR/syscall/metrics_report.json'))
+assert len(r['roots']) >= 1, f'expected >=1 root, got {len(r[\"roots\"])}'
+unsup_kinds = [u['kind'] for u in r.get('unsupported', [])]
+assert 'expression' not in unsup_kinds, f'system call still unsupported expression: {unsup_kinds}'
+nodes = r.get('raw_graph', {}).get('nodes', [])
+assert len(nodes) > 0, 'should have some nodes in graph'
+" || { echo "FAIL: system call support" >&2; exit 1; }
+echo "PASS: system call support"
+
+# ============================================================
+# Test 19: nested packed struct member access
+# ============================================================
+NSTRUCT="tests/sv/metrics/nested_struct.sv"
+"$SVLENS_BINARY" metrics "$NSTRUCT" --top nested_struct -o "$OUTDIR/nstruct" --emit-raw-graph >/dev/null 2>&1
+python3 -c "
+import json
+r = json.load(open('$OUTDIR/nstruct/metrics_report.json'))
+assert len(r['roots']) >= 1, f'expected >=1 root, got {len(r[\"roots\"])}'
+nodes = r.get('raw_graph', {}).get('nodes', [])
+assert len(nodes) > 0, 'should have nodes from nested struct access'
+assert r['summary']['outputs_analyzed'] >= 1, 'should have at least 1 output analyzed'
+" || { echo "FAIL: nested packed struct" >&2; exit 1; }
+echo "PASS: nested packed struct"
+
+# ============================================================
+# Test 20: source_loc determinism across runs
+# ============================================================
+"$SVLENS_BINARY" metrics "$SIMPLE" --top simple_cone -o "$OUTDIR/det1" --emit-raw-graph >/dev/null 2>&1
+"$SVLENS_BINARY" metrics "$SIMPLE" --top simple_cone -o "$OUTDIR/det2" --emit-raw-graph >/dev/null 2>&1
+python3 -c "
+import json
+r1 = json.load(open('$OUTDIR/det1/metrics_report.json'))
+r2 = json.load(open('$OUTDIR/det2/metrics_report.json'))
+locs1 = [n.get('source_loc','') for n in r1.get('raw_graph',{}).get('nodes',[])]
+locs2 = [n.get('source_loc','') for n in r2.get('raw_graph',{}).get('nodes',[])]
+assert locs1 == locs2, f'source_loc not deterministic: {locs1[:3]} vs {locs2[:3]}'
+" || { echo "FAIL: source_loc determinism" >&2; exit 1; }
+echo "PASS: source_loc determinism"
+
+# ============================================================
+# Test 21: LHS concatenation with unequal widths
+# ============================================================
+LHCU="tests/sv/metrics/lhs_concat_unequal.sv"
+"$SVLENS_BINARY" metrics "$LHCU" --top lhs_concat_unequal -o "$OUTDIR/lhcu" --emit-raw-graph >/dev/null 2>&1
+python3 -c "
+import json
+r = json.load(open('$OUTDIR/lhcu/metrics_report.json'))
+roots = r['roots']
+assert len(roots) >= 3, f'expected >=3 output roots (hi/mid/lo), got {len(roots)}'
+root_ids = [rt['root_id'] for rt in roots]
+assert len(root_ids) >= 3, f'expected >=3 root_ids, got {root_ids}'
+nodes = r.get('raw_graph', {}).get('nodes', [])
+assert len(nodes) > 0, 'should have nodes from LHS concat decomposition'
+" || { echo "FAIL: LHS concat unequal widths" >&2; exit 1; }
+echo "PASS: LHS concat unequal widths"
+
 echo ""
-echo "PASS: all 16 metrics feature tests"
+echo "PASS: all 21 metrics feature tests"

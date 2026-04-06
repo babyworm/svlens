@@ -1,33 +1,26 @@
-interface data_if(input logic clk);
+interface simple_bus;
     logic [7:0] data;
-    logic valid;
+    logic        valid;
+    logic        ready;
 
-    modport producer (
-        input  clk,
-        output data,
-        output valid
-    );
-
-    modport consumer (
-        input clk,
-        input data,
-        input valid
-    );
+    modport master (output data, output valid, input ready);
+    modport slave  (input data, input valid, output ready);
 endinterface
 
-module producer(data_if.producer bus);
-    always_comb begin
-        bus.data = 8'hA5;
-        bus.valid = 1'b1;
-    end
+module producer (simple_bus.master bus);
+    assign bus.data  = 8'hAB;
+    assign bus.valid = 1'b1;
 endmodule
 
-module consumer(data_if.consumer bus);
+module consumer (simple_bus.slave bus);
+    assign bus.ready = 1'b1;
 endmodule
 
-module interface_modport_top(input logic clk);
-    data_if bus(clk);
-
-    producer u_prod(.bus(bus));
-    consumer u_cons(.bus(bus));
+module interface_modport (
+    input  logic clk,
+    input  logic rst_n
+);
+    simple_bus bus_inst();
+    producer u_prod (.bus(bus_inst));
+    consumer u_cons (.bus(bus_inst));
 endmodule

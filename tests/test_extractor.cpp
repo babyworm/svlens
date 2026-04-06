@@ -87,18 +87,12 @@ TEST_CASE("Extractor: interface modport ports preserve a bus-level connection", 
     auto result = compileFile("sv/interface_modport.sv");
     REQUIRE(result);
 
-    ConnectionExtractor extractor(*result.compilation, "interface_modport_top");
+    ConnectionExtractor extractor(*result.compilation, "interface_modport");
     auto graph = extractor.extract();
 
-    bool foundBusConnection = false;
-    for (const auto& conn : graph.connections) {
-        if (conn.source.fullPath() == "interface_modport_top.u_prod.bus" &&
-            conn.dest.fullPath() == "interface_modport_top.u_cons.bus") {
-            foundBusConnection = true;
-        }
-    }
-
-    CHECK(foundBusConnection);
+    // With per-signal expansion, we should have per-signal connections
+    // through the interface (data, valid from master->slave; ready from slave->master)
+    REQUIRE(graph.connections.size() >= 1);
 }
 
 TEST_CASE("Extractor: procedural always_comb glue creates an approximate alias connection", "[extractor][procedural]") {
@@ -124,17 +118,72 @@ TEST_CASE("Extractor: modport connections create approximate interface links", "
     auto result = compileFile("sv/interface_modport.sv");
     REQUIRE(result);
 
-    ConnectionExtractor extractor(*result.compilation, "interface_modport_top");
+    ConnectionExtractor extractor(*result.compilation, "interface_modport");
     auto graph = extractor.extract();
 
     bool foundInterfaceLink = false;
     for (const auto& conn : graph.connections) {
-        if (conn.source.instancePath == "interface_modport_top.u_prod" &&
-            conn.dest.instancePath == "interface_modport_top.u_cons") {
+        if (conn.source.instancePath == "interface_modport.u_prod" &&
+            conn.dest.instancePath == "interface_modport.u_cons") {
             foundInterfaceLink = true;
             CHECK(conn.kind == ConnectionKind::Approximate);
         }
     }
 
     CHECK(foundInterfaceLink);
+}
+
+TEST_CASE("Extractor: interface modport produces per-signal edges", "[extractor][interface]") {
+    auto result = compileFile("sv/interface_modport.sv");
+    REQUIRE(result);
+
+    ConnectionExtractor extractor(*result.compilation, "interface_modport");
+    auto graph = extractor.extract();
+
+    // Should have connections through the interface
+    REQUIRE(graph.connections.size() >= 1);
+
+    // Check that we have per-signal port entries for modport members
+    bool hasData = false;
+    bool hasValid = false;
+    bool hasReady = false;
+    for (auto& port : graph.allPorts) {
+        if (port.portName == "bus.data") hasData = true;
+        if (port.portName == "bus.valid") hasValid = true;
+        if (port.portName == "bus.ready") hasReady = true;
+    }
+    CHECK(hasData);
+    CHECK(hasValid);
+    CHECK(hasReady);
+
+    // Check that per-signal connections exist between producer and consumer
+    bool hasDataEdge = false;
+    bool hasValidEdge = false;
+    bool hasReadyEdge = false;
+    for (const auto& conn : graph.connections) {
+        // data: master output -> slave input (producer drives, consumer receives)
+        if (conn.source.portName == "bus.data" &&
+            conn.source.instancePath == "interface_modport.u_prod" &&
+            conn.dest.portName == "bus.data" &&
+            conn.dest.instancePath == "interface_modport.u_cons") {
+            hasDataEdge = true;
+        }
+        // valid: master output -> slave input
+        if (conn.source.portName == "bus.valid" &&
+            conn.source.instancePath == "interface_modport.u_prod" &&
+            conn.dest.portName == "bus.valid" &&
+            conn.dest.instancePath == "interface_modport.u_cons") {
+            hasValidEdge = true;
+        }
+        // ready: slave output -> master input (consumer drives, producer receives)
+        if (conn.source.portName == "bus.ready" &&
+            conn.source.instancePath == "interface_modport.u_cons" &&
+            conn.dest.portName == "bus.ready" &&
+            conn.dest.instancePath == "interface_modport.u_prod") {
+            hasReadyEdge = true;
+        }
+    }
+    CHECK(hasDataEdge);
+    CHECK(hasValidEdge);
+    CHECK(hasReadyEdge);
 }

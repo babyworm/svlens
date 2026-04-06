@@ -327,8 +327,63 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
             pinfo.isSigned = false;
         }
 
-        // Always add to allPorts
+        // Always add the bundle-level port to allPorts
         graph_.allPorts.push_back(pinfo);
+
+        // For interface ports with modports, also emit per-signal port entries
+        if (portSym.kind == slang::ast::SymbolKind::InterfacePort) {
+            const auto [ifaceSym, modport] = conn->getIfaceConn();
+            if (modport) {
+                // Get the interface instance name from the connection expression
+                const slang::ast::Expression* ifaceExpr = conn->getExpression();
+                std::string ifaceInstName;
+                if (ifaceExpr) {
+                    auto ifaceResolved = resolveExpr(ifaceExpr);
+                    if (!ifaceResolved.netNames.empty())
+                        ifaceInstName = ifaceResolved.netNames.front();
+                }
+
+                for (const auto& member : modport->members()) {
+                    if (member.kind != slang::ast::SymbolKind::ModportPort)
+                        continue;
+
+                    const auto& modportPort = member.as<slang::ast::ModportPortSymbol>();
+
+                    PortInfo signalPort;
+                    signalPort.instancePath = childPath;
+                    signalPort.portName = std::string(portSym.name) + "." +
+                                          std::string(modportPort.name);
+                    signalPort.direction = modportPort.direction;
+                    signalPort.location = portSym.location;
+                    signalPort.width = 0;
+                    signalPort.isSigned = false;
+
+                    // Try to get width from the internal symbol's type
+                    if (modportPort.internalSymbol) {
+                        auto& internalType = modportPort.internalSymbol->as<slang::ast::ValueSymbol>().getType();
+                        signalPort.width = internalType.getBitWidth();
+                        signalPort.isSigned = internalType.isSigned();
+                    }
+
+                    graph_.allPorts.push_back(signalPort);
+                    graph_.connectedPorts.insert(signalPort.fullPath());
+
+                    // Map to per-signal net key: scopePath::ifaceInst.signalName
+                    if (!ifaceInstName.empty()) {
+                        std::string netKey = scopePath + "::" + ifaceInstName +
+                                             "." + std::string(modportPort.name);
+
+                        if (signalPort.direction == slang::ast::ArgumentDirection::InOut) {
+                            netMap_[netKey].push_back({signalPort, true, ConnectionKind::Approximate});
+                            netMap_[netKey].push_back({signalPort, false, ConnectionKind::Approximate});
+                        } else {
+                            bool isDriver = (signalPort.direction == slang::ast::ArgumentDirection::Out);
+                            netMap_[netKey].push_back({signalPort, isDriver, ConnectionKind::Approximate});
+                        }
+                    }
+                }
+            }
+        }
 
         // Get the connection expression
         const slang::ast::Expression* expr = conn->getExpression();

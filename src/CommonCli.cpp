@@ -76,6 +76,16 @@ BothModeDispatch routeBothModeArgs(int argc, char* argv[],
             }
             continue;
         }
+        if (arg.rfind("--metrics-", 0) == 0) {
+            // Skip metrics-prefixed flags; they are parsed separately in main.
+            static const std::unordered_set<std::string> metricsValueOptions = {
+                "--metrics-topk", "--metrics-baseline", "--metrics-max-for-unroll"
+            };
+            if (metricsValueOptions.contains(arg) && i + 1 < argc) {
+                ++i; // skip the value argument
+            }
+            continue;
+        }
 
         dispatch.connArgs.push_back(arg);
         dispatch.cdcArgs.push_back(arg);

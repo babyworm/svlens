@@ -53,7 +53,7 @@ void printAllUsage() {
     const std::string usage =
         std::string("svlens all v") + SVLENS_VERSION + " -- Combined connectivity, CDC, and metrics analysis\n\n"
         "Usage:\n"
-        "  svlens all [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] <SV_FILES...>\n\n"
+        "  svlens all [COMMON_OPTIONS] [--conn-* ...] [--cdc-* ...] [--metrics-* ...] <SV_FILES...>\n\n"
         "Required:\n"
         "  --top <module>                 Top-level module name\n"
         "  <SV_FILES...> / -f / -F        SystemVerilog sources or filelists\n\n"
@@ -69,15 +69,23 @@ void printAllUsage() {
         "  <output>/svlens_summary.json\n\n"
         "Examples:\n"
         "  svlens all rtl/top.sv --top soc_top -o reports --conn-format json --cdc-format json\n"
-        "  svlens all -F rtl/filelist.f --top soc_top -o reports --conn-check-protocol --cdc-sync-stages 3\n\n"
+        "  svlens all -F rtl/filelist.f --top soc_top -o reports --conn-check-protocol --cdc-sync-stages 3\n"
+        "  svlens all rtl/top.sv --top soc_top --metrics-topk 10 --metrics-emit-cones\n\n"
         "Exit Codes:\n"
         "  Returns max(conn_exit_code, cdc_exit_code, metrics_exit_code).\n"
         "  conn exit code is based on active issue count (capped at 255).\n"
         "  cdc exit code is based on violation count, or violation+caution count in --cdc-strict mode (capped at 255).\n"
         "  metrics exit code is 0 on success, 1 on error, 2 on regression (--fail-on-regression).\n\n"
+        "Metrics pass-through:\n"
+        "  --metrics-topk <N>             Show only top-N most complex roots\n"
+        "  --metrics-baseline <path>      Compare against previous metrics report\n"
+        "  --metrics-fail-on-regression   Exit 2 when metrics regress vs baseline\n"
+        "  --metrics-emit-cones           Include per-root cone detail in output\n"
+        "  --metrics-emit-raw-graph       Include raw transform graph in output\n"
+        "  --metrics-max-for-unroll <N>   Max for-loop unroll iterations\n\n"
         "Limitations:\n"
         "  all shares one elaboration frontend, but each mode keeps separate analysis semantics and report schemas.\n"
-        "  Use prefixed analysis flags such as --conn-format / --cdc-format to avoid ambiguity.\n\n"
+        "  Use prefixed analysis flags such as --conn-format / --cdc-format / --metrics-topk to avoid ambiguity.\n\n"
         "Notes:\n"
         "  Run 'svlens help conn', 'svlens help cdc', or 'svlens help metrics' for mode-specific details.\n"
         "  'svlens both' is an alias for 'svlens all' for backward compatibility.\n\n";
@@ -311,13 +319,31 @@ int main(int argc, char* argv[]) {
         int connExit = connect::runConnWithCompilation(session.compilation(), connOpts);
         int cdcExit = cdccli::runCdcWithCompilation(session.compilation(), cdcOpts);
 
+        // Parse --metrics-* prefix flags from argv
+        metrics::MetricsCliOptions metricsOpts;
+        metricsOpts.format = "json";
+        for (int i = 2; i < argc; ++i) {
+            std::string arg = argv[i];
+            if (arg == "--metrics-topk" && i + 1 < argc) {
+                metricsOpts.topK = std::stoi(argv[++i]);
+            } else if (arg == "--metrics-baseline" && i + 1 < argc) {
+                metricsOpts.baselineFile = argv[++i];
+            } else if (arg == "--metrics-fail-on-regression") {
+                metricsOpts.failOnRegression = true;
+            } else if (arg == "--metrics-emit-cones") {
+                metricsOpts.emitCones = true;
+            } else if (arg == "--metrics-emit-raw-graph") {
+                metricsOpts.emitRawGraph = true;
+            } else if (arg == "--metrics-max-for-unroll" && i + 1 < argc) {
+                metricsOpts.maxForUnroll = std::stoi(argv[++i]);
+            }
+        }
+
         // Run metrics if top module is available
         int metricsExit = 0;
         if (!connOpts.topModule.empty()) {
-            metrics::MetricsCliOptions metricsOpts;
             metricsOpts.topModule = connOpts.topModule;
             metricsOpts.outputDir = dispatch.outputBase + "/metrics";
-            metricsOpts.format = "json";
             metricsExit = metrics::runMetricsWithCompilation(session.compilation(), metricsOpts);
         }
 

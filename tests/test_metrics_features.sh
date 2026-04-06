@@ -213,5 +213,24 @@ if 'examples' in u:
 " || { echo "FAIL: unsupported reporting" >&2; exit 1; }
 echo "PASS: unsupported reporting"
 
+# ============================================================
+# Test 14: function calls produce nodes instead of unsupported events
+# ============================================================
+FUNC="tests/sv/metrics/function_call.sv"
+"$SVLENS_BINARY" metrics "$FUNC" --top function_call -o "$OUTDIR/func" --emit-raw-graph >/dev/null 2>&1
+python3 -c "
+import json
+r = json.load(open('$OUTDIR/func/metrics_report.json'))
+# Should have roots for y and z
+assert len(r['roots']) >= 2, f'expected >=2 roots, got {len(r[\"roots\"])}'
+# Function calls should NOT appear as unsupported 'expression' kind
+unsup_kinds = [u['kind'] for u in r.get('unsupported', [])]
+assert 'expression' not in unsup_kinds, f'function call still unsupported: {unsup_kinds}'
+# raw_graph should have nodes from the function body
+nodes = r.get('raw_graph', {}).get('nodes', [])
+assert len(nodes) > 0, 'should have transform nodes from function calls'
+" || { echo "FAIL: function call support" >&2; exit 1; }
+echo "PASS: function call support"
+
 echo ""
-echo "PASS: all 13 metrics feature tests"
+echo "PASS: all 14 metrics feature tests"

@@ -14,6 +14,8 @@
 #include <slang/ast/symbols/MemberSymbols.h>
 #include <slang/ast/symbols/PortSymbols.h>
 #include <slang/ast/symbols/VariableSymbols.h>
+#include <slang/ast/expressions/CallExpression.h>
+#include <slang/ast/symbols/SubroutineSymbols.h>
 #include <slang/ast/types/Type.h>
 
 namespace metrics {
@@ -219,6 +221,10 @@ void TransformExtractor::processStatement(const slang::ast::Statement& stmt,
                 node.source_loc = sourceLoc(assign.left());
                 node.approximate = approximate;
                 graph_.addNode(std::move(node));
+            }
+            // Handle non-assignment expression statements (e.g., task calls)
+            if (expr.kind == slang::ast::ExpressionKind::Call) {
+                decomposeExpr(expr, scopePath);
             }
             break;
         }
@@ -712,6 +718,38 @@ ValueRef TransformExtractor::decomposeExpr(const slang::ast::Expression& expr,
             baseRef.hier_path += "." + std::string(access.member.name);
             baseRef.approximate = true;
             return baseRef;
+        }
+
+        case slang::ast::ExpressionKind::Call: {
+            auto& call = expr.as<slang::ast::CallExpression>();
+
+            // Decompose all call arguments as inputs
+            std::vector<ValueRef> argRefs;
+            for (auto* arg : call.arguments()) {
+                argRefs.push_back(decomposeExpr(*arg, scopePath));
+            }
+
+            if (!call.isSystemCall()) {
+                // User-defined function: process body once as approximate
+                auto* sub = std::get_if<const slang::ast::SubroutineSymbol*>(&call.subroutine);
+                if (sub && *sub) {
+                    processStatement((*sub)->getBody(), scopePath, true);
+                }
+            }
+
+            // Create a node representing the call result
+            std::string tempName = nextTemp();
+            TransformNode node;
+            node.op_kind = TransformNode::Unary;
+            node.op_detail = "call:" + std::string(call.getSubroutineName());
+            node.inputs = std::move(argRefs);
+            node.output = {tempName, tempName, "", ValueRef::Net, false};
+            node.bit_width = expr.type->getBitWidth();
+            node.source_loc = sourceLoc(expr);
+            node.approximate = true;
+            graph_.addNode(std::move(node));
+
+            return {tempName, tempName, "", ValueRef::Net, false};
         }
 
         default: {

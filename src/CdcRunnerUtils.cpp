@@ -29,10 +29,12 @@ sv_cdccheck::AnalysisResult analyzeCdcCompilation(slang::ast::Compilation& compi
     sv_cdccheck::ClockDatabase clockDb;
     sv_cdccheck::ClockTreeAnalyzer clockAnalyzer(compilation, clockDb);
 
+    std::vector<sv_cdccheck::SdcFalsePath> sdcFalsePaths;
     if (!opts.sdcFile.empty()) {
         if (opts.verbose)
             std::cout << "  Loading SDC: " << opts.sdcFile << "\n";
         auto sdc = sv_cdccheck::SdcParser::parse(opts.sdcFile);
+        sdcFalsePaths = sdc.false_paths;
         clockAnalyzer.loadSdc(sdc);
     }
 
@@ -75,6 +77,8 @@ sv_cdccheck::AnalysisResult analyzeCdcCompilation(slang::ast::Compilation& compi
         std::cout << "  FF-to-FF edges: " << connectivity.getEdges().size() << "\n";
 
     sv_cdccheck::CrossingDetector detector(connectivity.getEdges(), clockDb);
+    if (!sdcFalsePaths.empty())
+        detector.setFalsePaths(sdcFalsePaths);
     detector.analyze();
     auto crossings = detector.getCrossings();
 

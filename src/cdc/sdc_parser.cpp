@@ -20,6 +20,10 @@ SdcConstraints SdcParser::parse(const std::filesystem::path& sdc_path) {
             result.generated_clocks.push_back(parseGeneratedClock(tokens));
         } else if (tokens[0] == "set_clock_groups") {
             result.clock_groups.push_back(parseClockGroups(tokens));
+        } else if (tokens[0] == "set_false_path") {
+            result.false_paths.push_back(parseSetFalsePath(tokens));
+        } else if (tokens[0] == "set_max_delay") {
+            result.max_delays.push_back(parseSetMaxDelay(tokens));
         }
         // Other SDC commands are silently ignored
     }
@@ -177,7 +181,7 @@ SdcClockGroup SdcParser::parseClockGroups(const std::vector<std::string>& tokens
 std::string SdcParser::extractTarget(const std::string& tcl_expr) {
     // [get_ports sys_clk] → "sys_clk"
     // [get_pins u_div/clk_out] → "u_div/clk_out"
-    static std::regex re(R"(\[get_(?:ports|pins)\s+(\S+)\])");
+    static std::regex re(R"(\[get_(?:ports|pins|clocks)\s+(\S+)\])");
     std::smatch match;
     if (std::regex_search(tcl_expr, match, re))
         return match[1].str();
@@ -198,6 +202,36 @@ std::vector<std::string> SdcParser::parseBraceList(const std::string& s) {
         result.push_back(token);
 
     return result;
+}
+
+SdcFalsePath SdcParser::parseSetFalsePath(const std::vector<std::string>& tokens) {
+    SdcFalsePath fp;
+    for (size_t i = 1; i < tokens.size(); i++) {
+        if (tokens[i] == "-from" && i + 1 < tokens.size()) {
+            fp.from = extractTarget(tokens[++i]);
+        } else if (tokens[i] == "-to" && i + 1 < tokens.size()) {
+            fp.to = extractTarget(tokens[++i]);
+        }
+    }
+    return fp;
+}
+
+SdcMaxDelay SdcParser::parseSetMaxDelay(const std::vector<std::string>& tokens) {
+    SdcMaxDelay md;
+    for (size_t i = 1; i < tokens.size(); i++) {
+        if (tokens[i] == "-from" && i + 1 < tokens.size()) {
+            md.from = extractTarget(tokens[++i]);
+        } else if (tokens[i] == "-to" && i + 1 < tokens.size()) {
+            md.to = extractTarget(tokens[++i]);
+        } else if (tokens[i][0] != '-') {
+            try {
+                md.delay = std::stod(tokens[i]);
+            } catch (const std::exception&) {
+                // Skip malformed delay value
+            }
+        }
+    }
+    return md;
 }
 
 } // namespace sv_cdccheck

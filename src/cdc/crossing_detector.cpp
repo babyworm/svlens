@@ -89,6 +89,10 @@ CrossingDetector::CrossingDetector(const std::vector<FFEdge>& edges,
                                    const ClockDatabase& clock_db)
     : edges_(edges), clock_db_(clock_db) {}
 
+void CrossingDetector::setFalsePaths(const std::vector<SdcFalsePath>& false_paths) {
+    false_paths_ = false_paths;
+}
+
 void CrossingDetector::analyze() {
     for (auto& edge : edges_) {
         if (!edge.source || !edge.dest) continue;
@@ -116,6 +120,33 @@ void CrossingDetector::analyze() {
             ? relationshipToString(*relationship)
             : "inferred_asynchronous";
         report.timing_basis_ns = timingBasis(report);
+
+        // Check SDC false_path auto-waive
+        bool false_path_matched = false;
+        for (const auto& fp : false_paths_) {
+            if (report.source_domain && report.dest_domain &&
+                report.source_domain->source && report.dest_domain->source &&
+                fp.from == report.source_domain->source->name &&
+                fp.to == report.dest_domain->source->name) {
+                false_path_matched = true;
+                break;
+            }
+        }
+        if (false_path_matched) {
+            report.severity = Severity::Info;
+            report.category = ViolationCategory::Info;
+            report.id = "INFO-" + std::to_string(++info_counter_);
+            report.rule = "Ac_cdc01";
+            report.waive_reason = "sdc_false_path";
+            report.recommendation =
+                "[Ac_cdc01] Crossing waived by SDC set_false_path constraint";
+            report.rationale =
+                "SDC set_false_path from " + report.source_domain->source->name +
+                " to " + report.dest_domain->source->name +
+                " — crossing is intentionally excluded from timing analysis.";
+            crossings_.push_back(std::move(report));
+            continue;
+        }
 
         if (isIsochronousHandshakePair(edge)) {
             report.severity = Severity::Info;

@@ -147,6 +147,7 @@ struct CrossingReport {
     std::string relationship;   // asynchronous, divided, same_source, logically_exclusive, etc.
     std::string rationale;      // human-readable explanation for the classification
     std::optional<double> timing_basis_ns; // relevant timing period used for reasoning, if available
+    std::string waive_reason;   // non-empty when auto-waived (e.g., "sdc_false_path")
 };
 
 // ─── Clock Database: owns all clock-related objects ───

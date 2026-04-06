@@ -31,12 +31,26 @@ struct SdcClockGroup {
     std::vector<std::vector<std::string>> groups; // each inner vector is one group
 };
 
+/// Parsed SDC false path: set_false_path
+struct SdcFalsePath {
+    std::string from;  // -from clock/pin name
+    std::string to;    // -to clock/pin name
+};
+
+/// Parsed SDC max delay: set_max_delay
+struct SdcMaxDelay {
+    double delay = 0.0;
+    std::string from;
+    std::string to;
+};
+
 /// Complete SDC constraints relevant to CDC analysis
 struct SdcConstraints {
     std::vector<SdcClockDef> clocks;
     std::vector<SdcGeneratedClockDef> generated_clocks;
     std::vector<SdcClockGroup> clock_groups;
-    // TODO Phase 4: set_false_path, set_max_delay
+    std::vector<SdcFalsePath> false_paths;
+    std::vector<SdcMaxDelay> max_delays;
 };
 
 /// SDC file parser — extracts clock/reset constraints for CDC analysis.
@@ -57,6 +71,8 @@ private:
     static SdcClockDef parseCreateClock(const std::vector<std::string>& tokens);
     static SdcGeneratedClockDef parseGeneratedClock(const std::vector<std::string>& tokens);
     static SdcClockGroup parseClockGroups(const std::vector<std::string>& tokens);
+    static SdcFalsePath parseSetFalsePath(const std::vector<std::string>& tokens);
+    static SdcMaxDelay parseSetMaxDelay(const std::vector<std::string>& tokens);
 
     /// Extract signal name from Tcl expression: [get_ports sys_clk] → "sys_clk"
     static std::string extractTarget(const std::string& tcl_expr);

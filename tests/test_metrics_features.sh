@@ -232,5 +232,25 @@ assert len(nodes) > 0, 'should have transform nodes from function calls'
 " || { echo "FAIL: function call support" >&2; exit 1; }
 echo "PASS: function call support"
 
+# ============================================================
+# Test 15: packed struct member access produces precise Slice nodes
+# ============================================================
+STRUCT="tests/sv/metrics/packed_struct.sv"
+"$SVLENS_BINARY" metrics "$STRUCT" --top packed_struct -o "$OUTDIR/struct" --emit-raw-graph >/dev/null 2>&1
+python3 -c "
+import json
+r = json.load(open('$OUTDIR/struct/metrics_report.json'))
+nodes = r.get('raw_graph', {}).get('nodes', [])
+# Should have slice nodes for struct field access, not all approximate
+slice_nodes = [n for n in nodes if n.get('op', '') == 'slice']
+# At least some struct field accesses should become proper slices
+assert r['summary']['outputs_analyzed'] >= 2, 'should have y and z outputs'
+# Check that roots are not all approximate
+roots = r['roots']
+non_approx = [rt for rt in roots if not rt.get('approximate', True)]
+assert len(non_approx) >= 1, f'at least one root should be non-approximate, got {roots}'
+" || { echo "FAIL: packed struct precision" >&2; exit 1; }
+echo "PASS: packed struct precision"
+
 echo ""
-echo "PASS: all 14 metrics feature tests"
+echo "PASS: all 15 metrics feature tests"

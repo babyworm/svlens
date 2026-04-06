@@ -17,6 +17,7 @@
 #include <slang/ast/expressions/CallExpression.h>
 #include <slang/ast/symbols/SubroutineSymbols.h>
 #include <slang/ast/types/Type.h>
+#include <slang/ast/types/AllTypes.h>
 
 namespace metrics {
 
@@ -714,7 +715,33 @@ ValueRef TransformExtractor::decomposeExpr(const slang::ast::Expression& expr,
         case slang::ast::ExpressionKind::MemberAccess: {
             auto& access = expr.as<slang::ast::MemberAccessExpression>();
             ValueRef baseRef = decomposeExpr(access.value(), scopePath);
-            // Approximate: we just record the field access
+
+            // Try to get precise bit offset for packed struct fields
+            auto* field = access.member.as_if<slang::ast::FieldSymbol>();
+            if (field) {
+                auto& parentType = access.value().type->getCanonicalType();
+                if (parentType.kind == slang::ast::SymbolKind::PackedStructType) {
+                    uint64_t offset = field->bitOffset;
+                    uint32_t width = field->getType().getBitWidth();
+                    std::string detail = "field." + std::string(field->name) +
+                        "[" + std::to_string(offset + width - 1) + ":" +
+                        std::to_string(offset) + "]";
+
+                    std::string tempName = nextTemp();
+                    TransformNode node;
+                    node.op_kind = TransformNode::Slice;
+                    node.op_detail = detail;
+                    node.inputs.push_back(baseRef);
+                    node.output = {tempName, tempName, "", ValueRef::Net, false};
+                    node.bit_width = width;
+                    node.source_loc = sourceLoc(expr);
+                    node.approximate = false;
+                    graph_.addNode(std::move(node));
+                    return {tempName, tempName, "", ValueRef::Net, false};
+                }
+            }
+
+            // Fallback: unpacked struct or non-field member — approximate
             baseRef.hier_path += "." + std::string(access.member.name);
             baseRef.approximate = true;
             return baseRef;

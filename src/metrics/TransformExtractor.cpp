@@ -786,9 +786,21 @@ ValueRef TransformExtractor::makeNamedRef(const slang::ast::Expression& expr,
     return ref;
 }
 
-std::string TransformExtractor::sourceLoc(const slang::ast::Expression& /*expr*/) const {
-    // MVP: source location tracking deferred; requires SourceManager header
-    return "";
+std::string TransformExtractor::sourceLoc(const slang::ast::Expression& expr) const {
+    const auto* srcMgr = compilation_.getSourceManager();
+    if (!srcMgr)
+        return "";
+
+    auto loc = expr.sourceRange.start();
+    if (!loc.valid())
+        return "";
+
+    auto fileName = srcMgr->getFileName(loc);
+    auto lineNum = srcMgr->getLineNumber(loc);
+    if (fileName.empty())
+        return "";
+
+    return std::string(fileName) + ":" + std::to_string(lineNum);
 }
 
 } // namespace metrics

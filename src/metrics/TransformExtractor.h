@@ -9,6 +9,7 @@
 #include <slang/ast/symbols/InstanceSymbols.h>
 #include <slang/ast/symbols/MemberSymbols.h>
 #include <slang/ast/symbols/BlockSymbols.h>
+#include <slang/text/SourceManager.h>
 
 #include <string>
 

@@ -127,3 +127,8 @@ add_test(NAME metrics_normalization
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_metrics_normalization.sh
             $<TARGET_FILE:svlens>
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME metrics_source_loc
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_metrics_source_loc.sh
+            $<TARGET_FILE:svlens>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

@@ -296,7 +296,8 @@ void writeJsonReport(const std::string& outputDir,
                 if (k + 1 < node.inputs.size()) ofs << ", ";
             }
             ofs << "], \"width\": " << node.bit_width
-                << ", \"approx\": " << jsonBool(node.approximate) << "}";
+                << ", \"approx\": " << jsonBool(node.approximate)
+                << ", \"source_loc\": " << jsonStr(node.source_loc) << "}";
             if (i + 1 < graph.nodes.size()) ofs << ",";
             ofs << "\n";
         }

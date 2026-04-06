@@ -1,8 +1,12 @@
 # svlens
 
-Unified structural analysis toolkit for SystemVerilog RTL designs.
+Unified structural analysis toolkit for SystemVerilog RTL designs. It analysis and checks
 
-Built on [slang](https://github.com/MikePopoloski/slang) v10+.
+- simple connectivity 
+- simple strucutral CDC issues
+- code quality (based on complexity estimation)
+
+svlens is built on [slang](https://github.com/MikePopoloski/slang) v10+. Thus, C++20 is required to build the project.
 
 ---
 

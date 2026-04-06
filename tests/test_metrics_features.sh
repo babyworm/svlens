@@ -252,5 +252,23 @@ assert len(non_approx) >= 1, f'at least one root should be non-approximate, got 
 " || { echo "FAIL: packed struct precision" >&2; exit 1; }
 echo "PASS: packed struct precision"
 
+# ============================================================
+# Test 16: LHS concatenation decomposition
+# ============================================================
+LHSC="tests/sv/metrics/lhs_concat.sv"
+"$SVLENS_BINARY" metrics "$LHSC" --top lhs_concat -o "$OUTDIR/lhsc" --emit-raw-graph >/dev/null 2>&1
+python3 -c "
+import json
+r = json.load(open('$OUTDIR/lhsc/metrics_report.json'))
+# Should have 2 output roots: y and z
+assert r['summary']['outputs_analyzed'] >= 2, f'expected >=2 outputs, got {r[\"summary\"][\"outputs_analyzed\"]}'
+roots = r['roots']
+root_ids = [rt['root_id'] for rt in roots]
+assert len(root_ids) >= 2, f'expected >=2 root_ids, got {root_ids}'
+# At least one should have transform nodes
+assert any(rt['raw_node_count'] > 0 for rt in roots), f'expected some nodes, got {roots}'
+" || { echo "FAIL: LHS concat decomposition" >&2; exit 1; }
+echo "PASS: LHS concat decomposition"
+
 echo ""
-echo "PASS: all 15 metrics feature tests"
+echo "PASS: all 16 metrics feature tests"

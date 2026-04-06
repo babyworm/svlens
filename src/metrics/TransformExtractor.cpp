@@ -162,10 +162,49 @@ void TransformExtractor::processContinuousAssign(
     auto& lhs = assign.left();
     auto& rhs = assign.right();
 
+    // Handle LHS concatenation: decompose into per-element assigns
+    if (lhs.kind == slang::ast::ExpressionKind::Concatenation) {
+        auto& concat = lhs.as<slang::ast::ConcatenationExpression>();
+        ValueRef rhsRef = decomposeExpr(rhs, scopePath);
+
+        // Each operand gets a slice of the RHS
+        uint32_t totalWidth = lhs.type->getBitWidth();
+        uint32_t bitOffset = totalWidth; // concat is MSB-first
+        for (auto* operand : concat.operands()) {
+            uint32_t elemWidth = operand->type->getBitWidth();
+            bitOffset -= elemWidth;
+
+            ValueRef elemRef = makeNamedRef(*operand, scopePath);
+
+            // Create a slice of the RHS for this element
+            std::string sliceTemp = nextTemp();
+            TransformNode sliceNode;
+            sliceNode.op_kind = TransformNode::Slice;
+            sliceNode.op_detail = "lhs_slice[" + std::to_string(bitOffset + elemWidth - 1) +
+                                  ":" + std::to_string(bitOffset) + "]";
+            sliceNode.inputs.push_back(rhsRef);
+            sliceNode.output = {sliceTemp, sliceTemp, "", ValueRef::Net, false};
+            sliceNode.bit_width = elemWidth;
+            sliceNode.source_loc = sourceLoc(lhs);
+            graph_.addNode(std::move(sliceNode));
+
+            // Alias the slice to the LHS element
+            TransformNode aliasNode;
+            aliasNode.op_kind = TransformNode::Alias;
+            aliasNode.op_detail = "assign";
+            aliasNode.output = elemRef;
+            aliasNode.inputs.push_back({sliceTemp, sliceTemp, "", ValueRef::Net, false});
+            aliasNode.bit_width = elemWidth;
+            aliasNode.source_loc = sourceLoc(lhs);
+            graph_.addNode(std::move(aliasNode));
+        }
+        return;
+    }
+
+    // Original path: simple LHS
     ValueRef lhsRef = makeNamedRef(lhs, scopePath);
     ValueRef rhsRef = decomposeExpr(rhs, scopePath);
 
-    // Create a node linking RHS result to LHS target
     TransformNode node;
     node.op_kind = TransformNode::Alias;
     node.op_detail = "assign";

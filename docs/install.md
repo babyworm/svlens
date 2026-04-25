@@ -1,10 +1,13 @@
 # svlens installation guide
 
-`svlens` supports three installation paths in Phase 1A:
+`svlens` supports the following installation paths:
 
 1. **Source build with dependency fetching**
 2. **Offline / preinstalled dependency build**
 3. **Installed binary from a local build prefix**
+4. **Prebuilt release archive** (Linux x86_64, macOS arm64)
+5. **Docker image** from GHCR
+6. **Homebrew tap**
 
 `svlens` remains a **pre-signoff structural analysis** tool; the goal of these flows is
 reproducible installation and predictable first-run behavior, not universal packaging parity.
@@ -97,12 +100,78 @@ Expected outcomes:
 
 ---
 
-## 5. Packaging direction (current)
+## 5. Prebuilt release archive
 
-The approved Phase 1A/1B install direction is:
+Each tagged release publishes per-platform tarballs and zip archives via the
+[`release-artifacts`](../.github/workflows/release.yml) workflow. Available
+artifacts:
+
+| Platform | Archive |
+|----------|---------|
+| Linux x86_64 | `svlens-linux-x86_64.tar.gz` / `.zip` |
+| macOS arm64 (M-series) | `svlens-macos-arm64.tar.gz` / `.zip` |
+
+Download from the [Releases page](https://github.com/babyworm/svlens/releases),
+verify against the `*.sha256` companion file, then extract and install:
+
+```bash
+TAG=v0.2.5  # replace with the desired tag
+ARCH=linux-x86_64  # or macos-arm64
+
+curl -LO "https://github.com/babyworm/svlens/releases/download/${TAG}/svlens-${ARCH}.tar.gz"
+curl -LO "https://github.com/babyworm/svlens/releases/download/${TAG}/svlens-${ARCH}.sha256"
+shasum -a 256 -c "svlens-${ARCH}.sha256"
+
+tar -xzf "svlens-${ARCH}.tar.gz"
+install -m 0755 "svlens-${ARCH}/svlens" "$HOME/.local/bin/svlens"
+```
+
+---
+
+## 6. Docker image
+
+Each tagged release also publishes a multi-arch image to GHCR via the
+[`docker`](../.github/workflows/docker.yml) workflow:
+
+```bash
+docker pull ghcr.io/babyworm/svlens:latest
+# or pin a version
+docker pull ghcr.io/babyworm/svlens:0.2.5
+
+docker run --rm -v "$PWD:/work" -w /work ghcr.io/babyworm/svlens:latest \
+  conn -f rtl/filelist.f --top soc_top
+```
+
+The image entrypoint is `/usr/local/bin/svlens`, so all svlens subcommands
+work directly. Mount your project at `/work` (or any path) and pass relative
+paths.
+
+---
+
+## 7. Homebrew tap
+
+A Homebrew formula template lives in
+[`packaging/homebrew/svlens.rb`](../packaging/homebrew/svlens.rb). Once a tap
+repository (`babyworm/homebrew-svlens`) is published, install with:
+
+```bash
+brew tap babyworm/svlens
+brew install svlens
+```
+
+The formula builds from source against the tagged tarball; see
+[`packaging/homebrew/README.md`](../packaging/homebrew/README.md) for the
+release-time update workflow.
+
+---
+
+## 8. Packaging scope
+
+The approved install direction is:
 
 - **source build**
-- **prebuilt release archives**
+- **prebuilt release archives** (Linux x86_64, macOS arm64)
+- **Docker image** (GHCR)
 - **Homebrew tap**
 
 The following remain out of scope for the current milestone:
@@ -117,7 +186,7 @@ For release archive production and Homebrew/tap validation guidance, see
 
 ---
 
-## 6. Troubleshooting
+## 9. Troubleshooting
 
 ### `yaml-cpp not found` or `Catch2 not found`
 

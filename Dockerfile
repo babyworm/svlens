@@ -40,7 +40,18 @@ RUN cmake -B build \
         -DCMAKE_PREFIX_PATH=/usr/local \
         -DSVLENS_FETCH_DEPS=OFF \
     && cmake --build build -j"$(nproc)" \
-    && cmake --install build --prefix /usr/local
+    && cmake --install build --prefix /usr/local \
+    && ldd /usr/local/bin/svlens \
+    && /usr/local/bin/svlens --version
+
+# Stage the runtime payload at a known path so the final stage uses an
+# explicit allow-list rather than copying /usr/local/lib wholesale.
+RUN install -d /runtime/usr/local/bin /runtime/usr/local/lib \
+    && install -m 0755 /usr/local/bin/svlens /runtime/usr/local/bin/svlens \
+    && for lib in /usr/local/lib/libslang*.so* /usr/local/lib/libsvlens*.so*; do \
+           [ -e "$lib" ] && cp -a "$lib" /runtime/usr/local/lib/ || true; \
+       done \
+    && ls -la /runtime/usr/local/lib/
 
 # ---- runtime ---------------------------------------------------------------
 FROM ${DEBIAN_BASE} AS runtime
@@ -57,10 +68,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Binary plus any shared libs installed alongside it (slang / svlens internals
-# may live under /usr/local/lib).
-COPY --from=builder /usr/local/bin/svlens /usr/local/bin/svlens
-COPY --from=builder /usr/local/lib/ /usr/local/lib/
+# Copy only the staged runtime payload (binary + slang/svlens shared libs)
+# rather than the entire /usr/local/lib tree. This keeps the image
+# attack surface bounded to artefacts the build pipeline produced.
+COPY --from=builder /runtime/usr/local/ /usr/local/
 
 ENV LD_LIBRARY_PATH=/usr/local/lib
 

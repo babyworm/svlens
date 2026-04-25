@@ -7,17 +7,16 @@
 // gray-code the bus before crossing or to gate the bus value with a
 // single-bit handshake.
 //
-// CURRENT svlens BEHAVIOR (known limitation): the tool collapses the
-// 4-bit bus crossing into a single INFO crossing. The Ac_cdc03
-// reconvergence rule fires only on multiple distinct *signals*, not
-// on multiple bits of the same signal, so wide-bus skew is not flagged.
+// Expected: 0 violations, 1 caution (Ac_cdc04 wide-bus crossing
+//           without gray code or handshake), 0 infos, 1 crossing.
 //
-// This fixture pins down the current behavior so a future enhancement
-// (per-bit decomposition or a dedicated wide-bus-CDC rule) can be
-// gated by an updated golden value. See feature-roadmap.md for the
-// "bus-CDC without coordination" detection follow-up.
-//
-// Expected (current): 0 violations, 0 cautions, 1 info, 1 crossing.
+// Resolved by the new Ac_cdc04 detector in sync_verifier: a multi-bit
+// register crossing through a plain TwoFF/ThreeFF chain produces a
+// CAUTION because per-bit metastability skew at the sync output can
+// momentarily expose intermediate values. The corresponding clean
+// pattern (single-bit, or gray-coded, or handshake-gated) does NOT
+// trip the rule -- see fixtures 03, 08, 07 plus the dedicated
+// negative pair 32_neg_ac_cdc04_single_bit.
 
 module bus_cdc_no_gray (
     input  logic       clk_a,

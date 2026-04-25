@@ -132,6 +132,16 @@ void SyncVerifier::detectReconvergence() {
             auto& c = crossings_[idx];
             // Only downgrade synced crossings to CAUTION, don't touch VIOLATIONs
             if (c.sync_type != SyncType::None) {
+                // Preserve a more specific rule already set by an earlier
+                // pass (e.g. detectCombBeforeSync's Ac_cdc02). Reconvergence
+                // is the catch-all for "two synced bits land in the same
+                // dest domain" -- if a crossing already has a precise
+                // diagnosis, the user should see that, not a generic
+                // reconvergence label.
+                if (!c.rule.empty() && c.rule != "Ac_cdc01" &&
+                    c.rule != "Ac_cdc03") {
+                    continue;
+                }
                 c.category = ViolationCategory::Caution;
                 c.severity = Severity::Medium;
                 c.id = "CAUTION-" + std::to_string(++caution_counter_);
@@ -324,6 +334,58 @@ void SyncVerifier::analyze() {
 
     // Phase 3: Detect reconvergence
     detectReconvergence();
+
+    // Phase 3b: Detect wide-bus crossings without gray code or handshake.
+    // A multi-bit register crossing through a plain TwoFF/ThreeFF chain
+    // suffers per-bit metastability skew at the sync output -- some bits
+    // resolve a cycle before others, so the receiver can momentarily see
+    // intermediate values. Cummings' canonical fix is gray coding (only
+    // one bit changes at a time) or single-bit handshake. Flag this as
+    // Ac_cdc04 so users see the hazard. Skip when the crossing already
+    // has a more specific rule (e.g., Ac_cdc02 / Ac_cdc06) and skip
+    // signals that show a clear gray-coding hint (name contains "gray"
+    // or "gry") so legitimate async-FIFO pointer crossings are not
+    // false-flagged. The svlens GrayCode classifier requires an explicit
+    // XOR-tree pattern that user code does not always expose; the name
+    // heuristic is a conservative fallback.
+    // Look at the leaf signal name only (chars after the last `.`); the
+    // enclosing module path can legitimately contain words like "gray"
+    // (e.g. fixture 15 `bus_cdc_no_gray.data_a`) and we don't want to
+    // suppress the bus-CDC rule on those.
+    auto looks_like_gray_or_handshake = [](const std::string& signal_path) {
+        std::string leaf = signal_path;
+        auto pos = leaf.rfind('.');
+        if (pos != std::string::npos) {
+            leaf = leaf.substr(pos + 1);
+        }
+        std::string lower(leaf);
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) {
+                           return static_cast<char>(std::tolower(c));
+                       });
+        return lower.find("gray") != std::string::npos ||
+               lower.find("gry") != std::string::npos ||
+               lower.find("req") != std::string::npos ||
+               lower.find("ack") != std::string::npos;
+    };
+    for (auto& c : crossings_) {
+        if (c.sync_type != SyncType::TwoFF && c.sync_type != SyncType::ThreeFF)
+            continue;
+        if (!c.rule.empty() && c.rule != "Ac_cdc01" && c.rule != "Ac_cdc03")
+            continue;
+        auto src_it = ff_by_path_.find(c.source_signal);
+        if (src_it == ff_by_path_.end()) continue;
+        if (src_it->second->width < 2) continue;
+        if (looks_like_gray_or_handshake(c.source_signal)) continue;
+        c.category = ViolationCategory::Caution;
+        c.severity = Severity::Medium;
+        c.id = "CAUTION-" + std::to_string(++caution_counter_);
+        c.rule = "Ac_cdc04";
+        c.recommendation = "[Ac_cdc04] Wide-bus crossing without gray code or "
+            "handshake. Per-bit skew at the sync output may produce "
+            "intermediate values. Consider gray coding the bus or gating "
+            "with a single-bit handshake.";
+    }
 
     // Phase 4: Detect reset synchronizer issues
     detectResetSyncIssues();

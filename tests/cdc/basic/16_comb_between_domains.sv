@@ -6,15 +6,12 @@
 //
 // Source FF (q_a) -> AND/OR -> sync_ff1 -> sync_ff2.
 //
-// CURRENT svlens BEHAVIOR: each input to the comb expression is reported
-// as its own crossing into sync_ff1, so reconvergence (Ac_cdc03) fires
-// twice. The more specific Ac_cdc02 ("combinational logic before sync
-// FF") is not raised here because the reconvergence pass marks the
-// crossings first. The hazard IS reported (two cautions) -- the only
-// thing missing is the more precise rule label.
-//
 // Expected: 0 violations, 2 cautions (one per comb input,
-//           rule=Ac_cdc03), 0 infos, 2 crossings.
+//           rule=Ac_cdc02 / glitch risk), 0 infos, 2 crossings.
+//
+// detectReconvergence preserves a more specific rule already set by
+// detectCombBeforeSync, so the precise diagnosis (Ac_cdc02) survives
+// rather than being overwritten by the generic reconvergence label.
 
 module comb_between_domains (
     input  logic clk_a,

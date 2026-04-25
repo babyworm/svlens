@@ -6,6 +6,7 @@
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "slang/ast/symbols/BlockSymbols.h"
 #include "slang/ast/symbols/VariableSymbols.h"
+#include "slang/ast/types/Type.h"
 #include "slang/ast/symbols/AttributeSymbol.h"
 #include "slang/ast/TimingControl.h"
 #include "slang/ast/statements/MiscStatements.h"
@@ -358,6 +359,21 @@ static void processMembers(const slang::ast::Scope& scope,
                     ff->domain = domain;
                     ff->reset = reset_ptr;
                     ff->primitive_name = primitive_name;
+
+                    // Look up the slang VariableSymbol for `var_name` in
+                    // the enclosing scope so we can record the bit width.
+                    // Width feeds the wide-bus-CDC rule (Ac_cdc04) in
+                    // sync_verifier.
+                    for (auto& sm : scope.members()) {
+                        if (sm.kind != slang::ast::SymbolKind::Variable) continue;
+                        if (std::string(sm.name) != var_name) continue;
+                        auto& var = sm.as<slang::ast::VariableSymbol>();
+                        auto& type = var.getType();
+                        if (type.isIntegral()) {
+                            ff->width = static_cast<int>(type.getBitWidth());
+                        }
+                        break;
+                    }
 
                     // Populate fanin_signals from all assignments to this variable
                     for (auto& ai : assign_infos) {

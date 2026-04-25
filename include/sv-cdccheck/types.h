@@ -85,6 +85,11 @@ struct FFNode {
     ResetSignal* reset = nullptr;
     std::vector<std::string> fanin_signals;
     std::string primitive_name;
+    // Bit width of the underlying variable. Populated by ff_classifier
+    // when the slang VariableSymbol is available; left at 1 as a safe
+    // default. Used by sync_verifier to flag wide-bus crossings without
+    // gray code or handshake (Ac_cdc04).
+    int width = 1;
 };
 
 /// Synchronizer type

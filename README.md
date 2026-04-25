@@ -99,6 +99,7 @@ svlens help all
 - release / packaging flow: [`docs/release.md`](docs/release.md)
 - current release notes: [`docs/releases/v0.2.5.md`](docs/releases/v0.2.5.md)
 - contributing guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- feature roadmap: [`docs/design/feature-roadmap.md`](docs/design/feature-roadmap.md)
 
 ---
 

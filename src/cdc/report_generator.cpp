@@ -392,10 +392,12 @@ void ReportGenerator::generateSDC(const std::filesystem::path& output_path) cons
 
 // Sanitize a hierarchical name into a SystemVerilog identifier. Used for
 // generated property names (e.g. "VIOLATION-1" -> "VIOLATION_1") where
-// every char that is not alphanumeric or underscore is replaced.
+// every char that is not alphanumeric or underscore is replaced. SV
+// identifiers cannot begin with a digit, so a leading-digit result is
+// prefixed with '_'.
 static std::string svaSanitize(const std::string& s) {
     std::string r;
-    r.reserve(s.size());
+    r.reserve(s.size() + 1);
     for (char c : s) {
         const bool isAlnum = (c >= 'a' && c <= 'z') ||
                              (c >= 'A' && c <= 'Z') ||
@@ -403,6 +405,8 @@ static std::string svaSanitize(const std::string& s) {
                              c == '_';
         r.push_back(isAlnum ? c : '_');
     }
+    if (!r.empty() && r.front() >= '0' && r.front() <= '9')
+        r.insert(r.begin(), '_');
     return r;
 }
 
@@ -448,8 +452,19 @@ bool ReportGenerator::generateSVA(const std::filesystem::path& output_path,
     out << "//       crossing for the source/dest signal paths.\n";
     out << "// =====================================================================\n\n";
 
+    // Track sanitized id names already emitted in this file so distinct
+    // crossings whose ids collide after svaSanitize (e.g. "VIOLATION-1"
+    // and "VIOLATION_1" both sanitize to "VIOLATION_1") get unique
+    // property names via an ordinal suffix.
+    std::unordered_map<std::string, int> id_seen;
     for (auto& c : result_.crossings) {
-        const std::string id_safe = svaSanitize(c.id);
+        std::string id_safe = svaSanitize(c.id);
+        if (auto it = id_seen.find(id_safe); it != id_seen.end()) {
+            int n = ++it->second;
+            id_safe += "_dup" + std::to_string(n);
+        } else {
+            id_seen[id_safe] = 1;
+        }
         const char* category = categoryToString(c.category);
         const char* severity = severityToString(c.severity);
         const char* sync_type = syncTypeToString(c.sync_type);

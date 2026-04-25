@@ -154,6 +154,127 @@ TEST_CASE("CDC ReportGenerator: intentional primitive sync types remain visible 
     CHECK(content.find("Intentional handshake primitive") != std::string::npos);
 }
 
+TEST_CASE("CDC ReportGenerator: SVA emitter prefixes underscore on leading-digit ids",
+          "[cdc][report][sva][leading_digit]") {
+    // Round 29 WARN #2: SystemVerilog identifiers cannot start with a
+    // digit. svaSanitize replaces non-alnum with '_' but historically
+    // would keep a leading digit, producing a property name like
+    // `cdc_1_BAD_src_toggle` which wraps the digit safely -- BUT if a
+    // crossing id sanitizes to a form that itself starts with a digit
+    // (when used as a prefix elsewhere), the resulting identifier is
+    // invalid. Lock the invariant that emitted property name (which
+    // includes the sanitized id verbatim) starts with `cdc_` and the
+    // sanitized id portion never independently begins with a digit.
+    AnalysisResult result;
+    auto sys = std::make_unique<ClockSource>();
+    sys->name = "sys_clk";
+    sys->type = ClockSource::Type::Primary;
+    auto* sysPtr = result.clock_db.addSource(std::move(sys));
+    auto* sysDom = result.clock_db.findOrCreateDomain(sysPtr, Edge::Posedge);
+    auto ext = std::make_unique<ClockSource>();
+    ext->name = "ext_clk";
+    ext->type = ClockSource::Type::Primary;
+    auto* extPtr = result.clock_db.addSource(std::move(ext));
+    auto* extDom = result.clock_db.findOrCreateDomain(extPtr, Edge::Posedge);
+
+    CrossingReport v;
+    v.id = "1BAD"; // starts with a digit
+    v.category = ViolationCategory::Violation;
+    v.severity = Severity::High;
+    v.source_signal = "top.q";
+    v.dest_signal = "top.sync_q";
+    v.source_domain = sysDom;
+    v.dest_domain = extDom;
+    v.sync_type = SyncType::None;
+    result.crossings.push_back(std::move(v));
+
+    ReportGenerator gen(result);
+    auto path = fs::temp_directory_path() / "svlens_sva_leading_digit.sva";
+    REQUIRE(gen.generateSVA(path));
+
+    std::ifstream ifs(path);
+    REQUIRE(ifs.good());
+    std::string content((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    fs::remove(path);
+
+    // Sanitized id portion must NOT begin with a digit. The full
+    // property name is "cdc_<id_safe>_src_toggle"; the substring
+    // immediately after "cdc_" must be an SV-identifier-safe prefix,
+    // i.e. NOT a digit.
+    auto pos = content.find("property cdc_");
+    REQUIRE(pos != std::string::npos);
+    char first_after_prefix = content[pos + std::string("property cdc_").size()];
+    // SV identifiers cannot start with a digit; the sanitized id
+    // portion must therefore not be in [0-9].
+    bool is_digit = (first_after_prefix >= '0' && first_after_prefix <= '9');
+    CHECK_FALSE(is_digit);
+}
+
+TEST_CASE("CDC ReportGenerator: SVA emitter deduplicates colliding property names",
+          "[cdc][report][sva][collision]") {
+    // Round 29 WARN #2: two distinct crossing ids that collapse to the
+    // same sanitized form (e.g. "VIOLATION-1" and "VIOLATION_1" both
+    // sanitize to "VIOLATION_1") would produce duplicate property
+    // declarations, which the SV parser rejects. Lock the invariant
+    // that each emitted property name appears exactly once in the file.
+    AnalysisResult result;
+    auto sys = std::make_unique<ClockSource>();
+    sys->name = "sys_clk";
+    sys->type = ClockSource::Type::Primary;
+    auto* sysPtr = result.clock_db.addSource(std::move(sys));
+    auto* sysDom = result.clock_db.findOrCreateDomain(sysPtr, Edge::Posedge);
+    auto ext = std::make_unique<ClockSource>();
+    ext->name = "ext_clk";
+    ext->type = ClockSource::Type::Primary;
+    auto* extPtr = result.clock_db.addSource(std::move(ext));
+    auto* extDom = result.clock_db.findOrCreateDomain(extPtr, Edge::Posedge);
+
+    auto mkViol = [&](const std::string& id) {
+        CrossingReport v;
+        v.id = id;
+        v.category = ViolationCategory::Violation;
+        v.severity = Severity::High;
+        v.source_signal = "top.q";
+        v.dest_signal = "top.sync_q";
+        v.source_domain = sysDom;
+        v.dest_domain = extDom;
+        v.sync_type = SyncType::None;
+        return v;
+    };
+    result.crossings.push_back(mkViol("VIOLATION-1"));
+    result.crossings.push_back(mkViol("VIOLATION_1"));
+
+    ReportGenerator gen(result);
+    auto path = fs::temp_directory_path() / "svlens_sva_collision.sva";
+    REQUIRE(gen.generateSVA(path));
+
+    std::ifstream ifs(path);
+    REQUIRE(ifs.good());
+    std::string content((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    fs::remove(path);
+
+    // Count "property cdc_VIOLATION_1_src_toggle" occurrences. The
+    // first crossing claims it; the second should disambiguate via an
+    // ordinal suffix (e.g. _2 or similar) so the count of any single
+    // exact name is at most 1.
+    auto count_substr = [](const std::string& hay, const std::string& needle) {
+        size_t n = 0, p = 0;
+        while ((p = hay.find(needle, p)) != std::string::npos) {
+            ++n; p += needle.size();
+        }
+        return n;
+    };
+    // Exactly one declaration of the bare name must appear; the
+    // disambiguated form (whatever the implementation chooses) must
+    // also be present so neither crossing is silently dropped.
+    CHECK(count_substr(content, "property cdc_VIOLATION_1_src_toggle;") == 1);
+    // The total number of `property cdc_` declarations should equal
+    // the number of crossings (2) — none silently dropped.
+    CHECK(count_substr(content, "property cdc_") == 2);
+}
+
 TEST_CASE("CDC ReportGenerator: SVA emitter signals failure on unwritable path",
           "[cdc][report][sva][unwritable]") {
     // Round 29 WARN #3 fix: previously the SVA emitter opened an

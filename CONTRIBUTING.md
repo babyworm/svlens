@@ -13,7 +13,7 @@ agent guidance see [`CLAUDE.md`](CLAUDE.md).
 # 2. Configure and build (debug for local development)
 make debug    # or: cmake -B build -DCMAKE_BUILD_TYPE=Debug ...
 
-# 3. Run the test suite (496+ tests)
+# 3. Run the test suite (500+ tests)
 make test
 ```
 

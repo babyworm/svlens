@@ -24,6 +24,8 @@ jobs:
       ARTIFACT_NAME: ${{ matrix.artifact }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Install Linux build prerequisites
         if: runner.os == 'Linux'

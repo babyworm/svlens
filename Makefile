@@ -5,7 +5,9 @@ CMAKE_EXTRA_ARGS ?=
 CCACHE_ARG := $(shell command -v ccache >/dev/null 2>&1 && echo -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
 
 CLANG_FORMAT ?= clang-format
-FORMAT_FILES := $(shell git ls-files 'src/*.cpp' 'src/*.h' 'src/**/*.cpp' 'src/**/*.h' 'include/**/*.h' 'tests/*.cpp' 'tests/**/*.cpp' 2>/dev/null)
+# Use git ls-files with directory roots and grep filtering -- pathspec ** can be
+# brittle across git versions, and listing roots is more portable.
+FORMAT_FILES := $(shell git ls-files src include tests fuzz 2>/dev/null | grep -E '\.(cpp|h)$$')
 
 .PHONY: help build test install clean debug format format-check
 

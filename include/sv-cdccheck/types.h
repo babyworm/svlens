@@ -97,6 +97,17 @@ struct FFNode {
     // default. Used by sync_verifier to flag wide-bus crossings without
     // gray code or handshake (Ac_cdc04).
     int width = 1;
+    // True when ff_classifier walked the always_ff body and the
+    // collected `fanin_signals` reflect the FULL set of runtime
+    // input names. False when the FF was created via a fallback
+    // path (library-cell stub, opaque always_ff body) where the
+    // empty fanin_signals does NOT mean "no inputs".
+    // sync_verifier::findNextFF uses this to decide whether an
+    // empty fanin is "definitively single source" (populated) or
+    // "data is missing" (not populated). Field placed at the end
+    // to preserve aggregate-init order for existing test fixtures
+    // that rely on positional initialization through `primitive_name`.
+    bool fanin_populated = false;
 };
 
 /// Synchronizer type

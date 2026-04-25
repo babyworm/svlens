@@ -147,19 +147,22 @@ static void collectAssignedVars(const slang::ast::Statement& stmt,
             auto& exprStmt = stmt.as<slang::ast::ExpressionStatement>();
             auto& expr = exprStmt.expr;
             if (expr.kind == slang::ast::ExpressionKind::Assignment) {
-                auto& assign = expr.as<slang::ast::AssignmentExpression>();
-                std::string name = extractSignalName(assign.left());
-                if (!name.empty()) {
-                    // Avoid duplicates in vars list
-                    if (std::find(vars.begin(), vars.end(), name) == vars.end())
-                        vars.push_back(name);
-
-                    // Collect RHS signals for fanin
-                    FFAssignInfo info;
-                    info.lhs_name = name;
-                    collectReferencedSignals(assign.right(), info.rhs_signals);
-                    assign_infos.push_back(std::move(info));
-                }
+                // LHS shape handling (NamedValue / paired Concatenation
+                // / fallback broadcast) is shared with collectAssignments
+                // in ast_utils.cpp -- both consumers need positional
+                // bit-aware matching for the ZipCPU 2-FF concat idiom.
+                splitAssignmentByLHS(
+                    expr.as<slang::ast::AssignmentExpression>(),
+                    [&vars, &assign_infos](std::string lhs_name,
+                                           std::vector<std::string> rhs_signals) {
+                        if (std::find(vars.begin(), vars.end(), lhs_name)
+                            == vars.end())
+                            vars.push_back(lhs_name);
+                        FFAssignInfo info;
+                        info.lhs_name = std::move(lhs_name);
+                        info.rhs_signals = std::move(rhs_signals);
+                        assign_infos.push_back(std::move(info));
+                    });
             }
             break;
         }
@@ -296,19 +299,40 @@ static void processMembers(const slang::ast::Scope& scope,
 
             // 2) Clock net lookup: the clock may have been propagated through
             //    port connections with a different name (e.g., proc_clk <- sys_clk).
-            //    Search clock nets by matching instance + clock name patterns.
+            //    Search clock nets by matching instance + clock name patterns,
+            //    walking ALL ancestor scopes -- needed when the FF lives inside
+            //    a deep generate block (`u_sub.gen_blk[1].i_sync`) but the
+            //    propagated ClockNet lives on the enclosing instance scope
+            //    (`u_sub.clk_i`).
             if (!domain) {
+                std::vector<std::string> candidate_paths;
+                candidate_paths.push_back(inst_path + "." + sens.clock_name);
                 std::string inst_leaf = inst_path;
                 auto dot_pos = inst_leaf.rfind('.');
                 if (dot_pos != std::string::npos)
-                    inst_leaf = inst_leaf.substr(dot_pos + 1);
-                std::string short_path = inst_leaf + "." + sens.clock_name;
-                std::string full_path = inst_path + "." + sens.clock_name;
-                for (auto& net : clock_db.nets) {
-                    if (net->hier_path == full_path ||
-                        net->hier_path == short_path ||
-                        net->hier_path == sens.clock_name) {
-                        domain = clock_db.findOrCreateDomain(net->source, sens.clock_edge);
+                    candidate_paths.push_back(
+                        inst_leaf.substr(dot_pos + 1) + "." + sens.clock_name);
+                candidate_paths.push_back(sens.clock_name);
+                // Ancestor walk: try every prefix of inst_path with the
+                // clock name suffix appended. This is what unblocks
+                // genvar-wrapped synchronizers in pulp/cdc_fifo_gray.
+                std::string ancestor = inst_path;
+                while (true) {
+                    auto pos = ancestor.rfind('.');
+                    if (pos == std::string::npos) break;
+                    ancestor = ancestor.substr(0, pos);
+                    candidate_paths.push_back(ancestor + "." + sens.clock_name);
+                }
+                // Use clock_db.net_by_path hash (O(1) per candidate)
+                // instead of a linear scan over clock_db.nets. The
+                // ancestor walk is itself O(D) where D is hierarchy
+                // depth, so total cost stays O(D) instead of the
+                // previous O(D * N_nets). (Code-reviewer Round 12 #1.)
+                for (auto& cp : candidate_paths) {
+                    auto net_it = clock_db.net_by_path.find(cp);
+                    if (net_it != clock_db.net_by_path.end()) {
+                        domain = clock_db.findOrCreateDomain(
+                            net_it->second->source, sens.clock_edge);
                         break;
                     }
                 }
@@ -344,13 +368,24 @@ static void processMembers(const slang::ast::Scope& scope,
                 collectAssignedVars(*inner_stmt, assigned_vars, assign_infos);
 
             if (assigned_vars.empty()) {
-                // Fallback: create a single FF node for the entire block
+                // Fallback: create a single FF node for the entire block.
+                // The body WAS walked but every LHS extraction produced
+                // an empty name (e.g., bit-selects on packed structs not
+                // yet supported, or all assignments were to parameters
+                // and got filtered). Mark fanin_populated=true so
+                // findNextFF treats this as "walked but no inputs"
+                // (suspicious -> reject) rather than "library-cell stub
+                // never walked" (accept). The library-cell stub path
+                // creates FFs from Instance kind (lines ~400+), not from
+                // ProceduralBlock kind, so it's a separate path and
+                // remains fanin_populated=false.
                 auto ff = std::make_unique<FFNode>();
                 ff->hier_path = inst_path + ".__always_ff_" +
                     std::to_string(ff_nodes.size());
                 ff->domain = domain;
                 ff->reset = reset_ptr;
                 ff->primitive_name = primitive_name;
+                ff->fanin_populated = true;
                 ff_nodes.push_back(std::move(ff));
             } else {
                 for (auto& var_name : assigned_vars) {
@@ -387,6 +422,13 @@ static void processMembers(const slang::ast::Scope& scope,
                             }
                         }
                     }
+                    // Mark that the always_ff body was walked. If
+                    // fanin_signals is empty AFTER this walk, the FF
+                    // genuinely has no runtime data inputs (e.g., its
+                    // only assignment is to a parameter which was
+                    // filtered) -- distinct from "fanin not collected
+                    // because we didn't walk the body".
+                    ff->fanin_populated = true;
 
                     ff_nodes.push_back(std::move(ff));
                 }

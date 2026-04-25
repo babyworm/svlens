@@ -14,32 +14,52 @@ SyncVerifier::SyncVerifier(std::vector<CrossingReport>& crossings,
                            const ClockDatabase* clock_db)
     : crossings_(crossings), ff_nodes_(ff_nodes), edges_(edges), clock_db_(clock_db) {}
 
+bool SyncVerifier::isSingleSourceFF(const FFNode* ff) {
+    if (!ff) return false;
+    const auto& fanin = ff->fanin_signals;
+    // The semantics is "exactly one runtime input known to be
+    // tracked." `fanin.size() == 1` is meaningful ONLY when the
+    // body was actually walked (`fanin_populated == true`),
+    // otherwise a library-cell stub that happens to have one
+    // recorded port connection would falsely qualify. The
+    // empty-fanin case is the inverse: it's acceptable only when
+    // the body was NOT walked (stub), since a walked-but-empty
+    // body means no runtime input. (Code-reviewer Round 12 #3.)
+    return (fanin.size() == 1 && ff->fanin_populated) ||
+           (fanin.empty() && !ff->fanin_populated);
+}
+
 const FFNode* SyncVerifier::findNextFF(const FFNode* ff) const {
     // Find an FF in the same domain that is directly fed by this FF
     // with no combinational logic in between (sync chain characteristic).
     auto it = edges_from_.find(ff);
     if (it == edges_from_.end()) return nullptr;
 
+    // Invariant trusted by this loop:
+    //   1. `!edge->has_comb_logic` rules out any combinational gate
+    //      between source and dest -- direct flop-to-flop only.
+    //   2. The FFEdge was built by ConnectivityBuilder via the
+    //      port-aware resolveToFFs walker, which threads through
+    //      port_map / wire_map / parent_port_chain to verify the
+    //      structural path before emitting an edge.
+    //   3. `fanin.size() == 1` ensures the dest FF references exactly
+    //      one signal in its always_ff body. An EMPTY fanin is only
+    //      acceptable when `fanin_populated == false` (library-cell
+    //      stub or opaque body where no walk happened) -- if the
+    //      walk DID run and still produced empty (e.g., the only
+    //      assignment was `q <= ParamReset` and got filtered out),
+    //      the FF has no runtime input and must NOT pose as a sync
+    //      stage. (Code-reviewer Round 8 Finding #3.)
+    // Together (1)+(2)+(3) are sufficient to classify the edge as a
+    // single sync stage, even when source_leaf differs from fanin[0]
+    // (the cross-instance case where dest reads its local port `d_i`
+    // while source's leaf is the upstream instance's `q_o`).
     for (auto* edge : it->second) {
         if (edge->dest &&
             edge->dest->domain == ff->domain &&
-            !edge->has_comb_logic) {
-            // Verify single fan-in: the dest FF's fanin should contain
-            // only the source FF's leaf name (sync chain characteristic).
-            const auto& fanin = edge->dest->fanin_signals;
-            std::string source_leaf = ff->hier_path;
-            auto dot_pos = source_leaf.rfind('.');
-            if (dot_pos != std::string::npos)
-                source_leaf = source_leaf.substr(dot_pos + 1);
-
-            if (fanin.empty()) {
-                // No fanin info available, accept the edge
-                return edge->dest;
-            }
-
-            bool single_fanin = (fanin.size() == 1 && fanin[0] == source_leaf);
-            if (single_fanin)
-                return edge->dest;
+            !edge->has_comb_logic &&
+            isSingleSourceFF(edge->dest)) {
+            return edge->dest;
         }
     }
     return nullptr;
@@ -570,36 +590,98 @@ void SyncVerifier::detectPulseSyncPattern() {
         const FFNode* third = findNextFF(second);
         if (third) last_sync = third;
 
-        // Check if any FF downstream of the last sync stage has fanin
-        // containing both the last sync stage output AND a delayed version
-        // (which indicates XOR edge detection)
-        std::string last_leaf = last_sync->hier_path;
-        auto dot_pos = last_leaf.rfind('.');
-        if (dot_pos != std::string::npos)
-            last_leaf = last_leaf.substr(dot_pos + 1);
-
         auto edge_it = edges_from_.find(last_sync);
         if (edge_it == edges_from_.end()) continue;
 
-        for (auto* edge : edge_it->second) {
-            if (!edge->dest) continue;
-            if (edge->dest->domain != last_sync->domain) continue;
-
-            const auto& fanin = edge->dest->fanin_signals;
-            if (fanin.size() < 2) continue;
-
-            // Check if fanin contains the last sync stage output
-            // and another signal (the delayed version for XOR)
-            bool has_sync_out = false;
-            for (auto& f : fanin) {
-                if (f == last_leaf) { has_sync_out = true; break; }
+        // Build the set of chain FFs (the synced source plus its
+        // delay copies). A true pulse-sync XOR edge detector reads
+        // BOTH the last sync output AND a delayed copy in the same
+        // always_ff body, so the candidate dest FF must have edges
+        // incoming from at least TWO distinct chain FFs.
+        //
+        // Why not just `fanin.size() >= 2` like the earlier
+        // relaxation? Because a downstream FF may have two fanin
+        // signals where only ONE comes from the sync chain (e.g.,
+        // `q <= synced & local_en`); that's a data merge, not a
+        // pulse synchronizer, and would be silently false-classified
+        // as PulseSync if we only counted dest-side fanin.
+        // (Code-reviewer Round 8 Finding #1.)
+        //
+        // Limitation: the forward extension below walks ONE hop
+        // from last_sync. Designs that tap the XOR pair through a
+        // multi-hop delay register (rare, e.g. `s3 -> s4 -> XOR
+        // with s4_d`) will not have the deeper delay register in
+        // chain_ffs. The canonical Cummings 2008 / pulp_sync_wedge
+        // pattern is one-hop and fully covered.
+        std::unordered_set<const FFNode*> chain_ffs;
+        chain_ffs.insert(dest_ff);
+        chain_ffs.insert(second);
+        if (third) chain_ffs.insert(third);
+        // Bounded BFS forward extension: any same-domain FF
+        // reachable from a chain FF via a no-comb single-source
+        // edge is part of the delay path. Walks up to MAX_DEPTH
+        // hops (covers `s1->s2->s3->s4->s4_d` plus extra delay taps
+        // that real designs add for deeper XOR debouncing).
+        //
+        // MAX_DEPTH=6 is chosen because Cummings (SNUG 2008,
+        // "Clock Domain Crossing (CDC) Design & Verification
+        // Techniques Using SystemVerilog") describes pulse
+        // synchronizers using at most 3-stage sync chains with
+        // 1-2 additional delay taps for the XOR edge detector --
+        // 6 hops covers the deepest practical configuration. The
+        // bound also prevents pathological explosion on dense
+        // graphs. (Round 10 US-803.)
+        constexpr size_t MAX_DEPTH = 6;
+        std::vector<const FFNode*> frontier{last_sync};
+        for (size_t depth = 0; depth < MAX_DEPTH && !frontier.empty(); ++depth) {
+            std::vector<const FFNode*> next_frontier;
+            for (auto* node : frontier) {
+                auto fe_it = edges_from_.find(node);
+                if (fe_it == edges_from_.end()) continue;
+                for (auto* fwd_edge : fe_it->second) {
+                    if (!fwd_edge->dest) continue;
+                    if (fwd_edge->dest->domain != last_sync->domain) continue;
+                    if (fwd_edge->has_comb_logic) continue;
+                    if (!isSingleSourceFF(fwd_edge->dest)) continue;
+                    if (chain_ffs.insert(fwd_edge->dest).second)
+                        next_frontier.push_back(fwd_edge->dest);
+                }
             }
+            frontier = std::move(next_frontier);
+        }
 
-            if (has_sync_out && fanin.size() >= 2) {
-                crossing.sync_type = SyncType::PulseSync;
-                crossing.recommendation = "Pulse synchronizer detected.";
-                break;
+        // Collect candidate XOR-consumer FFs: any same-domain FF
+        // with fanin.size() >= 2 reachable from ANY chain FF (not
+        // just last_sync). For deep chains where the XOR taps live
+        // multiple hops downstream, the consumer's incoming edge
+        // comes from `s4`/`s4_d` -- not from the original last_sync.
+        std::unordered_set<const FFNode*> candidates;
+        for (auto* chain_ff : chain_ffs) {
+            auto ce_it = edges_from_.find(chain_ff);
+            if (ce_it == edges_from_.end()) continue;
+            for (auto* ce : ce_it->second) {
+                if (!ce->dest) continue;
+                if (ce->dest->domain != last_sync->domain) continue;
+                if (ce->dest->fanin_signals.size() < 2) continue;
+                candidates.insert(ce->dest);
             }
+        }
+        for (auto* candidate : candidates) {
+            // Count distinct chain FFs that have a direct edge to
+            // this candidate. Require >= 2 for the XOR pair
+            // signature.
+            size_t chain_inputs = 0;
+            for (auto* chain_ff : chain_ffs) {
+                auto ce_it = edges_from_.find(chain_ff);
+                if (ce_it == edges_from_.end()) continue;
+                for (auto* ce : ce_it->second) {
+                    if (ce->dest == candidate) { ++chain_inputs; break; }
+                }
+            }
+            if (chain_inputs < 2) continue;
+            crossing.sync_type = SyncType::PulseSync;
+            crossing.recommendation = "Pulse synchronizer detected.";
+            break;
         }
     }
 }

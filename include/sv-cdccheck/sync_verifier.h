@@ -35,6 +35,13 @@ private:
     /// Find downstream FF connected to given FF in the same domain
     const FFNode* findNextFF(const FFNode* ff) const;
 
+    /// True when `ff` qualifies as a single-source sync stage:
+    /// either it has exactly one fanin signal, or its body wasn't
+    /// walked (library-cell stub) so the empty fanin is meaningless
+    /// rather than meaningful. Used by both findNextFF and the
+    /// pulse-sync chain forward extension.
+    static bool isSingleSourceFF(const FFNode* ff);
+
     /// Find the FFEdge that connects source to dest (for comb logic check)
     const FFEdge* findEdge(const std::string& source_signal,
                            const std::string& dest_signal) const;

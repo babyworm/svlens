@@ -94,6 +94,7 @@ fixture comment and the golden value.
 | Fixture | Current limitation |
 |---------|--------------------|
 | `21_clock_mux` | `assign clk_mux = sel ? clk_a : clk_b;` is recognised as a third clock domain but the glitch hazard at the mux is not flagged |
+| `33_always_comb_sync_chain` | `always_comb wire = port_input;` propagation across two submodule boundaries does not chain back to the source flop. Surfaces as a false negative on OpenTitan prim_flop_2sync inside prim_fifo_async, and on ZipCPU afifo. Same-instance always_comb assignments ARE handled (the registration was added in this round), but the cross-module case requires further connectivity work. |
 
 ### Shift-register-style synchronizer recognition (resolved)
 

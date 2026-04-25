@@ -283,23 +283,47 @@ static void collectContinuousAssigns(
     std::unordered_map<std::string, std::vector<std::string>>& cont_assigns)
 {
     for (auto& member : inst.body.members()) {
-        if (member.kind != slang::ast::SymbolKind::ContinuousAssign) continue;
+        if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
+            // ContinuousAssignSymbol has getAssignment() that returns an Assignment expression
+            auto& ca = member.as<slang::ast::ContinuousAssignSymbol>();
+            auto& assignRaw = ca.getAssignment();
+            if (assignRaw.kind != slang::ast::ExpressionKind::Assignment) continue;
+            auto& assign_expr = assignRaw.as<slang::ast::AssignmentExpression>();
+            std::string lhs_name;
+            if (assign_expr.left().kind == slang::ast::ExpressionKind::NamedValue) {
+                lhs_name = std::string(
+                    assign_expr.left().as<slang::ast::NamedValueExpression>().symbol.name);
+            }
+            if (lhs_name.empty()) continue;
 
-        // ContinuousAssignSymbol has getAssignment() that returns an Assignment expression
-        auto& ca = member.as<slang::ast::ContinuousAssignSymbol>();
-        auto& assignRaw = ca.getAssignment();
-        if (assignRaw.kind != slang::ast::ExpressionKind::Assignment) continue;
-        auto& assign_expr = assignRaw.as<slang::ast::AssignmentExpression>();
-        std::string lhs_name;
-        if (assign_expr.left().kind == slang::ast::ExpressionKind::NamedValue) {
-            lhs_name = std::string(
-                assign_expr.left().as<slang::ast::NamedValueExpression>().symbol.name);
+            std::vector<std::string> rhs_signals;
+            collectReferencedSignals(assign_expr.right(), rhs_signals);
+            cont_assigns[lhs_name] = std::move(rhs_signals);
+            continue;
         }
-        if (lhs_name.empty()) continue;
 
-        std::vector<std::string> rhs_signals;
-        collectReferencedSignals(assign_expr.right(), rhs_signals);
-        cont_assigns[lhs_name] = std::move(rhs_signals);
+        // always_comb / always_latch blocks with single-statement
+        // assignments behave like continuous assigns for connectivity
+        // purposes. Treat `always_comb wire = source;` (or
+        // `always_comb begin wire = source; end`) the same as
+        // `assign wire = source;` so propagation through the OpenTitan
+        // prim_flop_2sync `always_comb d_o = d_i;` pattern works.
+        if (member.kind == slang::ast::SymbolKind::ProceduralBlock) {
+            auto& block = member.as<slang::ast::ProceduralBlockSymbol>();
+            if (block.procedureKind != slang::ast::ProceduralBlockKind::AlwaysComb &&
+                block.procedureKind != slang::ast::ProceduralBlockKind::AlwaysLatch)
+                continue;
+            std::vector<AssignInfo> infos;
+            collectAssignments(block.getBody(), infos);
+            for (auto& info : infos) {
+                if (info.lhs_name.empty()) continue;
+                // Only register if not already a continuous assign with the
+                // same LHS, to avoid clobbering.
+                if (cont_assigns.find(info.lhs_name) != cont_assigns.end())
+                    continue;
+                cont_assigns[info.lhs_name] = info.rhs_signals;
+            }
+        }
     }
 }
 

@@ -41,17 +41,26 @@ RUN cmake -B build \
         -DSVLENS_FETCH_DEPS=OFF \
     && cmake --build build -j"$(nproc)" \
     && cmake --install build --prefix /usr/local \
-    && ldd /usr/local/bin/svlens \
-    && /usr/local/bin/svlens --version
+    && /usr/local/bin/svlens --version \
+    && if ldd /usr/local/bin/svlens | grep -q 'not found'; then \
+           echo 'ERROR: svlens has unresolved dynamic dependencies'; \
+           ldd /usr/local/bin/svlens; \
+           exit 1; \
+       fi
 
 # Stage the runtime payload at a known path so the final stage uses an
-# explicit allow-list rather than copying /usr/local/lib wholesale.
+# explicit allow-list rather than copying /usr/local/lib wholesale. With
+# scripts/setup-deps.sh's default config slang builds STATIC, so the
+# libslang*.so* glob may not match anything; that is expected and the
+# binary is self-contained for slang. The libsvlens*.so* glob is kept as
+# a forward guard in case a future cmake target ever produces a shared
+# library.
 RUN install -d /runtime/usr/local/bin /runtime/usr/local/lib \
     && install -m 0755 /usr/local/bin/svlens /runtime/usr/local/bin/svlens \
     && for lib in /usr/local/lib/libslang*.so* /usr/local/lib/libsvlens*.so*; do \
            [ -e "$lib" ] && cp -a "$lib" /runtime/usr/local/lib/ || true; \
        done \
-    && ls -la /runtime/usr/local/lib/
+    && ls -la /runtime/usr/local/bin/ /runtime/usr/local/lib/
 
 # ---- runtime ---------------------------------------------------------------
 FROM ${DEBIAN_BASE} AS runtime

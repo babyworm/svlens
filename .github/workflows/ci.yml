@@ -20,13 +20,15 @@ jobs:
         run: |
           sudo apt-get update
           # Ubuntu's clang-format package ships /usr/bin/clang-format-diff,
-          # but we install the version-suffixed -diff tool too in case the
-          # runner image rotates the unversioned symlink.
+          # but the version-suffixed binaries (clang-format-diff-NN) come
+          # with the corresponding clang-format-NN package on some images.
           sudo apt-get install -y clang-format
           # Locate clang-format-diff; fail loudly if absent so the format
           # gate cannot silently succeed when the tool is missing.
+          # Using compgen -G avoids the "ls | head" pipeline whose exit code
+          # is dominated by `head` (always 0), which would mask a glob miss.
           if ! command -v clang-format-diff >/dev/null 2>&1 \
-            && ! ls /usr/bin/clang-format-diff-* 2>/dev/null | head -1; then
+            && ! compgen -G '/usr/bin/clang-format-diff-*' >/dev/null; then
             echo "::error::clang-format-diff not found after apt install; the format gate cannot run."
             exit 1
           fi

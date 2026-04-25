@@ -186,8 +186,8 @@ TEST_CASE("CrossingDetector: isochronous handshake primitive is downgraded to IN
     auto* srcDom = db.findOrCreateDomain(srcPtr, Edge::Posedge);
     auto* dstDom = db.findOrCreateDomain(dstPtr, Edge::Posedge);
 
-    FFNode srcReq{"u_handshake.src_req_q", srcDom, nullptr, {}, "isochronous_4phase_handshake"};
-    FFNode dstReq{"u_handshake.dst_req_q", dstDom, nullptr, {}, "isochronous_4phase_handshake"};
+    FFNode srcReq{.hier_path = "u_handshake.src_req_q", .domain = srcDom, .reset = nullptr, .fanin_signals = {}, .primitive_name = "isochronous_4phase_handshake"};
+    FFNode dstReq{.hier_path = "u_handshake.dst_req_q", .domain = dstDom, .reset = nullptr, .fanin_signals = {}, .primitive_name = "isochronous_4phase_handshake"};
     std::vector<FFEdge> edges{{&srcReq, &dstReq, {"src_req_q"}, SyncType::None}};
 
     CrossingDetector detector(edges, db);
@@ -214,8 +214,8 @@ TEST_CASE("CrossingDetector: syncreg primitive is downgraded to INFO", "[crossin
     auto* srcDom = db.findOrCreateDomain(srcPtr, Edge::Posedge);
     auto* dstDom = db.findOrCreateDomain(dstPtr, Edge::Posedge);
 
-    FFNode regA{"u_syncreg.regA", srcDom, nullptr, {}, "syncreg"};
-    FFNode regB{"u_syncreg.regB", dstDom, nullptr, {}, "syncreg"};
+    FFNode regA{.hier_path = "u_syncreg.regA", .domain = srcDom, .reset = nullptr, .fanin_signals = {}, .primitive_name = "syncreg"};
+    FFNode regB{.hier_path = "u_syncreg.regB", .domain = dstDom, .reset = nullptr, .fanin_signals = {}, .primitive_name = "syncreg"};
     std::vector<FFEdge> edges{{&regA, &regB, {"regA"}, SyncType::None}};
 
     CrossingDetector detector(edges, db);
@@ -242,8 +242,8 @@ TEST_CASE("CrossingDetector: logically exclusive crossing is informational", "[c
     auto* domA = db.findOrCreateDomain(a, Edge::Posedge);
     auto* domB = db.findOrCreateDomain(b, Edge::Posedge);
 
-    FFNode ffA{"top.q_a", domA, nullptr, {}};
-    FFNode ffB{"top.q_b", domB, nullptr, {}};
+    FFNode ffA{.hier_path = "top.q_a", .domain = domA, .reset = nullptr, .fanin_signals = {}};
+    FFNode ffB{.hier_path = "top.q_b", .domain = domB, .reset = nullptr, .fanin_signals = {}};
     std::vector<FFEdge> edges{{&ffA, &ffB, {}, SyncType::None}};
 
     CrossingDetector detector(edges, db);
@@ -277,8 +277,8 @@ TEST_CASE("CrossingDetector: divided crossing captures timing basis and rational
     auto* domA = db.findOrCreateDomain(a, Edge::Posedge);
     auto* domB = db.findOrCreateDomain(b, Edge::Posedge);
 
-    FFNode ffA{"top.q_a", domA, nullptr, {}};
-    FFNode ffB{"top.q_b", domB, nullptr, {}};
+    FFNode ffA{.hier_path = "top.q_a", .domain = domA, .reset = nullptr, .fanin_signals = {}};
+    FFNode ffB{.hier_path = "top.q_b", .domain = domB, .reset = nullptr, .fanin_signals = {}};
     std::vector<FFEdge> edges{{&ffA, &ffB, {}, SyncType::None}};
 
     CrossingDetector detector(edges, db);
@@ -530,9 +530,9 @@ TEST_CASE("CrossingDetector: isochronous handshake primitive is downgraded to in
     auto* domA = db.findOrCreateDomain(a, Edge::Posedge);
     auto* domB = db.findOrCreateDomain(b, Edge::Posedge);
 
-    FFNode ffA{"top.u_hs.src_req_q", domA, nullptr, {}};
+    FFNode ffA{.hier_path = "top.u_hs.src_req_q", .domain = domA, .reset = nullptr, .fanin_signals = {}};
     ffA.primitive_name = "isochronous_4phase_handshake";
-    FFNode ffB{"top.u_hs.dst_req_q", domB, nullptr, {}};
+    FFNode ffB{.hier_path = "top.u_hs.dst_req_q", .domain = domB, .reset = nullptr, .fanin_signals = {}};
     ffB.primitive_name = "isochronous_4phase_handshake";
     std::vector<FFEdge> edges{{&ffA, &ffB, {}, SyncType::None}};
 
@@ -561,9 +561,9 @@ TEST_CASE("CrossingDetector: syncreg primitive is downgraded to informational", 
     auto* domA = db.findOrCreateDomain(a, Edge::Posedge);
     auto* domB = db.findOrCreateDomain(b, Edge::Posedge);
 
-    FFNode ffA{"top.u_sync.regA", domA, nullptr, {}};
+    FFNode ffA{.hier_path = "top.u_sync.regA", .domain = domA, .reset = nullptr, .fanin_signals = {}};
     ffA.primitive_name = "syncreg";
-    FFNode ffB{"top.u_sync.regB", domB, nullptr, {}};
+    FFNode ffB{.hier_path = "top.u_sync.regB", .domain = domB, .reset = nullptr, .fanin_signals = {}};
     ffB.primitive_name = "syncreg";
     std::vector<FFEdge> edges{{&ffA, &ffB, {}, SyncType::None}};
 
@@ -592,9 +592,9 @@ TEST_CASE("CrossingDetector: raw async FF-to-FF remains violation when primitive
     auto* domA = db.findOrCreateDomain(a, Edge::Posedge);
     auto* domB = db.findOrCreateDomain(b, Edge::Posedge);
 
-    FFNode ffA{"top.u_sync.regA", domA, nullptr, {}};
+    FFNode ffA{.hier_path = "top.u_sync.regA", .domain = domA, .reset = nullptr, .fanin_signals = {}};
     ffA.primitive_name = "syncreg";
-    FFNode ffB{"top.other.regB", domB, nullptr, {}};
+    FFNode ffB{.hier_path = "top.other.regB", .domain = domB, .reset = nullptr, .fanin_signals = {}};
     ffB.primitive_name = "syncreg";
     std::vector<FFEdge> edges{{&ffA, &ffB, {}, SyncType::None}};
 

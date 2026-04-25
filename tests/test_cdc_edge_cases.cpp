@@ -141,9 +141,11 @@ TEST_CASE("CDC EdgeCases: crossing ids separate VIOLATION and CAUTION classes", 
     auto* domB = db.findOrCreateDomain(b, Edge::Posedge);
     auto* domC = db.findOrCreateDomain(c, Edge::Posedge);
 
-    FFNode ffA{"top.q_a", domA, nullptr, {}};
-    FFNode ffB{"top.q_b", domB, nullptr, {}};
-    FFNode ffC{"top.q_c", domC, nullptr, {}};
+    // Round 32 ERROR-1 fix: designated initializers prevent silent
+    // drift when a future FFNode field is added.
+    FFNode ffA{.hier_path = "top.q_a", .domain = domA, .reset = nullptr, .fanin_signals = {}};
+    FFNode ffB{.hier_path = "top.q_b", .domain = domB, .reset = nullptr, .fanin_signals = {}};
+    FFNode ffC{.hier_path = "top.q_c", .domain = domC, .reset = nullptr, .fanin_signals = {}};
 
     std::vector<FFEdge> edges;
     edges.push_back({&ffA, &ffB, {}, SyncType::None});

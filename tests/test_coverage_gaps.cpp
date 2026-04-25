@@ -68,8 +68,10 @@ TEST_CASE("GAP: isAsynchronous with nullptr domains", "[gap]") {
 // ─── GAP-7: null domain edge skipped ───
 
 TEST_CASE("GAP: CrossingDetector skips edges with null domain", "[gap]") {
-    FFNode ff_a{"top.a", nullptr, nullptr, {}};
-    FFNode ff_b{"top.b", nullptr, nullptr, {}};
+    // Round 31 US-31B: designated initializers prevent silent
+    // drift when a future FFNode field is added after fanin_signals.
+    FFNode ff_a{.hier_path = "top.a", .domain = nullptr, .reset = nullptr, .fanin_signals = {}};
+    FFNode ff_b{.hier_path = "top.b", .domain = nullptr, .reset = nullptr, .fanin_signals = {}};
     std::vector<FFEdge> edges;
     edges.push_back({&ff_a, &ff_b, {}, SyncType::None, false});
     ClockDatabase db;

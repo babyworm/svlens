@@ -129,9 +129,11 @@ TEST_CASE("CrossingDetector: separate counters for VIOLATION and CAUTION", "[edg
     auto* dom_c = db.findOrCreateDomain(c, Edge::Posedge);
 
     // Create FF nodes and edges manually
-    FFNode ff_a{"top.q_a", dom_a, nullptr, {}};
-    FFNode ff_b{"top.q_b", dom_b, nullptr, {}};
-    FFNode ff_c{"top.q_c", dom_c, nullptr, {}};
+    // Round 31 US-31B: designated initializers prevent silent
+    // drift when a future FFNode field is added after fanin_signals.
+    FFNode ff_a{.hier_path = "top.q_a", .domain = dom_a, .reset = nullptr, .fanin_signals = {}};
+    FFNode ff_b{.hier_path = "top.q_b", .domain = dom_b, .reset = nullptr, .fanin_signals = {}};
+    FFNode ff_c{.hier_path = "top.q_c", .domain = dom_c, .reset = nullptr, .fanin_signals = {}};
 
     std::vector<FFEdge> edges;
     edges.push_back({&ff_a, &ff_b, {}, SyncType::None});  // async

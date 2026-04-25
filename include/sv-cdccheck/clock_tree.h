@@ -8,6 +8,8 @@
 #include "slang/ast/symbols/PortSymbols.h"
 
 #include <optional>
+#include <string>
+#include <unordered_set>
 
 namespace sv_cdccheck {
 
@@ -83,6 +85,18 @@ private:
     void checkTogglePattern(const slang::ast::Statement& stmt,
                             const std::string& clock_name,
                             const std::string& inst_path);
+
+    /// Collect every signal name that appears on the clock side of an
+    /// always_ff sensitivity list, across the full elaborated design.
+    /// Used as the structural-evidence filter before promoting toggle
+    /// registers to generated clocks (Finding 1 guard).
+    void collectUsedClockNames();
+
+    /// Recursive helper for collectUsedClockNames.
+    void collectUsedClockNamesInInstance(const slang::ast::InstanceSymbol& inst);
+
+    /// Populated by collectUsedClockNames(); consumed by checkTogglePattern.
+    std::unordered_set<std::string> used_clock_names_;
 
     /// Detect PLL/MMCM module outputs as primary clock sources
     void detectPLLOutputs();

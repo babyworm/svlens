@@ -381,7 +381,63 @@ void ClockTreeAnalyzer::detectPLLOutputsInInstance(
 
 // ── Phase 1b+: Clock divider detection ──
 
+void ClockTreeAnalyzer::collectUsedClockNames() {
+    used_clock_names_.clear();
+    auto& root = compilation_.getRoot();
+    for (auto* inst : root.topInstances) {
+        if (!inst) continue;
+        collectUsedClockNamesInInstance(*inst);
+    }
+}
+
+void ClockTreeAnalyzer::collectUsedClockNamesInInstance(
+    const slang::ast::InstanceSymbol& inst)
+{
+    for (auto& member : inst.body.members()) {
+        if (member.kind == slang::ast::SymbolKind::ProceduralBlock) {
+            auto& block = member.as<slang::ast::ProceduralBlockSymbol>();
+            if (block.procedureKind != slang::ast::ProceduralBlockKind::AlwaysFF &&
+                block.procedureKind != slang::ast::ProceduralBlockKind::Always)
+                continue;
+
+            auto& body = block.getBody();
+            if (body.kind != slang::ast::StatementKind::Timed) continue;
+            auto& timed = body.as<slang::ast::TimedStatement>();
+            auto& timing = timed.timing;
+
+            auto addFromSignalEvent = [&](const slang::ast::TimingControl& tc) {
+                if (tc.kind != slang::ast::TimingControlKind::SignalEvent) return;
+                auto& sec = tc.as<slang::ast::SignalEventControl>();
+                std::string sig = extractSignalNameFromExpr(sec.expr);
+                if (!sig.empty()) used_clock_names_.insert(sig);
+            };
+
+            if (timing.kind == slang::ast::TimingControlKind::SignalEvent) {
+                addFromSignalEvent(timing);
+            } else if (timing.kind == slang::ast::TimingControlKind::EventList) {
+                auto& list = timing.as<slang::ast::EventListControl>();
+                for (auto* ev : list.events) {
+                    if (ev) addFromSignalEvent(*ev);
+                }
+            }
+        }
+
+        if (member.kind == slang::ast::SymbolKind::Instance) {
+            auto& child = member.as<slang::ast::InstanceSymbol>();
+            collectUsedClockNamesInInstance(child);
+        }
+    }
+}
+
 void ClockTreeAnalyzer::detectClockDividers() {
+    // Gather structural evidence first: every name that appears on the
+    // clock side of an always_ff sensitivity list in the design. A toggle
+    // register is only promoted to a generated clock if the register's
+    // name is in this set (Finding 1 guard -- otherwise every pulse-sync
+    // toggle register is spuriously reclassified as a "div2" clock, which
+    // then trips Ac_cdc09 "clock as data" cautions).
+    collectUsedClockNames();
+
     auto& root = compilation_.getRoot();
     for (auto& member : root.members()) {
         if (member.kind != slang::ast::SymbolKind::Instance) continue;
@@ -471,7 +527,23 @@ void ClockTreeAnalyzer::checkTogglePattern(
                     unary.op == slang::ast::UnaryOperator::LogicalNot) {
                     std::string rhs_name = extractSignalNameFromExpr(unary.operand());
                     if (rhs_name == lhs) {
-                        // Toggle pattern found: lhs <= ~lhs
+                        // Toggle pattern found: lhs <= ~lhs.
+                        // Promote to generated clock only when at least
+                        // one of these holds:
+                        //   (a) `lhs` actually drives a clock port
+                        //       somewhere in the design (structural
+                        //       evidence), or
+                        //   (b) `lhs` looks like a clock by naming
+                        //       convention (e.g. "clk_div2").
+                        // Without this guard, every pulse-sync toggle
+                        // register -- which names don't start with clk --
+                        // ended up registered as a phantom "_div2" clock
+                        // and then drove spurious Ac_cdc09 cautions.
+                        const bool used_as_clock = used_clock_names_.count(lhs) > 0;
+                        const bool looks_like_clock = isClockName(lhs);
+                        if (!used_as_clock && !looks_like_clock) {
+                            break;
+                        }
                         // Create a generated clock source with divide_by 2
                         ClockSource* master_src = nullptr;
                         for (auto& src : clock_db_.sources) {

@@ -25,14 +25,19 @@ anyway) on every rule.
 
 ## Rule coverage matrix
 
-| Rule | Description | Positive | Negative |
-|------|-------------|----------|----------|
-| `Ac_cdc01` | missing 2-FF synchronizer | `02_missing_sync` (1 VIOL) | `03_two_ff_sync` (1 INFO) |
+| Rule | Description | Positive | Dedicated negative |
+|------|-------------|----------|--------------------|
+| `Ac_cdc01` | missing 2-FF synchronizer | `02_missing_sync` (1 VIOL) | `27_neg_ac_cdc01_proper_sync` (1 INFO) |
 | `Ac_cdc01` | single-stage destination FF (insufficient) | `14_single_ff_only` (1 VIOL) | `04_three_ff_sync` (1 INFO) |
-| `Ac_cdc02` | combinational logic before sync FF | `05_comb_before_sync` (1 CAUT) | `03_two_ff_sync` (1 INFO) |
-| `Ac_cdc03` | reconvergence (multiple bits, same domain pair) | `12_multi_crossing_mixed` (2 CAUT + 1 VIOL) | `13_three_domain_chain` (2 INFO, distinct domain pairs) |
-| `Ac_cdc06` | reset CDC without 2-FF deassert chain | `19_missing_reset_sync` (1 CAUT) | `18_internal_reset_cdc` (1 INFO) |
+| `Ac_cdc02` | combinational logic before sync FF | `05_comb_before_sync` (1 CAUT) | `28_neg_ac_cdc02_clean_path` (1 INFO) |
+| `Ac_cdc03` | reconvergence (multiple bits, same domain pair) | `12_multi_crossing_mixed` (2 CAUT + 1 VIOL) | `29_neg_ac_cdc03_distinct_pairs` (Ac_cdc03 silent; fan-out CAUT fires instead) |
+| `Ac_cdc06` | reset CDC without 2-FF deassert chain | `19_missing_reset_sync` (1 CAUT) | `30_neg_ac_cdc06_synced_reset` (1 INFO) |
 | `Ac_cdc11` | source signal crosses to multiple async domains | `20_fanout_mixed_sync` (1 VIOL + 1 CAUT) | `03_two_ff_sync` (1 INFO, single dest) |
+
+The `27`-`30` fixtures are minimal mirrors of their positive
+counterparts -- same structural shape, just with the issue removed --
+so a regression that re-introduces a false positive on those patterns
+will fail the golden immediately.
 
 ## "No false positive" guards
 

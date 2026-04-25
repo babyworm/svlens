@@ -154,7 +154,6 @@ TEST_CASE("CdcRunner: --emit-sva writes SVA file alongside the JSON report",
 
     const auto out = fs::temp_directory_path() / "svlens_emit_sva";
     fs::remove_all(out);
-    fs::create_directories(out);
 
     cdccli::CdcCliOptions opts;
     opts.topModule = "missing_sync";

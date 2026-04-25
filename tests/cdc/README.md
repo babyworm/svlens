@@ -82,7 +82,7 @@ fixture comment and the golden value.
 | `16_comb_between_domains` | combo-logic-before-sync is reported as Ac_cdc03 reconvergence rather than the more precise Ac_cdc02 rule |
 | `21_clock_mux` | `assign clk_mux = sel ? clk_a : clk_b;` is recognised as a third clock domain but the glitch hazard at the mux is not flagged |
 
-### Sync recogniser gap on shift-register-style synchronizers
+### Shift-register-style synchronizer recognition (resolved)
 
 `pulp-platform/common_cells/src/sync.sv` implements the 2-FF (or N-FF)
 synchronizer as a single multi-bit register with an internal shift:
@@ -94,16 +94,15 @@ always_ff @(posedge clk_i, negedge rst_ni)
     else         reg_q <= {reg_q[STAGES-2:0], serial_i};
 ```
 
-svlens models `reg_q` as a single multi-bit FF node, so the
-sync_verifier's "two-FF chain" pattern does not match and the crossing
-is classified as a VIOLATION instead of an INFO. The crossing IS
-detected end-to-end (the data path is correctly traced), only the
-disposition is more pessimistic than the actual design warrants.
+svlens models `reg_q` as a single multi-bit FF node. Commit `8d2ec38`
+added a fallback in `sync_verifier::detectSyncPattern` that recognises
+the self-shift fanin signature as a TwoFF synchronizer, so crossings
+through this chain are no longer reported as VIOLATIONs.
 
-This affects real-world reports such as
-`cdc_fifo_gray` (8 detected crossings → 8 VIOLATIONS instead of 8
-INFOs). Tracking as a follow-up enhancement to `sync_verifier`
-(recognise shift-register-style synchronizer).
+`cdc_fifo_gray` (focused filelist) post-fix: 0 VIOLATIONS / 8 CAUTIONS,
+where the cautions are Ac_cdc03 reconvergence (multiple bits across
+the same domain pair, identical handling to fixture 23). The
+underlying data-path tracing remains end-to-end correct.
 
 ## Adding a new fixture
 

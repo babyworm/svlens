@@ -93,5 +93,7 @@ check_fixture "21_clock_mux" "clock_mux"
 check_fixture "22_two_level_submodule_sync" "two_level_submodule_sync"
 check_fixture "23_packed_array_indexed" "packed_array_indexed"
 check_fixture "24_genfor_module_sync" "genfor_module_sync"
+check_fixture "25_nested_sync_clock_inherit" "nested_sync_clock_inherit"
+check_fixture "26_genfor_in_wrapper_clock_inherit" "genfor_in_wrapper_clock_inherit"
 
 echo "=== All CDC golden tests passed ==="

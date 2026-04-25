@@ -66,6 +66,17 @@ private:
         const std::unordered_map<std::string, ClockNet*>& parent_nets,
         const std::string& hier_prefix = "");
 
+    /// Walk a Scope (InstanceBody, GenerateBlockSymbol, ...) and recurse
+    /// into module instances + nested generate blocks, sharing the
+    /// surrounding instance's local clock-net map. Without this, clock
+    /// signals do not inherit through `for (genvar i = 0; i < N; i++)
+    /// begin : g sync u_sync (.clk_i(parent_clk)) end` -- which is the
+    /// canonical CDC FIFO synchronizer pattern.
+    void propagateChildren(
+        const slang::ast::Scope& scope,
+        const std::unordered_map<std::string, ClockNet*>& local_nets,
+        const std::string& inst_path);
+
     /// Extract clock signal from always_ff sensitivity list
     void collectSensitivityClocks(
         const slang::ast::InstanceSymbol& inst,

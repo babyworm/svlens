@@ -212,9 +212,45 @@ void ClockTreeAnalyzer::propagateInstance(
     // Collect clocks from always_ff sensitivity lists in this instance
     collectSensitivityClocks(inst, local_nets, inst_path);
 
-    // Recurse into child instances
-    for (auto& child : inst.body.membersOfType<slang::ast::InstanceSymbol>()) {
-        propagateInstance(child, local_nets, inst_path);
+    // Recurse into children: regular module instances AND generate
+    // blocks. Generate blocks are part of the enclosing module's scope,
+    // so they share `local_nets` and any module instance inside them
+    // must inherit the parent's clock connections (Finding 4 fix).
+    propagateChildren(inst.body, local_nets, inst_path);
+}
+
+void ClockTreeAnalyzer::propagateChildren(
+    const slang::ast::Scope& scope,
+    const std::unordered_map<std::string, ClockNet*>& local_nets,
+    const std::string& inst_path)
+{
+    for (auto& member : scope.members()) {
+        if (member.kind == slang::ast::SymbolKind::Instance) {
+            auto& child = member.as<slang::ast::InstanceSymbol>();
+            propagateInstance(child, local_nets, inst_path);
+            continue;
+        }
+        if (member.kind == slang::ast::SymbolKind::GenerateBlock) {
+            auto& gen = member.as<slang::ast::GenerateBlockSymbol>();
+            if (gen.isUninstantiated) continue;
+            std::string gen_name = gen.getExternalName();
+            std::string gen_path = inst_path;
+            if (!gen_name.empty())
+                gen_path = inst_path + "." + gen_name;
+            propagateChildren(gen, local_nets, gen_path);
+            continue;
+        }
+        if (member.kind == slang::ast::SymbolKind::GenerateBlockArray) {
+            auto& arr = member.as<slang::ast::GenerateBlockArraySymbol>();
+            for (auto* entry : arr.entries) {
+                if (!entry || entry->isUninstantiated) continue;
+                std::string entry_name = entry->getExternalName();
+                if (entry_name.empty())
+                    entry_name = std::string(arr.name);
+                std::string entry_path = inst_path + "." + entry_name;
+                propagateChildren(*entry, local_nets, entry_path);
+            }
+        }
     }
 }
 

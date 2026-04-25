@@ -17,6 +17,7 @@ check_fixture() {
     local name="$1"
     local top="$2"
     local sv="tests/cdc/basic/${name}.sv"
+    local sdc="tests/cdc/basic/${name}.sdc"
     local golden="tests/cdc/golden/${name}.json"
     local out="$OUTDIR/${name}"
 
@@ -27,8 +28,16 @@ check_fixture() {
     expected_infos="$(grep -o '"expected_infos":[[:space:]]*[0-9]\+' "$golden" | grep -o '[0-9]\+')"
     expected_crossings="$(grep -o '"expected_crossings":[[:space:]]*[0-9]\+' "$golden" | grep -o '[0-9]\+')"
 
+    # Optional SDC companion: tests/cdc/basic/<name>.sdc is passed via --sdc
+    # when present. This lets fixtures exercise the SDC ingestion path
+    # without a separate runner entry point.
+    local -a sdc_args=()
+    if [ -f "$sdc" ]; then
+        sdc_args=(--sdc "$sdc")
+    fi
+
     set +e
-    "$BINARY" cdc --top "$top" "$sv" --format json -o "$out" >/dev/null 2>&1
+    "$BINARY" cdc --top "$top" "$sv" "${sdc_args[@]}" --format json -o "$out" >/dev/null 2>&1
     local exit_code=$?
     set -e
 
@@ -65,5 +74,11 @@ check_fixture "02_missing_sync" "missing_sync"
 check_fixture "03_two_ff_sync" "two_ff_sync"
 check_fixture "04_three_ff_sync" "three_ff_sync"
 check_fixture "05_comb_before_sync" "comb_before_sync"
+check_fixture "06_submodule_sync" "submodule_sync"
+check_fixture "07_handshake_req_ack" "handshake_req_ack"
+check_fixture "08_gray_fifo_ptr" "gray_fifo_ptr"
+check_fixture "09_pulse_sync" "pulse_sync"
+check_fixture "10_naming_no_false_clock" "naming_no_false_clock"
+check_fixture "11_sdc_async_groups" "sdc_async_groups"
 
 echo "=== All CDC golden tests passed ==="

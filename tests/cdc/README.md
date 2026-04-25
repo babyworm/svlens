@@ -33,6 +33,7 @@ anyway) on every rule.
 | `Ac_cdc03` | reconvergence (multiple bits, same domain pair) | `12_multi_crossing_mixed` (2 CAUT + 1 VIOL) | `29_neg_ac_cdc03_distinct_pairs` (Ac_cdc03 silent; fan-out CAUT fires instead) |
 | `Ac_cdc06` | reset CDC without 2-FF deassert chain | `19_missing_reset_sync` (1 CAUT) | `30_neg_ac_cdc06_synced_reset` (1 INFO) |
 | `Ac_cdc11` | source signal crosses to multiple async domains | `20_fanout_mixed_sync` (1 VIOL + 1 CAUT) | `03_two_ff_sync` (1 INFO, single dest) |
+| `Ac_cdc04` | wide-bus crossing without gray code or handshake | `15_bus_cdc_no_gray` (1 CAUT) | `32_neg_ac_cdc04_single_bit` (1 INFO) |
 
 The `27`-`30` fixtures are minimal mirrors of their positive
 counterparts -- same structural shape, just with the issue removed --
@@ -65,10 +66,24 @@ should land as INFO (recognised) when the pattern is legitimate.
 | `13_three_domain_chain` | A -> B -> C, two hops with 2-FF sync each |
 | `18_internal_reset_cdc` | async assert + 2-FF deassert chain |
 | `22_two_level_submodule_sync` | 2-level submodule depth + continuous-assign rename |
-| `23_packed_array_indexed` | per-bit 2-FF inside a generate-for |
-| `24_genfor_module_sync` | per-bit sync MODULE INSTANCE inside generate-for |
 | `25_nested_sync_clock_inherit` | 3-level clock-domain inheritance through wrappers |
-| `26_genfor_in_wrapper_clock_inherit` | clock domain inheritance through wrapper + generate-for |
+
+## Wide-bus crossings (Ac_cdc04)
+
+These fixtures use multi-bit registers crossing through plain
+TwoFF/ThreeFF chains. Even though each bit individually has a proper
+synchronizer, bits resolve metastability at different cycles, so the
+receiver can momentarily see intermediate values. svlens flags this
+as Ac_cdc04 ("wide-bus crossing without gray code or handshake").
+The legitimate fix is gray coding the bus or gating with a single-bit
+handshake -- see fixture 08 (gray_fifo_ptr) and 07 (handshake_req_ack).
+
+| Fixture | Pattern |
+|---------|---------|
+| `15_bus_cdc_no_gray` | 4-bit bus through per-bit 2-FF chain (1 CAUT Ac_cdc04) |
+| `23_packed_array_indexed` | per-bit 2-FF inside generate-for, no gray code (4 CAUT Ac_cdc04) |
+| `24_genfor_module_sync` | per-bit sync MODULE INSTANCE inside generate-for (4 CAUT Ac_cdc04) |
+| `26_genfor_in_wrapper_clock_inherit` | clock-inheritance + per-bit gen_sync (4 CAUT Ac_cdc04) |
 
 ## Codified detection limitations
 
@@ -78,8 +93,6 @@ fixture comment and the golden value.
 
 | Fixture | Current limitation |
 |---------|--------------------|
-| `15_bus_cdc_no_gray` | wide-bus crossing without gray code is collapsed into one logical crossing; per-bit skew not flagged |
-| `16_comb_between_domains` | combo-logic-before-sync is reported as Ac_cdc03 reconvergence rather than the more precise Ac_cdc02 rule |
 | `21_clock_mux` | `assign clk_mux = sel ? clk_a : clk_b;` is recognised as a third clock domain but the glitch hazard at the mux is not flagged |
 
 ### Shift-register-style synchronizer recognition (resolved)

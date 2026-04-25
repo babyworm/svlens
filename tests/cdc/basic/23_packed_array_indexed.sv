@@ -7,11 +7,15 @@
 //     sync u_sync (.serial_i(async_wptr[i]), .serial_o(synced[i]));
 //   end
 //
-// Expected (after generate-for fix): 0 violations, 4 cautions
-// (one per bit-slice crossing, all via Ac_cdc03 reconvergence because
-// the four bits share the same src_clk -> dst_clk domain pair),
-// 0 infos, 4 crossings. Each generate-for iteration produces its own
-// 2-FF sync chain that the connectivity tracker now traverses.
+// Expected: 0 violations, 4 cautions (rule Ac_cdc04 -- per-bit 2-FF
+//           sync of a wide bus without gray code or single-bit
+//           handshake; bits resolve metastability at different cycles
+//           and the receiver may see intermediate values), 0 infos,
+//           4 crossings.
+//
+// The connectivity tracker walks the generate-for and produces one
+// crossing per bit; the wide-bus rule then flags each because the
+// source register is multi-bit and not gray-coded.
 
 module packed_array_indexed (
     input  logic       src_clk,

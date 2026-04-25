@@ -7,10 +7,13 @@
 // This is the EXACT layering used by pulp-platform/common_cells/src/
 // cdc_fifo_gray_src and cdc_fifo_gray_dst with their per-bit `i_sync`.
 //
-// Expected (post-fix): the multi-bit register `data_src` is recognised
-// as the source, each bit's sync_cell flops are placed in the dst_clk
-// domain (NOT the literal clk_i), and the tool reports >=4 cross-clock
-// crossings (one per bit).
+// Expected: 0 violations, 4 cautions (rule Ac_cdc04 -- wide-bus
+//           crossing through per-bit 2-FF sync_cell without gray
+//           coding), 0 infos, 4 crossings.
+//
+// Post-Finding-4: each bit's sync_cell flop is placed in dst_clk
+// (not the literal clk_i port name), and the wide-bus rule flags the
+// 4-bit register as a per-bit-skew hazard.
 
 module genfor_in_wrapper_clock_inherit (
     input  logic       src_clk,

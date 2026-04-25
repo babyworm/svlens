@@ -7,13 +7,13 @@
 //     sync u_sync (.serial_i(async_ptr[i]), .serial_o(synced[i]));
 //   end
 //
-// Expected (after the genfor + module-instance fix): 0 violations,
-//           4 cautions (one per bit of wptr_q via Ac_cdc03 reconvergence
-//           because all bits share src_clk -> dst_clk), 0 infos,
-//           4 crossings. The connectivity tracker walks the
+// Expected: 0 violations, 4 cautions (rule Ac_cdc04 -- per-bit 2-FF
+//           sync MODULE INSTANCE of a wide bus without gray coding),
+//           0 infos, 4 crossings. The connectivity tracker walks the
 //           generate-for, enters each bit's sync_2ff submodule
-//           instance, and resolves the bit-select port connection
-//           back to the multi-bit register in the enclosing scope.
+//           instance, resolves the bit-select port connection back
+//           to the multi-bit register in the enclosing scope, and the
+//           wide-bus rule flags each per-bit crossing.
 
 module genfor_module_sync (
     input  logic       src_clk,

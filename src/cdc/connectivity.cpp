@@ -18,6 +18,7 @@
 #include "slang/ast/Statement.h"
 
 #include <algorithm>
+#include <cassert>
 
 namespace sv_cdccheck {
 
@@ -45,6 +46,16 @@ static std::string extractExprSignalName(const slang::ast::Expression& expr) {
         if (current->kind == EK::NamedValue) {
             return std::string(
                 current->as<slang::ast::NamedValueExpression>().symbol.name);
+        }
+        if (current->kind == EK::HierarchicalValue) {
+            // For hierarchical port connections like
+            // `.d_i(u_a.q)`, return the FULL hierarchical path so
+            // findFFByName can resolve the FFNode directly via
+            // output_map. Returning just the leaf name "q" would
+            // be ambiguous when multiple submodules share the
+            // same internal signal name.
+            return current->as<slang::ast::ValueExpressionBase>()
+                .symbol.getHierarchicalPath();
         }
         if (current->kind == EK::ElementSelect) {
             current = &current->as<slang::ast::ElementSelectExpression>().value();
@@ -199,6 +210,102 @@ static FFNode* findFFByName(
     if (it != output_map.end())
         return it->second;
 
+    // Try normalized forms for generate-array hier-refs:
+    // slang's `getHierarchicalPath()` uses `gen_blk[1]` syntax, but
+    // ff_classifier's `getExternalName()` flattens labeled genvar
+    // entries to `genblk1` (drop label-internal underscores AND
+    // brackets). Without this normalization, hierarchical reads
+    // into labeled generate-array entries fall through to the slow
+    // suffix scan or are lost entirely.
+    if (sig_name.find('[') != std::string::npos) {
+        // Variant A: drop brackets only -> "gen_blk1"
+        std::string no_brackets;
+        no_brackets.reserve(sig_name.size());
+        for (char c : sig_name) {
+            if (c != '[' && c != ']')
+                no_brackets.push_back(c);
+        }
+        // Variant B: ALSO drop underscores inside any alphanumeric
+        // segment that ends in digits -> "gen_blk1" -> "genblk1".
+        // We process per-segment (split by '.') so module-level
+        // underscores like "gar_top" or "u_sub" are preserved.
+        std::string flattened;
+        flattened.reserve(no_brackets.size());
+        size_t seg_start = 0;
+        for (size_t i = 0; i <= no_brackets.size(); ++i) {
+            if (i == no_brackets.size() || no_brackets[i] == '.') {
+                std::string seg = no_brackets.substr(seg_start, i - seg_start);
+                bool ends_in_digit = !seg.empty() &&
+                    std::isdigit(static_cast<unsigned char>(seg.back()));
+                if (ends_in_digit) {
+                    // Strip underscores between letters in this segment
+                    std::string compact;
+                    compact.reserve(seg.size());
+                    for (size_t j = 0; j < seg.size(); ++j) {
+                        char c = seg[j];
+                        if (c == '_' && j > 0 && j + 1 < seg.size() &&
+                            std::isalpha(static_cast<unsigned char>(seg[j - 1])) &&
+                            std::isalpha(static_cast<unsigned char>(seg[j + 1]))) {
+                            continue;
+                        }
+                        compact.push_back(c);
+                    }
+                    flattened += compact;
+                } else {
+                    flattened += seg;
+                }
+                if (i < no_brackets.size()) flattened.push_back('.');
+                seg_start = i + 1;
+            }
+        }
+        it = output_map.find(no_brackets);
+        if (it != output_map.end()) return it->second;
+        it = output_map.find(flattened);
+        if (it != output_map.end()) return it->second;
+
+        // Last resort: parent-prefix + index-N + leaf suffix scan.
+        // Slang's `getExternalName()` may reuse `genblk<N>` even when
+        // the source label is `: gen_2stage` (digit-medial label
+        // names trigger this fallback). Walk output_map for entries
+        // whose path = `<parent>.<anything><N>.<leaf>`.
+        size_t bracket_open = sig_name.find('[');
+        size_t bracket_close = sig_name.find(']', bracket_open);
+        if (bracket_open != std::string::npos &&
+            bracket_close != std::string::npos &&
+            bracket_close > bracket_open + 1) {
+            // Parent prefix: everything up to the dot before the
+            // generate label that owns the index.
+            size_t label_dot = sig_name.rfind('.', bracket_open);
+            if (label_dot != std::string::npos) {
+                std::string parent_prefix = sig_name.substr(0, label_dot + 1);
+                std::string idx = sig_name.substr(
+                    bracket_open + 1, bracket_close - bracket_open - 1);
+                std::string suffix = sig_name.substr(bracket_close + 1);
+                // Pattern: starts with parent_prefix, ends with
+                // `<idx>` + suffix (e.g., "1.q_inner"), with any
+                // alphanumeric label in between.
+                std::string idx_suffix = idx + suffix;
+                for (auto& [path, ff] : output_map) {
+                    if (!path.starts_with(parent_prefix)) continue;
+                    if (!path.ends_with(idx_suffix)) continue;
+                    // Architect Round 11 hardening: ensure the
+                    // matched path has exactly ONE label segment
+                    // between parent_prefix and idx_suffix. Without
+                    // this guard, a nested generate at a deeper
+                    // scope could collide via the same suffix
+                    // pattern.
+                    size_t middle_start = parent_prefix.size();
+                    size_t middle_end = path.size() - idx_suffix.size();
+                    if (middle_end <= middle_start) continue;
+                    auto middle = std::string_view(path).substr(
+                        middle_start, middle_end - middle_start);
+                    if (middle.find('.') != std::string_view::npos) continue;
+                    return ff;
+                }
+            }
+        }
+    }
+
     // Try direct wire_map lookup: sig_name is a local wire driven by a child FF output
     // (e.g., top-level always_ff reads wire_ab which is connected to u_a.q's output)
     auto wit = wire_map.find(sig_name);
@@ -212,6 +319,15 @@ static FFNode* findFFByName(
     auto pit = port_map.find(current);
     if (pit != port_map.end()) {
         current = pit->second;
+        // If port_map produced a fully hierarchical path (e.g., a
+        // hierarchical port connection like `.d_i(u_a.q)` whose
+        // extractExprSignalName resolved to `top.u_a.q`), try a
+        // direct output_map lookup before any further qualification.
+        if (current.find('.') != std::string::npos) {
+            it = output_map.find(current);
+            if (it != output_map.end())
+                return it->second;
+        }
         // Try wire_map / output_map at each ancestor level.
         auto wit_local = wire_map.find(current);
         if (wit_local != wire_map.end())
@@ -235,6 +351,19 @@ static FFNode* findFFByName(
         // collected at that level) to chase internal-wire renames such
         // as the OpenTitan prim_flop_2sync `always_comb d_o = d_i;`
         // pattern.
+        // Invariant guard: g_parent_cont_chain and parent_port_chain
+        // are two parallel stacks pushed/popped at separate call
+        // sites in processInstanceEdges and processScopeForEdges.
+        // The cidx walk below assumes one entry of cont-assigns per
+        // entry of port-chain. If the parallel push/pop ever
+        // diverges, the index arithmetic silently reads a wrong
+        // ancestor's cont-assigns. Assert the invariant here so any
+        // future refactor that breaks it surfaces in tests instead
+        // of producing silent misclassification. The "or empty"
+        // branch lets the no-ancestor case (root-level call) pass.
+        // (Code-reviewer Round 12 #4.)
+        assert((g_parent_cont_chain.size() == parent_port_chain.size()) ||
+               g_parent_cont_chain.empty());
         size_t cidx = g_parent_cont_chain.size();
         for (auto rit = parent_port_chain.rbegin();
              rit != parent_port_chain.rend(); ++rit) {
@@ -268,16 +397,21 @@ static FFNode* findFFByName(
         }
     }
 
-    // Try matching by suffix in the same parent scope
+    // Try matching by suffix in the same parent scope. Hoist the
+    // concatenated prefix / suffix strings out of the loop and add
+    // a length pre-check so paths that cannot possibly match are
+    // skipped without any allocation. (Code-reviewer Round 12 #2.)
     std::string parent_path;
     auto last_dot = inst_path.rfind('.');
     if (last_dot != std::string::npos) {
         parent_path = inst_path.substr(0, last_dot);
+        std::string prefix = parent_path + ".";
+        std::string suffix = "." + sig_name;
+        size_t min_len = prefix.size() + sig_name.size() + 1;
         for (auto& [path, ff] : output_map) {
-            if (path.starts_with(parent_path + ".") &&
-                path.ends_with("." + sig_name)) {
+            if (path.size() < min_len) continue;
+            if (path.starts_with(prefix) && path.ends_with(suffix))
                 return ff;
-            }
         }
     }
 

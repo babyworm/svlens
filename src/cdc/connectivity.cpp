@@ -298,6 +298,128 @@ static void resolveToFFs(
 }
 
 // Recursive: process an instance and its children for FF-to-FF edges
+// Forward declaration: walk a Scope (InstanceBody, GenerateBlockSymbol, ...)
+// looking for procedural blocks and recursing into nested generate blocks.
+// Reuses the surrounding instance's port_map / wire_map / cont_assigns since
+// generate blocks share scope with their enclosing module body.
+static void processScopeForEdges(
+    const slang::ast::Scope& scope,
+    const slang::ast::InstanceSymbol& enclosing_inst,
+    const std::string& path_prefix,
+    const std::unordered_map<std::string, FFNode*>& output_map,
+    const std::unordered_map<std::string, FFNode*>& combined_wire_map,
+    std::vector<FFEdge>& edges,
+    const std::vector<std::pair<std::unordered_map<std::string, std::string>,
+                                std::string>>& parent_port_chain,
+    const std::unordered_map<std::string, std::string>& enclosing_port_map,
+    const std::unordered_map<std::string, std::vector<std::string>>& cont_assigns);
+
+static void processGenerateBlocks(
+    const slang::ast::Scope& scope,
+    const slang::ast::InstanceSymbol& enclosing_inst,
+    const std::string& inst_path,
+    const std::unordered_map<std::string, FFNode*>& output_map,
+    const std::unordered_map<std::string, FFNode*>& combined_wire_map,
+    std::vector<FFEdge>& edges,
+    const std::vector<std::pair<std::unordered_map<std::string, std::string>,
+                                std::string>>& parent_port_chain,
+    const std::unordered_map<std::string, std::string>& enclosing_port_map,
+    const std::unordered_map<std::string, std::vector<std::string>>& cont_assigns)
+{
+    for (auto& member : scope.members()) {
+        if (member.kind == slang::ast::SymbolKind::GenerateBlock) {
+            auto& gen = member.as<slang::ast::GenerateBlockSymbol>();
+            if (gen.isUninstantiated) continue;
+            std::string gen_name = gen.getExternalName();
+            std::string gen_path = inst_path;
+            if (!gen_name.empty())
+                gen_path = inst_path + "." + gen_name;
+            processScopeForEdges(gen, enclosing_inst, gen_path, output_map,
+                                 combined_wire_map, edges, parent_port_chain,
+                                 enclosing_port_map, cont_assigns);
+        }
+        if (member.kind == slang::ast::SymbolKind::GenerateBlockArray) {
+            auto& arr = member.as<slang::ast::GenerateBlockArraySymbol>();
+            for (auto* entry : arr.entries) {
+                if (!entry || entry->isUninstantiated) continue;
+                std::string entry_name = entry->getExternalName();
+                if (entry_name.empty())
+                    entry_name = std::string(arr.name);
+                std::string entry_path = inst_path + "." + entry_name;
+                processScopeForEdges(*entry, enclosing_inst, entry_path,
+                                     output_map, combined_wire_map, edges,
+                                     parent_port_chain, enclosing_port_map,
+                                     cont_assigns);
+            }
+        }
+    }
+}
+
+static void processScopeForEdges(
+    const slang::ast::Scope& scope,
+    const slang::ast::InstanceSymbol& enclosing_inst,
+    const std::string& path_prefix,
+    const std::unordered_map<std::string, FFNode*>& output_map,
+    const std::unordered_map<std::string, FFNode*>& combined_wire_map,
+    std::vector<FFEdge>& edges,
+    const std::vector<std::pair<std::unordered_map<std::string, std::string>,
+                                std::string>>& parent_port_chain,
+    const std::unordered_map<std::string, std::string>& enclosing_port_map,
+    const std::unordered_map<std::string, std::vector<std::string>>& cont_assigns)
+{
+    for (auto& body_member : scope.members()) {
+        if (body_member.kind == slang::ast::SymbolKind::ProceduralBlock) {
+            auto& block = body_member.as<slang::ast::ProceduralBlockSymbol>();
+            if (block.procedureKind != slang::ast::ProceduralBlockKind::AlwaysFF &&
+                block.procedureKind != slang::ast::ProceduralBlockKind::Always)
+                continue;
+            auto& body = block.getBody();
+            std::vector<AssignInfo> assignments;
+            collectAssignments(body, assignments);
+            for (auto& assign : assignments) {
+                FFNode* dest = findFFByName(assign.lhs_name, path_prefix,
+                                            output_map, enclosing_port_map,
+                                            combined_wire_map, parent_port_chain);
+                if (!dest) continue;
+                for (auto& rhs_sig : assign.rhs_signals) {
+                    FFNode* source = findFFByName(rhs_sig, path_prefix,
+                                                  output_map, enclosing_port_map,
+                                                  combined_wire_map,
+                                                  parent_port_chain);
+                    if (source && source != dest) {
+                        FFEdge edge;
+                        edge.source = source;
+                        edge.dest = dest;
+                        edge.comb_path = assign.rhs_signals;
+                        edges.push_back(edge);
+                    } else if (!source) {
+                        std::vector<FFNode*> resolved;
+                        bool has_comb = false;
+                        resolveToFFs(rhs_sig, path_prefix, output_map,
+                                     enclosing_port_map, combined_wire_map,
+                                     cont_assigns, resolved, has_comb, 0,
+                                     parent_port_chain);
+                        for (auto* src : resolved) {
+                            if (src && src != dest) {
+                                FFEdge edge;
+                                edge.source = src;
+                                edge.dest = dest;
+                                edge.comb_path = assign.rhs_signals;
+                                edge.has_comb_logic = has_comb;
+                                edges.push_back(edge);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Recurse into nested generate blocks.
+    processGenerateBlocks(scope, enclosing_inst, path_prefix, output_map,
+                          combined_wire_map, edges, parent_port_chain,
+                          enclosing_port_map, cont_assigns);
+}
+
 static void processInstanceEdges(
     const slang::ast::InstanceSymbol& inst,
     const std::string& inst_path,
@@ -388,6 +510,17 @@ static void processInstanceEdges(
                                  edges, child_chain);
         }
     }
+
+    // Walk generate blocks at this instance level. slang elaborates a
+    // `for (genvar i = 0; i < N; i++) begin : gen_x ... end` block into a
+    // GenerateBlockArray containing N GenerateBlockSymbol entries; each
+    // entry is itself a Scope holding its own procedural blocks and any
+    // child module instances. The CDC connectivity tracker needs to walk
+    // those blocks too -- otherwise per-bit synchronizers built with a
+    // generate-for (the canonical cdc_fifo_gray pattern) are invisible.
+    processGenerateBlocks(inst.body, inst, inst_path, output_map,
+                          combined_wire_map, edges, parent_port_chain,
+                          port_map, cont_assigns);
 }
 
 void ConnectivityBuilder::findFFtoFFEdges(

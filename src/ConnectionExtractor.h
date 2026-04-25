@@ -25,6 +25,12 @@ private:
         std::vector<std::string> netNames;
         bool approximate = false;
         bool tieOff = false;
+        // Round 30 US-R05: when true, netNames hold absolute hier
+        // paths (e.g. "top.iface_inst.signal") that should bypass the
+        // scopePath prefix when forming netMap_ keys. Used by modport
+        // member access where the expansion side keys at the same
+        // absolute path so endpoints rendezvous.
+        bool is_absolute = false;
     };
 
     void visitInstance(const slang::ast::InstanceSymbol& instance,

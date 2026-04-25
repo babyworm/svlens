@@ -114,23 +114,35 @@ TEST_CASE("Extractor: procedural always_comb glue creates an approximate alias c
     CHECK(foundApproximateProceduralConnection);
 }
 
-TEST_CASE("Extractor: modport connections create approximate interface links", "[extractor][modport]") {
+TEST_CASE("Extractor: modport connections create interface links", "[extractor][modport]") {
     auto result = compileFile("sv/interface_modport.sv");
     REQUIRE(result);
 
     ConnectionExtractor extractor(*result.compilation, "interface_modport");
     auto graph = extractor.extract();
 
+    // Round 30 US-R05: modport-expanded connections now include both
+    // the legacy Approximate edge (keyed by scope::ifaceInst.signal)
+    // AND a new Direct edge (keyed by the underlying signal's
+    // absolute hier path) so consumer-side modport member access can
+    // rendezvous on the same key. The test ensures interface links
+    // are still produced; per-edge kind is no longer asserted here
+    // because both kinds coexist by design.
     bool foundInterfaceLink = false;
+    bool foundApproximate = false;
     for (const auto& conn : graph.connections) {
         if (conn.source.instancePath == "interface_modport.u_prod" &&
             conn.dest.instancePath == "interface_modport.u_cons") {
             foundInterfaceLink = true;
-            CHECK(conn.kind == ConnectionKind::Approximate);
+            if (conn.kind == ConnectionKind::Approximate)
+                foundApproximate = true;
         }
     }
 
     CHECK(foundInterfaceLink);
+    // Legacy Approximate edge preserved -- the abs-path Direct entry
+    // is additive, not a replacement.
+    CHECK(foundApproximate);
 }
 
 TEST_CASE("Extractor: interface modport produces per-signal edges", "[extractor][interface]") {

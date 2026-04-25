@@ -119,9 +119,52 @@ ConnectionExtractor::ResolvedExpr ConnectionExtractor::resolveExpr(
             result.netNames.push_back(std::string(named.symbol.name));
             return result;
         }
+        case slang::ast::ExpressionKind::HierarchicalValue: {
+            // Round 30 US-R05: slang represents `bus.data` (modport
+            // member access through an interface port) as a
+            // HierarchicalValueExpression whose .symbol is the
+            // ModportPortSymbol. The hier path of that symbol goes
+            // through the modport scope (e.g. "top.inst.slave.data"),
+            // which doesn't match the modport-expansion side that keys
+            // by the underlying signal's hier path ("top.inst.data").
+            // When the referenced symbol IS a ModportPort, follow
+            // internalSymbol -> the underlying signal -> its hier path
+            // so both sides rendezvous on the same absolute key.
+            auto& hier = expr->as<slang::ast::HierarchicalValueExpression>();
+            std::string hp;
+            if (hier.symbol.kind == slang::ast::SymbolKind::ModportPort) {
+                auto& mpp = hier.symbol.as<slang::ast::ModportPortSymbol>();
+                if (mpp.internalSymbol)
+                    hp = mpp.internalSymbol->getHierarchicalPath();
+            }
+            if (hp.empty())
+                hp = hier.symbol.getHierarchicalPath();
+            if (!hp.empty()) {
+                result.netNames.push_back(hp);
+                result.is_absolute = true;
+            } else {
+                result.netNames.push_back(std::string(hier.symbol.name));
+            }
+            return result;
+        }
         case slang::ast::ExpressionKind::ArbitrarySymbol: {
             auto& symbolExpr = expr->as<slang::ast::ArbitrarySymbolExpression>();
-            result.netNames.push_back(std::string(symbolExpr.symbol->name));
+            // Round 30 US-R05: when the symbol resolves through an
+            // interface modport access (slang collapses `bus.data` into
+            // a direct symbol reference rather than a MemberAccess), the
+            // bare leaf name "data" loses cross-instance disambiguation.
+            // If the symbol has a non-empty hier path AND it lives under
+            // an interface instance (i.e. its hier path is longer than
+            // its leaf name), promote to absolute-path netName so the
+            // modport-expansion side rendezvous via the same key.
+            std::string leaf{symbolExpr.symbol->name};
+            std::string hp = symbolExpr.symbol->getHierarchicalPath();
+            if (!hp.empty() && hp != leaf) {
+                result.netNames.push_back(hp);
+                result.is_absolute = true;
+            } else {
+                result.netNames.push_back(leaf);
+            }
             return result;
         }
         case slang::ast::ExpressionKind::Conversion: {
@@ -160,6 +203,21 @@ ConnectionExtractor::ResolvedExpr ConnectionExtractor::resolveExpr(
         }
         case slang::ast::ExpressionKind::MemberAccess: {
             auto& access = expr->as<slang::ast::MemberAccessExpression>();
+            // Round 30 US-R05: ModportPort access where internalSymbol
+            // is known -- emit the underlying signal's absolute hier
+            // path as the netName. The modport-expansion side emits a
+            // matching abs-path entry into netMap_ so the connection
+            // forms (same key on both sides). Keep approximate=false
+            // so WidthChecker can compare widths.
+            if (access.member.kind == slang::ast::SymbolKind::ModportPort) {
+                auto& mpp = access.member.as<slang::ast::ModportPortSymbol>();
+                if (mpp.internalSymbol) {
+                    ResolvedExpr r;
+                    r.netNames.push_back(mpp.internalSymbol->getHierarchicalPath());
+                    r.is_absolute = true;
+                    return r;
+                }
+            }
             result = resolveExpr(&access.value());
             if (access.member.kind == slang::ast::SymbolKind::Modport ||
                 access.member.kind == slang::ast::SymbolKind::ModportPort) {
@@ -369,6 +427,13 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
                     graph_.connectedPorts.insert(signalPort.fullPath());
 
                     // Map to per-signal net key: scopePath::ifaceInst.signalName
+                    // PLUS, when modportPort.internalSymbol is known, also
+                    // emit at the underlying signal's absolute hier path so
+                    // a consumer-side MemberAccess(ModportPort) resolveExpr
+                    // (which returns that abs path under Round 30 US-R05)
+                    // pairs into the same netMap entry. Direct kind on the
+                    // abs-path entry permits WidthChecker to fire when the
+                    // consumer-side port width differs.
                     if (!ifaceInstName.empty()) {
                         std::string netKey = scopePath + "::" + ifaceInstName +
                                              "." + std::string(modportPort.name);
@@ -379,6 +444,17 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
                         } else {
                             bool isDriver = (signalPort.direction == slang::ast::ArgumentDirection::Out);
                             netMap_[netKey].push_back({signalPort, isDriver, ConnectionKind::Approximate});
+                        }
+
+                        if (modportPort.internalSymbol) {
+                            std::string absKey = modportPort.internalSymbol->getHierarchicalPath();
+                            if (signalPort.direction == slang::ast::ArgumentDirection::InOut) {
+                                netMap_[absKey].push_back({signalPort, true, ConnectionKind::Direct});
+                                netMap_[absKey].push_back({signalPort, false, ConnectionKind::Direct});
+                            } else {
+                                bool isDriver = (signalPort.direction == slang::ast::ArgumentDirection::Out);
+                                netMap_[absKey].push_back({signalPort, isDriver, ConnectionKind::Direct});
+                            }
                         }
                     }
                 }
@@ -411,7 +487,9 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
             : ConnectionKind::Direct;
 
         for (const auto& netName : resolved.netNames) {
-            std::string netKey = scopePath + "::" + netName;
+            std::string netKey = resolved.is_absolute
+                ? netName
+                : (scopePath + "::" + netName);
 
             if (pinfo.direction == slang::ast::ArgumentDirection::InOut) {
                 netMap_[netKey].push_back({pinfo, true, kind});   // driver

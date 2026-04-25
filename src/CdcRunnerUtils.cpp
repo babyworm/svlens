@@ -12,11 +12,70 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <unordered_set>
+
+#include <yaml-cpp/yaml.h>
 
 namespace fs = std::filesystem;
 
 namespace cdccli {
+
+namespace {
+
+// Built-in defaults for the safe-cell registry. Extended with the
+// user-supplied --sync-cell / --glitch-free-mux-cell entries and any
+// names from --cdc-config <yaml>.
+const std::unordered_set<std::string>& defaultSafeMuxCells() {
+    static const std::unordered_set<std::string> kCells = {
+        "BUFGCTRL",            // Xilinx 7-series glitch-free clock mux
+        "BUFGMUX",             // Xilinx Spartan-style mux
+        "ICG_MUX",             // generic ASIC ICG-based mux primitive
+        "prim_clock_mux2",     // OpenTitan prim
+        "pulp_clock_mux2",     // pulp-platform prim
+        "pulp_clock_inverter"
+    };
+    return kCells;
+}
+
+const std::unordered_set<std::string>& defaultSafeSyncCells() {
+    static const std::unordered_set<std::string> kCells = {
+        "prim_flop_2sync",     // OpenTitan prim
+        "prim_pulse_sync",
+        "sync",                // pulp-platform common_cells
+        "sync_2ff",            // generic 2-flop synchroniser
+        "sync_3ff"
+    };
+    return kCells;
+}
+
+// Load a CDC YAML config: top-level `sync_cells: [...]` and
+// `glitch_free_mux_cells: [...]` lists. Missing keys are tolerated.
+// Errors are reported once and otherwise ignored so a bad config does
+// not block the run.
+void loadCdcConfigFile(const std::string& path,
+                      std::unordered_set<std::string>& mux_out,
+                      std::unordered_set<std::string>& sync_out)
+{
+    if (path.empty()) return;
+    try {
+        YAML::Node root = YAML::LoadFile(path);
+        if (root["glitch_free_mux_cells"]) {
+            for (const auto& v : root["glitch_free_mux_cells"])
+                mux_out.insert(v.as<std::string>());
+        }
+        if (root["sync_cells"]) {
+            for (const auto& v : root["sync_cells"])
+                sync_out.insert(v.as<std::string>());
+        }
+    } catch (const std::exception& ex) {
+        std::cerr << "svlens cdc: warning: could not parse --cdc-config: "
+                  << ex.what() << "\n";
+    }
+}
+
+} // namespace
 
 sv_cdccheck::AnalysisResult analyzeCdcCompilation(slang::ast::Compilation& compilation,
                                                   const CdcCliOptions& opts) {
@@ -28,6 +87,22 @@ sv_cdccheck::AnalysisResult analyzeCdcCompilation(slang::ast::Compilation& compi
 
     sv_cdccheck::ClockDatabase clockDb;
     sv_cdccheck::ClockTreeAnalyzer clockAnalyzer(compilation, clockDb);
+
+    // Build the safe-cell registry: built-in defaults ∪ --sync-cell /
+    // --glitch-free-mux-cell flags ∪ contents of --cdc-config YAML.
+    {
+        std::unordered_set<std::string> safe_mux = defaultSafeMuxCells();
+        std::unordered_set<std::string> safe_sync = defaultSafeSyncCells();
+        for (auto& n : opts.userGlitchFreeMuxCells) safe_mux.insert(n);
+        for (auto& n : opts.userSyncCells) safe_sync.insert(n);
+        loadCdcConfigFile(opts.cdcConfigFile, safe_mux, safe_sync);
+        clockAnalyzer.setSafeMuxCells(safe_mux);
+        clockAnalyzer.setSafeSyncCells(safe_sync);
+        if (opts.verbose) {
+            std::cout << "  Safe glitch-free mux cells: " << safe_mux.size() << "\n";
+            std::cout << "  Safe sync cells: " << safe_sync.size() << "\n";
+        }
+    }
 
     std::vector<sv_cdccheck::SdcFalsePath> sdcFalsePaths;
     if (!opts.sdcFile.empty()) {
@@ -54,6 +129,8 @@ sv_cdccheck::AnalysisResult analyzeCdcCompilation(slang::ast::Compilation& compi
     }
 
     clockAnalyzer.analyze();
+    if (opts.checkClockMux)
+        clockAnalyzer.detectUnsafeCombClocks();
 
     if (opts.verbose) {
         std::cout << "  Clock sources: " << clockDb.sources.size() << "\n";
@@ -81,6 +158,34 @@ sv_cdccheck::AnalysisResult analyzeCdcCompilation(slang::ast::Compilation& compi
         detector.setFalsePaths(sdcFalsePaths);
     detector.analyze();
     auto crossings = detector.getCrossings();
+
+    // Emit Ac_cdc05 violations for any flop using a comb-driven (unsafe)
+    // clock. Each flop in such a domain gets a structural violation
+    // independent of any FF-to-FF crossing. The corresponding clock
+    // source has already been marked by detectUnsafeCombClocks() above.
+    if (opts.checkClockMux) {
+        int ac05_counter = 0;
+        for (const auto& ff : classifier->getFFNodes()) {
+            if (!ff || !ff->domain || !ff->domain->source) continue;
+            if (!ff->domain->source->is_unsafe_comb_clock) continue;
+            sv_cdccheck::CrossingReport r;
+            r.id = "VIOLATION-CLKMUX-" + std::to_string(++ac05_counter);
+            r.category = sv_cdccheck::ViolationCategory::Violation;
+            r.severity = sv_cdccheck::Severity::High;
+            r.source_signal = ff->domain->source->origin_signal;
+            r.dest_signal = ff->hier_path;
+            r.dest_domain = ff->domain;
+            r.sync_type = sv_cdccheck::SyncType::None;
+            r.rule = "Ac_cdc05";
+            r.recommendation = "[Ac_cdc05] Flop clock is driven by a "
+                "combinational expression. Use a glitch-free clock mux "
+                "primitive (e.g. BUFGCTRL / ICG_MUX / prim_clock_mux2) "
+                "or declare the mux output as an SDC generated clock. "
+                "User-configurable safe-cell list: --glitch-free-mux-cell "
+                "<name> or --cdc-config <yaml>.";
+            crossings.push_back(std::move(r));
+        }
+    }
 
     sv_cdccheck::SyncVerifier verifier(crossings, classifier->getFFNodes(),
                                        connectivity.getEdges(), &clockDb);

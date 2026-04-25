@@ -31,8 +31,26 @@ public:
     /// Optionally load SDC constraints before analysis
     void loadSdc(const SdcConstraints& sdc);
 
+    /// Configure the safe-cell registry used by the Ac_cdc05 detector.
+    /// Each set is matched against the slang Definition.name of the
+    /// instance driving a clock signal. The default (empty) sets cause
+    /// every comb-driven clock to be flagged.
+    void setSafeMuxCells(const std::unordered_set<std::string>& names) {
+        safe_mux_cells_ = names;
+    }
+    void setSafeSyncCells(const std::unordered_set<std::string>& names) {
+        safe_sync_cells_ = names;
+    }
+
     /// Run full clock tree analysis
     void analyze();
+
+    /// Walk continuous assigns in every instance and mark any clock
+    /// source whose origin signal is driven by a combinational mux /
+    /// conditional / boolean expression as `is_unsafe_comb_clock`,
+    /// unless the LHS is driven by an instance whose definition name
+    /// is in safe_mux_cells_.
+    void detectUnsafeCombClocks();
 
     // ── Helpers (public for testability) ──
 
@@ -46,6 +64,8 @@ private:
     slang::ast::Compilation& compilation_;
     ClockDatabase& clock_db_;
     std::optional<SdcConstraints> sdc_;
+    std::unordered_set<std::string> safe_mux_cells_;
+    std::unordered_set<std::string> safe_sync_cells_;
 
     // ── Phase 1a: Source identification ──
 

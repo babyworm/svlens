@@ -36,6 +36,11 @@ void cdccli::printCdcUsage() {
         "  --strict                Treat CAUTION as VIOLATION in exit code\n"
         "  --ignore-gated          Skip gated-clock crossings (Severity::Low) from report\n"
         "  --auto-clocks           Auto-detect clocks (default, for spec compliance)\n"
+        "  --no-check-clock-mux    Disable Ac_cdc05 clock-mux glitch detection\n"
+        "  --sync-cell <name>      Treat instances of <name> as opaque safe synchronizers (repeatable)\n"
+        "  --glitch-free-mux-cell <name>\n"
+        "                          Treat instances of <name> as glitch-free clock muxes (repeatable)\n"
+        "  --cdc-config <file>     YAML config with sync_cells / glitch_free_mux_cells lists\n"
         "  -v, --verbose           Detailed output\n"
         "  -q, --quiet             Only violations and summary\n\n"
         "Examples:\n"
@@ -100,6 +105,16 @@ cdccli::CdcCliOptions cdccli::parseCdcArgs(int argc, const char* const* argv,
             opts.ignoreGated = true;
         else if (arg == "--auto-clocks")
             opts.autoClocks = true;
+        else if (arg == "--no-check-clock-mux")
+            opts.checkClockMux = false;
+        else if (arg == "--check-clock-mux")
+            opts.checkClockMux = true;
+        else if (arg == "--sync-cell" && i + 1 < argc)
+            opts.userSyncCells.emplace_back(argv[++i]);
+        else if (arg == "--glitch-free-mux-cell" && i + 1 < argc)
+            opts.userGlitchFreeMuxCells.emplace_back(argv[++i]);
+        else if (arg == "--cdc-config" && i + 1 < argc)
+            opts.cdcConfigFile = argv[++i];
         else if (arg == "-q" || arg == "--quiet")
             opts.quiet = true;
         else if (arg == "-v" || arg == "--verbose")

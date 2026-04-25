@@ -29,15 +29,32 @@ check_fixture() {
     expected_crossings="$(grep -o '"expected_crossings":[[:space:]]*[0-9]\+' "$golden" | grep -o '[0-9]\+')"
 
     # Optional SDC companion: tests/cdc/basic/<name>.sdc is passed via --sdc
-    # when present. This lets fixtures exercise the SDC ingestion path
-    # without a separate runner entry point.
+    # when present.
     local -a sdc_args=()
     if [ -f "$sdc" ]; then
         sdc_args=(--sdc "$sdc")
     fi
 
+    # Optional flags sidecar: tests/cdc/basic/<name>.flags is read into
+    # an array of additional arguments. One whitespace-separated token
+    # per line; lines starting with `#` are comments. Lets fixtures
+    # opt into rule-specific runner flags (e.g. --glitch-free-mux-cell)
+    # without bloating every fixture invocation.
+    local flags_file="tests/cdc/basic/${name}.flags"
+    local -a extra_flags=()
+    if [ -f "$flags_file" ]; then
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            case "$line" in \#*) continue ;; esac
+            for token in $line; do
+                extra_flags+=("$token")
+            done
+        done < "$flags_file"
+    fi
+
     set +e
-    "$BINARY" cdc --top "$top" "$sv" "${sdc_args[@]}" --format json -o "$out" >/dev/null 2>&1
+    "$BINARY" cdc --top "$top" "$sv" "${sdc_args[@]}" "${extra_flags[@]}" \
+        --format json -o "$out" >/dev/null 2>&1
     local exit_code=$?
     set -e
 
@@ -102,5 +119,7 @@ check_fixture "30_neg_ac_cdc06_synced_reset" "neg_ac_cdc06_synced_reset"
 check_fixture "31_parameter_type_genfor_sync" "parameter_type_genfor_sync"
 check_fixture "32_neg_ac_cdc04_single_bit" "neg_ac_cdc04_single_bit"
 check_fixture "33_always_comb_sync_chain" "always_comb_sync_chain"
+check_fixture "34_neg_ac_cdc05_safe_mux_cell" "neg_ac_cdc05_safe_mux_cell"
+check_fixture "35_neg_ac_cdc05_sdc_clock_mux" "neg_ac_cdc05_sdc_clock_mux"
 
 echo "=== All CDC golden tests passed ==="

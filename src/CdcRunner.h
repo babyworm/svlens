@@ -15,6 +15,7 @@ struct CdcCliOptions {
     std::string clockYamlFile;
     std::string waiverFile;
     std::string dumpGraphFile;
+    std::string cdcConfigFile;  // YAML config for safe-cell registry (--cdc-config)
     int syncStages = 2;
     bool strict = false;
     bool quiet = false;
@@ -23,6 +24,11 @@ struct CdcCliOptions {
     bool autoClocks = false;
     bool showHelp = false;
     bool showVersion = false;
+    bool checkClockMux = true;  // Ac_cdc05 default-on; --no-check-clock-mux disables
+    // User-supplied safe-cell module names. Merged with the built-in
+    // defaults inside CdcRunner. Empty by default.
+    std::vector<std::string> userSyncCells;
+    std::vector<std::string> userGlitchFreeMuxCells;
     std::string parseError;
 };
 

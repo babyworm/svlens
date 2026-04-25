@@ -1,6 +1,8 @@
 #include "sv-cdccheck/clock_tree.h"
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
 #include "slang/ast/symbols/BlockSymbols.h"
+#include "slang/ast/symbols/MemberSymbols.h"
+#include "slang/ast/symbols/PortSymbols.h"
 #include "slang/ast/TimingControl.h"
 #include "slang/ast/statements/MiscStatements.h"
 #include "slang/ast/expressions/MiscExpressions.h"
@@ -24,6 +26,120 @@ ClockTreeAnalyzer::ClockTreeAnalyzer(slang::ast::Compilation& compilation,
 
 void ClockTreeAnalyzer::loadSdc(const SdcConstraints& sdc) {
     sdc_ = sdc;
+}
+
+// ── Ac_cdc05: comb-driven clock detector ──
+
+namespace {
+
+bool isCombDriverExpr(const slang::ast::Expression& expr) {
+    using EK = slang::ast::ExpressionKind;
+    const auto* current = &expr;
+    while (current->kind == EK::Conversion)
+        current = &current->as<slang::ast::ConversionExpression>().operand();
+    return current->kind == EK::ConditionalOp ||
+           current->kind == EK::BinaryOp ||
+           current->kind == EK::UnaryOp;
+}
+
+void scanInstanceForUnsafeClockDrivers(
+    const slang::ast::InstanceSymbol& inst,
+    ClockDatabase& clock_db,
+    const std::unordered_set<std::string>& safe_mux_cells)
+{
+    // Build a set of "clock signal names" we are watching for.
+    std::unordered_set<std::string> clock_signals;
+    for (auto& src : clock_db.sources) {
+        if (!src->origin_signal.empty()) {
+            std::string leaf = src->origin_signal;
+            auto dot = leaf.rfind('.');
+            if (dot != std::string::npos)
+                leaf = leaf.substr(dot + 1);
+            clock_signals.insert(leaf);
+            clock_signals.insert(src->origin_signal);
+            clock_signals.insert(src->name);
+        }
+    }
+
+    // Track wires driven by safe-cell instance outputs so we do NOT flag
+    // them even if a continuous assign cosmetically looks like a comb.
+    // Catches `BUFGCTRL u_mux (.O(clk_mux), ...);` where clk_mux later
+    // drives flops.
+    std::unordered_set<std::string> safe_driven_wires;
+    for (auto& member : inst.body.members()) {
+        if (member.kind != slang::ast::SymbolKind::Instance) continue;
+        auto& child = member.as<slang::ast::InstanceSymbol>();
+        std::string def_name(child.getDefinition().name);
+        if (!safe_mux_cells.count(def_name)) continue;
+        for (auto* conn : child.getPortConnections()) {
+            if (!conn) continue;
+            if (conn->port.kind != slang::ast::SymbolKind::Port) continue;
+            auto& port_sym = conn->port.as<slang::ast::PortSymbol>();
+            if (port_sym.direction != slang::ast::ArgumentDirection::Out) continue;
+            auto* expr = conn->getExpression();
+            if (!expr) continue;
+            std::string wire;
+            if (expr->kind == slang::ast::ExpressionKind::NamedValue) {
+                wire = std::string(
+                    expr->as<slang::ast::NamedValueExpression>().symbol.name);
+            } else if (expr->kind == slang::ast::ExpressionKind::Assignment) {
+                auto& assign = expr->as<slang::ast::AssignmentExpression>();
+                if (assign.left().kind == slang::ast::ExpressionKind::NamedValue)
+                    wire = std::string(
+                        assign.left().as<slang::ast::NamedValueExpression>()
+                            .symbol.name);
+            }
+            if (!wire.empty())
+                safe_driven_wires.insert(wire);
+        }
+    }
+
+    // Walk continuous assigns: `assign <clock_lhs> = <comb_rhs>;`.
+    for (auto& member : inst.body.members()) {
+        if (member.kind != slang::ast::SymbolKind::ContinuousAssign) continue;
+        auto& ca = member.as<slang::ast::ContinuousAssignSymbol>();
+        auto& assignRaw = ca.getAssignment();
+        if (assignRaw.kind != slang::ast::ExpressionKind::Assignment) continue;
+        auto& assign = assignRaw.as<slang::ast::AssignmentExpression>();
+        if (assign.left().kind != slang::ast::ExpressionKind::NamedValue) continue;
+        std::string lhs = std::string(
+            assign.left().as<slang::ast::NamedValueExpression>().symbol.name);
+        if (!clock_signals.count(lhs)) continue;
+        if (safe_driven_wires.count(lhs)) continue;
+        if (!isCombDriverExpr(assign.right())) continue;
+        for (auto& src : clock_db.sources) {
+            if (src->origin_signal != lhs && src->name != lhs) continue;
+            // Skip SDC-declared clocks: a user that wrote
+            // create_generated_clock for this signal asserts it is a
+            // properly modelled clock and the synthesis flow will
+            // honour it. Same for Primary (top-port) clocks -- if a
+            // continuous assign drives a top port that's a degenerate
+            // case outside this rule's scope.
+            if (src->type == ClockSource::Type::Generated ||
+                src->type == ClockSource::Type::Primary)
+                continue;
+            src->is_unsafe_comb_clock = true;
+        }
+    }
+
+    // Recurse into child instances; generate blocks rarely host clock
+    // muxes but include them for completeness.
+    for (auto& member : inst.body.members()) {
+        if (member.kind == slang::ast::SymbolKind::Instance) {
+            scanInstanceForUnsafeClockDrivers(
+                member.as<slang::ast::InstanceSymbol>(), clock_db, safe_mux_cells);
+        }
+    }
+}
+
+} // namespace
+
+void ClockTreeAnalyzer::detectUnsafeCombClocks() {
+    auto& root = compilation_.getRoot();
+    for (auto* inst : root.topInstances) {
+        if (!inst) continue;
+        scanInstanceForUnsafeClockDrivers(*inst, clock_db_, safe_mux_cells_);
+    }
 }
 
 void ClockTreeAnalyzer::analyze() {

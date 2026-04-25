@@ -34,6 +34,7 @@ anyway) on every rule.
 | `Ac_cdc06` | reset CDC without 2-FF deassert chain | `19_missing_reset_sync` (1 CAUT) | `30_neg_ac_cdc06_synced_reset` (1 INFO) |
 | `Ac_cdc11` | source signal crosses to multiple async domains | `20_fanout_mixed_sync` (1 VIOL + 1 CAUT) | `03_two_ff_sync` (1 INFO, single dest) |
 | `Ac_cdc04` | wide-bus crossing without gray code or handshake | `15_bus_cdc_no_gray` (1 CAUT) | `32_neg_ac_cdc04_single_bit` (1 INFO) |
+| `Ac_cdc05` | flop clock driven by combinational expression (raw mux without glitch-free primitive or SDC declaration) | `21_clock_mux` (1 VIOL) | `34_neg_ac_cdc05_safe_mux_cell` (registered safe cell via `--glitch-free-mux-cell`, 0/0/0), `35_neg_ac_cdc05_sdc_clock_mux` (SDC `create_generated_clock`, 0/0/0) |
 
 The `27`-`30` fixtures are minimal mirrors of their positive
 counterparts -- same structural shape, just with the issue removed --
@@ -93,8 +94,7 @@ fixture comment and the golden value.
 
 | Fixture | Current limitation |
 |---------|--------------------|
-| `21_clock_mux` | `assign clk_mux = sel ? clk_a : clk_b;` is recognised as a third clock domain but the glitch hazard at the mux is not flagged |
-| `33_always_comb_sync_chain` | `always_comb wire = port_input;` propagation across two submodule boundaries does not chain back to the source flop. Surfaces as a false negative on OpenTitan prim_flop_2sync inside prim_fifo_async, and on ZipCPU afifo. Same-instance always_comb assignments ARE handled (the registration was added in this round), but the cross-module case requires further connectivity work. |
+| `33_always_comb_sync_chain` | downstream `findNextFF` does not yet trace across two adjacent flop_w submodule INSTANCES, so the OpenTitan-style 2-stage chain (two separate prim_flop instances) is reported VIOLATION rather than INFO. The crossing IS detected end-to-end. |
 
 ### Shift-register-style synchronizer recognition (resolved)
 

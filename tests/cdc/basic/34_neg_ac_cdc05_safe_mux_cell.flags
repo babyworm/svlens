@@ -1,0 +1,3 @@
+# Register the user-defined glitch-free clock mux primitive so the
+# Ac_cdc05 detector skips its output. See fixture comment for details.
+--glitch-free-mux-cell my_clkmux_cell

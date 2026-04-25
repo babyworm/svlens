@@ -5,14 +5,19 @@
 // (raw `assign clk_mux = sel ? clk_a : clk_b;`) so a CDC tool has the
 // chance to flag it.
 //
-// Expected (current behavior, to be measured): the tool may either
-//   (a) flag clk_mux as a derived clock with both parents and warn
-//       about glitch risk, or
-//   (b) accept it silently and rely on the human to declare clock
-//       relationships in SDC.
+// Expected: 1 VIOLATION (Ac_cdc05 -- flop clock driven by combinational
+// expression without a glitch-free clock mux primitive), 0 cautions,
+// 0 infos, 1 crossing.
 //
-// This fixture pins the current behavior so that future improvements
-// (a dedicated clock-mux glitch rule) can update the golden.
+// The Ac_cdc05 detector in clock_tree::detectUnsafeCombClocks finds
+// `assign clk_mux = sel ? clk_a : clk_b;` (ConditionalOp RHS on a
+// signal that is also used as a flop clock) and marks the source as
+// unsafe. CdcRunnerUtils then emits one Ac_cdc05 violation per flop in
+// the unsafe domain. To suppress the rule on a project that uses a
+// proven glitch-free mux primitive, register the cell name with
+// --glitch-free-mux-cell <name> or --cdc-config <yaml>. To disable
+// the rule entirely, pass --no-check-clock-mux. See fixtures 34 and
+// 35 for the negative pairs.
 
 module clock_mux (
     input  logic clk_a,

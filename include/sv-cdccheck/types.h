@@ -31,6 +31,13 @@ struct ClockSource {
     int divide_by = 1;
     int multiply_by = 1;
     bool invert = false;
+
+    // True when the clock signal is driven by a combinational expression
+    // inside the design (e.g. `assign clk_mux = sel ? clk_a : clk_b;`)
+    // and that expression is NOT the output of a known glitch-free clock
+    // mux primitive. Populated by ClockTreeAnalyzer::detectUnsafeCombClocks
+    // and consumed by the Ac_cdc05 emitter in CdcRunnerUtils.
+    bool is_unsafe_comb_clock = false;
 };
 
 // ─── Clock Net: a hierarchical net carrying a clock ───

@@ -99,5 +99,6 @@ check_fixture "27_neg_ac_cdc01_proper_sync" "neg_ac_cdc01_proper_sync"
 check_fixture "28_neg_ac_cdc02_clean_path" "neg_ac_cdc02_clean_path"
 check_fixture "29_neg_ac_cdc03_distinct_pairs" "neg_ac_cdc03_distinct_pairs"
 check_fixture "30_neg_ac_cdc06_synced_reset" "neg_ac_cdc06_synced_reset"
+check_fixture "31_parameter_type_genfor_sync" "parameter_type_genfor_sync"
 
 echo "=== All CDC golden tests passed ==="

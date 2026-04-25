@@ -82,6 +82,29 @@ fixture comment and the golden value.
 | `16_comb_between_domains` | combo-logic-before-sync is reported as Ac_cdc03 reconvergence rather than the more precise Ac_cdc02 rule |
 | `21_clock_mux` | `assign clk_mux = sel ? clk_a : clk_b;` is recognised as a third clock domain but the glitch hazard at the mux is not flagged |
 
+### Sync recogniser gap on shift-register-style synchronizers
+
+`pulp-platform/common_cells/src/sync.sv` implements the 2-FF (or N-FF)
+synchronizer as a single multi-bit register with an internal shift:
+
+```systemverilog
+logic [STAGES-1:0] reg_q;
+always_ff @(posedge clk_i, negedge rst_ni)
+    if (!rst_ni) reg_q <= '0;
+    else         reg_q <= {reg_q[STAGES-2:0], serial_i};
+```
+
+svlens models `reg_q` as a single multi-bit FF node, so the
+sync_verifier's "two-FF chain" pattern does not match and the crossing
+is classified as a VIOLATION instead of an INFO. The crossing IS
+detected end-to-end (the data path is correctly traced), only the
+disposition is more pessimistic than the actual design warrants.
+
+This affects real-world reports such as
+`cdc_fifo_gray` (8 detected crossings → 8 VIOLATIONS instead of 8
+INFOs). Tracking as a follow-up enhancement to `sync_verifier`
+(recognise shift-register-style synchronizer).
+
 ## Adding a new fixture
 
 1. Pick the next free number `NN` (currently 27 onwards).

@@ -4,20 +4,26 @@ CMAKE_PREFIX_PATH ?= $(HOME)/.local
 CMAKE_EXTRA_ARGS ?=
 CCACHE_ARG := $(shell command -v ccache >/dev/null 2>&1 && echo -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
 
-.PHONY: help build test install clean debug
+CLANG_FORMAT ?= clang-format
+FORMAT_FILES := $(shell git ls-files 'src/*.cpp' 'src/*.h' 'src/**/*.cpp' 'src/**/*.h' 'include/**/*.h' 'tests/*.cpp' 'tests/**/*.cpp' 2>/dev/null)
+
+.PHONY: help build test install clean debug format format-check
 
 help:
 	@echo "svlens build targets:"
-	@echo "  make build       Release build"
-	@echo "  make debug       Debug build"
-	@echo "  make test        Run full test suite"
-	@echo "  make install     Install svlens"
-	@echo "  make clean       Remove build directory"
+	@echo "  make build         Release build"
+	@echo "  make debug         Debug build"
+	@echo "  make test          Run full test suite"
+	@echo "  make install       Install svlens"
+	@echo "  make clean         Remove build directory"
+	@echo "  make format        Apply clang-format to all C++ sources"
+	@echo "  make format-check  Verify all C++ sources match .clang-format"
 	@echo ""
 	@echo "Variables:"
 	@echo "  JOBS=N"
 	@echo "  PREFIX=/path"
 	@echo "  CMAKE_PREFIX_PATH=/path"
+	@echo "  CLANG_FORMAT=clang-format-NN"
 
 build:
 	cmake -B build -DCMAKE_PREFIX_PATH="$(CMAKE_PREFIX_PATH)" $(CCACHE_ARG) $(CMAKE_EXTRA_ARGS)
@@ -35,3 +41,21 @@ install: build
 
 clean:
 	rm -rf build
+
+format:
+	@if [ -z "$(FORMAT_FILES)" ]; then \
+		echo "no files matched"; exit 1; \
+	fi
+	$(CLANG_FORMAT) -i $(FORMAT_FILES)
+
+format-check:
+	@if [ -z "$(FORMAT_FILES)" ]; then \
+		echo "no files matched"; exit 1; \
+	fi
+	@MISMATCH=$$($(CLANG_FORMAT) --output-replacements-xml $(FORMAT_FILES) | grep -c '<replacement '); \
+	if [ "$$MISMATCH" -gt 0 ]; then \
+		echo "format-check: $$MISMATCH replacements suggested by clang-format"; \
+		echo "Run 'make format' to apply, or run clang-format on individual files."; \
+		exit 1; \
+	fi
+	@echo "format-check: all files match .clang-format"

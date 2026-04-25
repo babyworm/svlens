@@ -5,6 +5,62 @@ on:
   pull_request:
 
 jobs:
+  format-check:
+    runs-on: ubuntu-latest
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PUSH_BEFORE_SHA: ${{ github.event.before }}
+      EVENT_NAME: ${{ github.event_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # need history for diff against base
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format
+
+      - name: Determine base ref
+        id: base
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE="$PR_BASE_SHA"
+          else
+            BASE="$PUSH_BEFORE_SHA"
+            if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+              BASE="HEAD~1"
+            fi
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+
+      - name: Check format on changed lines only
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: |
+          set -e
+          echo "Checking format vs $BASE"
+          CHANGED=$(git diff --name-only --diff-filter=AM "$BASE" -- 'src/*.cpp' 'src/*.h' 'src/**/*.cpp' 'src/**/*.h' 'include/**/*.h' 'tests/*.cpp' 'tests/**/*.cpp' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No C++ source changes; nothing to format-check."
+            exit 0
+          fi
+          echo "Changed C++ files:"
+          echo "$CHANGED"
+          DIFFCMD=$(command -v clang-format-diff || command -v clang-format-diff-15 || command -v clang-format-diff-14 || true)
+          if [ -z "$DIFFCMD" ]; then
+            echo "clang-format-diff not found; running --dry-run per file (advisory only)."
+            for f in $CHANGED; do clang-format --dry-run "$f" || true; done
+            exit 0
+          fi
+          OUT=$(git diff -U0 "$BASE" -- $CHANGED | "$DIFFCMD" -p1 -style=file)
+          if [ -n "$OUT" ]; then
+            echo "::error::clang-format found violations on changed lines:"
+            echo "$OUT"
+            exit 1
+          fi
+          echo "format-check passed (changed lines only)"
+
   build-and-test:
     runs-on: ubuntu-latest
     steps:

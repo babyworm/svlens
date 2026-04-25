@@ -1,0 +1,41 @@
+---
+# svlens C++20 formatting policy.
+# Derived from LLVM with project overrides (4-space indent, 120-column).
+# CI runs `clang-format --dry-run` against changed lines only (not legacy code)
+# so adding this config is non-breaking. Run `make format` to format the whole
+# tree at once.
+
+Language: Cpp
+Standard: c++20
+BasedOnStyle: LLVM
+
+ColumnLimit: 120
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+
+NamespaceIndentation: None
+FixNamespaceComments: true
+
+BreakBeforeBraces: Attach
+AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+IncludeBlocks: Preserve
+SortIncludes: Never
+
+BreakStringLiterals: false
+AlwaysBreakBeforeMultilineStrings: false
+ReflowComments: false
+
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: false

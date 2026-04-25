@@ -35,16 +35,33 @@ For offline / preinstalled-dependency builds, see [`docs/install.md`](docs/insta
 ## Coding conventions
 
 - **Language**: C++20, slang v10+ API.
-- **Formatting**: enforced via `clang-format` (see `.clang-format`). Run
-  `clang-format -i <file>` before committing, or rely on the pre-commit hook.
+- **Formatting**: enforced via `clang-format` (see [`.clang-format`](.clang-format)).
+  Run `make format` to format the whole tree, or `clang-format -i <file>` per file.
+  CI runs `clang-format-diff` against the base ref so it only flags violations on
+  **changed lines**, allowing legacy code to be reformatted gradually.
 - **Headers**: prefer forward declarations in headers; include implementation
   details only in `.cpp`. Keep slang-specific types out of public headers when
   feasible.
-- **Naming**: `CamelCase` for types, `snake_case` for functions and locals,
-  `kCamelCase` for constants, `m_` prefix for non-public class members.
+- **Naming**: `CamelCase` for types, `camelCase` for functions and methods,
+  `snake_case` for namespaces and JSON / YAML field names, `kCamelCase` for
+  constants. Use a trailing underscore (e.g., `topModule_`) for private members
+  in classes that already use that convention.
 - **Error reporting**: prefer structured `Diagnostic` / JSON output over ad-hoc
   `fmt::print`. CLI surfaces should emit machine-parseable JSON when
   `--format json` is set.
+
+### Local format workflow
+
+```bash
+make format         # apply clang-format to every tracked C++ source
+make format-check   # CI-equivalent dry run; non-zero exit on violations
+```
+
+To format only the files you changed:
+
+```bash
+git diff --name-only main -- '*.cpp' '*.h' | xargs clang-format -i
+```
 
 ## Adding a feature or check
 

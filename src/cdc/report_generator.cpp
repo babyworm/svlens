@@ -2,6 +2,7 @@
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <functional>
 
 namespace sv_cdccheck {
@@ -452,19 +453,26 @@ bool ReportGenerator::generateSVA(const std::filesystem::path& output_path,
     out << "//       crossing for the source/dest signal paths.\n";
     out << "// =====================================================================\n\n";
 
-    // Track sanitized id names already emitted in this file so distinct
-    // crossings whose ids collide after svaSanitize (e.g. "VIOLATION-1"
-    // and "VIOLATION_1" both sanitize to "VIOLATION_1") get unique
-    // property names via an ordinal suffix.
-    std::unordered_map<std::string, int> id_seen;
+    // Track every emitted id name in this file so distinct crossings
+    // whose ids collide after svaSanitize (e.g. "VIOLATION-1" and
+    // "VIOLATION_1" both sanitize to "VIOLATION_1") get unique
+    // property names via an ordinal suffix. The set is keyed on the
+    // FINAL emitted name (after any "_dup<n>" disambiguation), so a
+    // literal id like "X_dup2" cannot self-collide with a synthetic
+    // suffix produced by an earlier collision.
+    std::unordered_set<std::string> id_emitted;
     for (auto& c : result_.crossings) {
         std::string id_safe = svaSanitize(c.id);
-        if (auto it = id_seen.find(id_safe); it != id_seen.end()) {
-            int n = ++it->second;
-            id_safe += "_dup" + std::to_string(n);
-        } else {
-            id_seen[id_safe] = 1;
+        if (id_emitted.count(id_safe) > 0) {
+            int n = 1;
+            std::string candidate;
+            do {
+                ++n;
+                candidate = id_safe + "_dup" + std::to_string(n);
+            } while (id_emitted.count(candidate) > 0);
+            id_safe = candidate;
         }
+        id_emitted.insert(id_safe);
         const char* category = categoryToString(c.category);
         const char* severity = severityToString(c.severity);
         const char* sync_type = syncTypeToString(c.sync_type);

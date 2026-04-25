@@ -211,6 +211,71 @@ TEST_CASE("CDC ReportGenerator: SVA emitter prefixes underscore on leading-digit
     CHECK_FALSE(is_digit);
 }
 
+TEST_CASE("CDC ReportGenerator: SVA collision dedup avoids self-collision with literal _dup ids",
+          "[cdc][report][sva][collision_self]") {
+    // Round 32 ERROR-2 fix: the dedup logic synthesizes "_dup<n>" on
+    // collisions, but if a *literal* crossing id already has the form
+    // "X_dup2" (e.g. an upstream tool emitted that name), and a prior
+    // "X" already collided once producing the same synthetic name, the
+    // two distinct ids would still collapse to identical SVA property
+    // declarations. Lock the invariant that EVERY emitted property
+    // name appears exactly once across the whole file.
+    AnalysisResult result;
+    auto sys = std::make_unique<ClockSource>();
+    sys->name = "sys_clk";
+    sys->type = ClockSource::Type::Primary;
+    auto* sysPtr = result.clock_db.addSource(std::move(sys));
+    auto* sysDom = result.clock_db.findOrCreateDomain(sysPtr, Edge::Posedge);
+    auto ext = std::make_unique<ClockSource>();
+    ext->name = "ext_clk";
+    ext->type = ClockSource::Type::Primary;
+    auto* extPtr = result.clock_db.addSource(std::move(ext));
+    auto* extDom = result.clock_db.findOrCreateDomain(extPtr, Edge::Posedge);
+
+    auto mkViol = [&](const std::string& id) {
+        CrossingReport v;
+        v.id = id;
+        v.category = ViolationCategory::Violation;
+        v.severity = Severity::High;
+        v.source_signal = "top.q";
+        v.dest_signal = "top.sync_q";
+        v.source_domain = sysDom;
+        v.dest_domain = extDom;
+        v.sync_type = SyncType::None;
+        return v;
+    };
+    // First X collides with second X; would synthesize X_dup2 (the
+    // post-increment value). Then a literal "X_dup2" comes through,
+    // which would collide with the synthetic name without the guard.
+    result.crossings.push_back(mkViol("X"));
+    result.crossings.push_back(mkViol("X"));
+    result.crossings.push_back(mkViol("X_dup2"));
+
+    ReportGenerator gen(result);
+    auto path = fs::temp_directory_path() / "svlens_sva_collision_self.sva";
+    REQUIRE(gen.generateSVA(path));
+    std::ifstream ifs(path);
+    REQUIRE(ifs.good());
+    std::string content((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    fs::remove(path);
+
+    auto count_substr = [](const std::string& hay, const std::string& needle) {
+        size_t n = 0, p = 0;
+        while ((p = hay.find(needle, p)) != std::string::npos) {
+            ++n; p += needle.size();
+        }
+        return n;
+    };
+    // Each emitted property declaration must be unique. Total
+    // declarations equal the number of crossings (3, none dropped).
+    CHECK(count_substr(content, "property cdc_") == 3);
+    // The literal X_dup2 must have its own slot; if the synthetic
+    // dedup collides with it, count would be 2 (both forms coalesced).
+    // Expected: 1 occurrence of the bare X_dup2 name.
+    CHECK(count_substr(content, "property cdc_X_dup2_src_toggle;") == 1);
+}
+
 TEST_CASE("CDC ReportGenerator: SVA emitter deduplicates colliding property names",
           "[cdc][report][sva][collision]") {
     // Round 29 WARN #2: two distinct crossing ids that collapse to the

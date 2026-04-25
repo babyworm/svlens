@@ -59,9 +59,16 @@ TEST_CASE("ConnRunner: modport-width paired fixtures stay deterministic",
     opts_pos.outputDir = out_pos.string();
     int exitPos =
         connect::runConnWithCompilation(*pos.compilation, opts_pos);
-    // Codified gap: WidthChecker does not yet fire on modport->port
-    // width truncation through the interface boundary, so exit is 0
-    // today. Future fix flips this to >0 and the CHECK below.
+    // Codified gap (Round 28-29): WidthChecker does not yet fire on
+    // modport->port width truncation through the interface boundary.
+    // Round 29 US-R04 attempted a WidthChecker-only fix and discovered
+    // the gap is structural — the connection itself never forms because
+    // the consumer-side netKey ("scope::bus") does not match the
+    // modport-expansion-side netKey ("scope::inst.data"). Closing the
+    // gap requires resolveExpr(MemberAccess into ModportPort) to qualify
+    // through the interface instance name and append the member, which
+    // is a substantive ConnectionExtractor change with high blast radius
+    // on existing modport tests. Tracked as US-R05 follow-up.
     CHECK(exitPos == 0);
     CHECK(fs::exists(out_pos / "connect_report.json"));
 

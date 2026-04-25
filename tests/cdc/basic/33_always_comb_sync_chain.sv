@@ -7,16 +7,20 @@
 //   prim_flop u_sync_1 (.d_i(d_o), .q_o(intq));
 //   prim_flop u_sync_2 (.d_i(intq), .q_o(q_o));
 //
-// CURRENT svlens BEHAVIOR (codified gap): connectivity tracker chases
-// `assign port = ff` (output-port renames) but not `always_comb wire =
-// port` (input-port-to-internal-wire propagation). Without it, the
-// chain breaks at the always_comb stage and the wptr crossing inside
-// OpenTitan prim_fifo_async is invisible. Pin the current behavior so
-// a future enhancement can update the golden.
+// Expected: 1 violation, 0 cautions, 0 infos, 1 crossing
+//           (data_src_q -> u_sync.u_sync_1.q_o).
 //
-// Expected (current): 0 violations, 0 cautions, 0 infos, 0 crossings.
-// Future fix should change the golden to reflect the recognised
-// crossing.
+// The connectivity tracker now chases `always_comb d_o = d_i;`
+// across submodule boundaries, so the chain from data_src_q (on
+// src_clk) into the first sub-flop u_sync_1.q_o (on dst_clk)
+// resolves end-to-end.
+//
+// The disposition is VIOLATION rather than INFO because the second
+// sync stage (u_sync_2) is a SEPARATE flop_w submodule instance, and
+// detectSyncPattern's `findNextFF` does not yet trace across
+// adjacent module instances at the dst-domain side. Codify the
+// current behaviour; a future sync_verifier enhancement to walk
+// adjacent submodule instances should flip this back to INFO.
 
 module always_comb_sync_chain (
     input  logic       src_clk,

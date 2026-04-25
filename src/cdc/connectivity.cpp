@@ -159,6 +159,20 @@ static void buildWireToFFMap(
     }
 }
 
+// Stack of ancestor cont_assigns maps, parallel to parent_port_chain.
+// Maintained by processInstanceEdges via push/pop around the recursive
+// descent so findFFByName can chase `assign d_o = d_i;` /
+// `always_comb d_o = d_i;` renames at any ancestor level. File-scope
+// rather than threaded through every function signature because the
+// chain is conceptually 1:1 with parent_port_chain and refactoring
+// every helper signature would hurt readability for a localized
+// detail.
+namespace {
+thread_local std::vector<std::unordered_map<std::string,
+                                              std::vector<std::string>>>
+    g_parent_cont_chain;
+}
+
 // Find an FFNode by signal name within a given instance scope.
 // Uses port_map to resolve port names to actual parent signals,
 // and wire_map to resolve parent wires to FF outputs.
@@ -216,9 +230,26 @@ static FFNode* findFFByName(
         // Walk up through the ancestor port_maps -- each iteration takes
         // the current resolved name and tries to translate it through the
         // next parent's port_map. Bounded by chain length so this is O(D).
+        // Before attempting port_map at each level, try the ancestor's
+        // cont_assigns (continuous assigns and `always_comb wire = signal`
+        // collected at that level) to chase internal-wire renames such
+        // as the OpenTitan prim_flop_2sync `always_comb d_o = d_i;`
+        // pattern.
+        size_t cidx = g_parent_cont_chain.size();
         for (auto rit = parent_port_chain.rbegin();
              rit != parent_port_chain.rend(); ++rit) {
             const auto& [ancestor_port_map, ancestor_path] = *rit;
+            // Try ancestor's cont_assigns first: if `current` is the LHS
+            // of an `assign x = y;` style binding, follow to the RHS and
+            // continue the resolution from there.
+            if (cidx > 0) {
+                --cidx;
+                const auto& ancestor_cont = g_parent_cont_chain[cidx];
+                auto cit = ancestor_cont.find(current);
+                if (cit != ancestor_cont.end() && cit->second.size() == 1) {
+                    current = cit->second.front();
+                }
+            }
             auto ait = ancestor_port_map.find(current);
             if (ait == ancestor_port_map.end()) break;
             current = ait->second;
@@ -457,8 +488,13 @@ static void processScopeForEdges(
                                      enclosing_inst.body.name.empty()
                                          ? path_prefix
                                          : path_prefix);
+            // Push the enclosing scope's cont_assigns so the child can
+            // chase ancestor always_comb / assign renames during port
+            // resolution.
+            g_parent_cont_chain.push_back(cont_assigns);
             processInstanceEdges(child, child_path, output_map,
                                  combined_wire_map, edges, child_chain);
+            g_parent_cont_chain.pop_back();
             continue;
         }
 
@@ -594,14 +630,19 @@ static void processInstanceEdges(
         // Recurse into child instances. Append the current port_map to the
         // chain so deeper descendants can chase a port-to-port connection
         // back through this level. Pass combined_wire_map so wires from
-        // any ancestor remain visible.
+        // any ancestor remain visible. Also push the current instance's
+        // cont_assigns onto the parallel ancestor stack so descendants
+        // can chase ancestor `assign d_o = d_i;` /
+        // `always_comb d_o = d_i;` renames.
         if (body_member.kind == slang::ast::SymbolKind::Instance) {
             auto& child = body_member.as<slang::ast::InstanceSymbol>();
             std::string child_path = inst_path + "." + std::string(child.name);
             auto child_chain = parent_port_chain;
             child_chain.emplace_back(port_map, inst_path);
+            g_parent_cont_chain.push_back(cont_assigns);
             processInstanceEdges(child, child_path, output_map, combined_wire_map,
                                  edges, child_chain);
+            g_parent_cont_chain.pop_back();
         }
     }
 

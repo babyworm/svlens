@@ -61,6 +61,76 @@ jobs:
           fi
           echo "format-check passed (changed lines only)"
 
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install coverage prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            git \
+            python3 \
+            ccache \
+            gcovr \
+            catch2 \
+            libyaml-cpp-dev
+
+      - name: Cache slang install
+        uses: actions/cache@v5
+        with:
+          path: ~/.local
+          key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}
+
+      - name: Stage slang dependency
+        run: |
+          ./scripts/setup-deps.sh --prefix "$HOME/.local"
+
+      - name: Configure with coverage instrumentation
+        run: |
+          cmake -B build-cov \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_PREFIX_PATH="$HOME/.local" \
+            -DSVLENS_FETCH_DEPS=OFF \
+            -DSVLENS_ENABLE_COVERAGE=ON
+
+      - name: Build (coverage)
+        run: |
+          cmake --build build-cov -j"$(nproc)"
+
+      - name: Run tests
+        run: |
+          ctest --test-dir build-cov --output-on-failure
+
+      - name: Generate coverage report
+        run: |
+          gcovr --root . \
+            --xml-pretty --output build-cov/coverage.xml \
+            --html-details build-cov/coverage.html \
+            --print-summary \
+            --exclude 'tests/.*' \
+            --exclude 'build-cov/.*' \
+            --exclude '_deps/.*' \
+            build-cov
+
+      - name: Upload coverage to Codecov
+        if: github.repository == 'babyworm/svlens'  # skip on forks (no token)
+        uses: codecov/codecov-action@v5
+        with:
+          files: build-cov/coverage.xml
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload coverage HTML artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: build-cov/coverage.html
+
   build-and-test:
     runs-on: ubuntu-latest
     steps:

@@ -110,6 +110,46 @@ make test
 ctest --test-dir build --output-on-failure
 ```
 
+### Coverage builds
+
+```bash
+cmake -B build-cov \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_PREFIX_PATH="$HOME/.local" \
+  -DSVLENS_ENABLE_COVERAGE=ON
+cmake --build build-cov -j"$(nproc)"
+ctest --test-dir build-cov
+gcovr --root . --html-details build-cov/coverage.html build-cov
+open build-cov/coverage.html  # macOS, or xdg-open on Linux
+```
+
+CI runs the same flow with `gcovr` and uploads to Codecov. PRs that drop
+coverage materially are flagged in the Codecov report.
+
+### Fuzz harnesses
+
+Three libFuzzer harnesses live under [`fuzz/`](fuzz/):
+
+| Harness | Target |
+|---------|--------|
+| `fuzz_filelist` | `FilelistParser::parseString` |
+| `fuzz_sdc` | `SdcParser::parse` |
+| `fuzz_waiver` | `WaiverManager::loadString` |
+
+Build (Clang required):
+
+```bash
+cmake -B build-fuzz \
+  -DCMAKE_CXX_COMPILER=clang++ \
+  -DSVLENS_ENABLE_FUZZ=ON \
+  -DSVLENS_FETCH_DEPS=ON
+cmake --build build-fuzz -j"$(nproc)"
+./build-fuzz/fuzz/fuzz_filelist fuzz/corpus/filelist -max_total_time=120
+```
+
+See [`fuzz/README.md`](fuzz/README.md) for sanitizer combinations and corpus
+management.
+
 ## Reporting bugs
 
 Please file issues at <https://github.com/babyworm/svlens/issues> with:

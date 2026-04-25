@@ -26,6 +26,26 @@ else()
 endif()
 
 option(SVLENS_FETCH_DEPS "Allow CMake to fetch missing third-party dependencies" ON)
+option(SVLENS_ENABLE_COVERAGE "Enable gcov/llvm-cov coverage instrumentation" OFF)
+option(SVLENS_ENABLE_FUZZ "Build libFuzzer-based fuzz harnesses (requires Clang)" OFF)
+
+if(SVLENS_ENABLE_COVERAGE)
+    if(NOT (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+        message(FATAL_ERROR "SVLENS_ENABLE_COVERAGE requires GCC or Clang.")
+    endif()
+    message(STATUS "svlens: coverage instrumentation enabled (--coverage)")
+    add_compile_options(--coverage -O0 -g)
+    add_link_options(--coverage)
+endif()
+
+if(SVLENS_ENABLE_FUZZ)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR
+            "SVLENS_ENABLE_FUZZ requires Clang for libFuzzer support.\n"
+            "Re-run cmake with: -DCMAKE_CXX_COMPILER=clang++ -DSVLENS_ENABLE_FUZZ=ON")
+    endif()
+    message(STATUS "svlens: libFuzzer fuzz harnesses enabled")
+endif()
 
 include(FetchContent)
 
@@ -159,4 +179,8 @@ target_compile_definitions(svlens-metrics-lib PRIVATE SVLENS_VERSION="${PROJECT_
 
 if(BUILD_TESTING)
     add_subdirectory(tests)
+endif()
+
+if(SVLENS_ENABLE_FUZZ)
+    add_subdirectory(fuzz)
 endif()

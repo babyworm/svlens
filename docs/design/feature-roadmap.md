@@ -10,6 +10,97 @@ ready to begin), `in-progress`, `landed`.
 
 ---
 
+## Track A: CDC detection quality -- `landed`
+
+Cumulative improvements to the structural CDC analyzer that close
+false-negative classes observed in production OSS RTL (OpenTitan,
+CVA6/pulp, ZipCPU, BlackParrot). Each item is sized as a discrete
+finding with paired pos/neg golden fixtures.
+
+### A1. ZipCPU concat-LHS sync chain idiom -- `landed`
+
+`{wq2,wq1} <= {wq1,rgray};` was previously over-broadcast, hiding the
+real 2-FF synchronizer. Bit-aware positional matching in
+`src/cdc/ast_utils.cpp::splitAssignmentByLHS` recognises the
+positional pairing when LHS and RHS concats have matching arity and
+operand widths. Fixtures 36-37, validates upstream ZipCPU `afifo.v`
+(0V/0C/2 INFO `two_ff`).
+
+### A2. Cross-instance findNextFF + pulse-sync detector relaxation -- `landed`
+
+`sync_verifier.cpp::findNextFF` and `detectPulseSyncPattern` no longer
+require `source_leaf == fanin[0]` strict name match (would fail on
+port-renamed cross-instance chains). Replaced with FFEdge-trust +
+single-source predicate `isSingleSourceFF`. Fixture 33 transitions
+from VIOLATION to INFO, paired neg fixture 38 keeps single-stage
+case as VIOLATION.
+
+### A3. Macro-driven RTL workflow -- `landed`
+
+`-D` defines and `-I` include paths flow through the slang
+preprocessor (`CompilationSession.cpp::expandFilelists`). Fixtures
+39-40 with `.flags` sidecars exercise `\`SYNC_2FF` / `\`SYNC_DIRECT`
+macro patterns from VeeR-EH1 / BlackParrot.
+
+### A4. Parameter-as-fanin filter -- `landed`
+
+OpenTitan `prim_flop` uses `q_o <= ResetValue` (parameter) which was
+inflating `fanin_signals.size()` to 2 and silently disabling 2-FF
+sync detection. `collectReferencedSignals` now filters
+`SymbolKind::Parameter / TypeParameter / EnumValue`. OpenTitan
+`prim_fifo_async`: was 2 VIOLATIONS, now 2 INFO `two_ff`.
+
+### A5. Port-driven clock unification (no-SDC) -- `landed`
+
+When parent ports use unconventional names (`ca`, `cb`, `tck`,
+`phy_clock`) that don't match the `*clk*` / `*clock*` heuristic, the
+auto-detector previously produced phantom domains for submodule's
+clk_i. `clock_tree.cpp::isPortUsedAsClock` walks generate blocks and
+lazily seeds parent ClockSources; `autoDetectClockPorts` rejects
+reset-named ports. Fixture 43-44 paired pos/neg.
+
+### A6. Hierarchical reference connectivity -- `landed`
+
+`u_sub.q` reads from a parent module across clock domains were
+silently dropped because `extractExprSignalName` returned only the
+leaf name. Now returns `getHierarchicalPath()`; `findFFByName` does a
+direct dotted-path lookup. Fixtures 45-46.
+
+### A7. Generate-array name normalization -- `landed`
+
+`u_sub.gen_blk[1].q_inner` (`getHierarchicalPath` syntax) vs
+`genblk1.q_inner` (`getExternalName` flattened form) format
+mismatch. `findFFByName` now tries dual-variant lookup
+(no-brackets + flattened) plus a parent-prefix + idx + leaf-suffix
+scan with dot-count guard for digit-medial-underscore labels.
+Fixtures 47-49 (positive coverage) plus 52 (paired negative for
+the digit-medial-underscore label corner).
+
+### A8. Multi-pattern integration + multi-hop pulse-sync -- `landed`
+
+`splitConcatPair` recursive helper handles arbitrary-depth nested
+concat (was 2-level inline). `detectPulseSyncPattern` walks bounded
+BFS (MAX_DEPTH=6) for delay taps multiple hops downstream of
+last_sync. Fixture 50 combines 5 patterns in one design.
+
+### A9. CLI flag integration tests -- `landed`
+
+`--strict`, `--sync-stages`, `--ignore-gated` all locked with
+Catch2 integration tests (`test_cdc_runner.cpp`). Fixture 51 with
+SDC `create_generated_clock` produces the Severity::Low gated entry
+needed for `--ignore-gated` verification.
+
+### A10. Performance baseline -- `landed`
+
+After Round 12's `O(D*N) → O(D)` hash lookup in
+`ff_classifier.cpp` (clock net resolution) and the suffix-scan
+length pre-check in `connectivity.cpp::findFFByName`, analysis
+times: ZipCPU `afifo` <50ms, OpenTitan `prim_fifo_async` ~11ms,
+CVA6 `cdc_fifo_gray` ~22ms. See `tests/cdc/README.md` for full
+external coverage table.
+
+---
+
 ## Track D: Analysis depth
 
 ### D1. CDC SVA assertion auto-generation -- `proposed`

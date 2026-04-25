@@ -86,15 +86,44 @@ handshake -- see fixture 08 (gray_fifo_ptr) and 07 (handshake_req_ack).
 | `24_genfor_module_sync` | per-bit sync MODULE INSTANCE inside generate-for (4 CAUT Ac_cdc04) |
 | `26_genfor_in_wrapper_clock_inherit` | clock-inheritance + per-bit gen_sync (4 CAUT Ac_cdc04) |
 
-## Codified detection limitations
+## Cross-instance synchronizer recognition (resolved)
 
-These fixtures pin down the current behaviour for cases svlens does not
-yet handle precisely. Future enhancements should update both the
-fixture comment and the golden value.
+| Fixture | Pattern |
+|---------|---------|
+| `33_always_comb_sync_chain` | OpenTitan prim_flop_2sync style: two separate `flop_w` submodule instances chained via parent-scope wire. `findNextFF` walks adjacent submodule instances at the dst-domain side and recognises sync_type=two_ff. |
+| `38_neg_cross_inst_missing_2nd_stage` (paired neg) | Same wrapper but with only ONE sub-flop instance: VIOLATION as expected (no over-classification). |
 
-| Fixture | Current limitation |
-|---------|--------------------|
-| `33_always_comb_sync_chain` | downstream `findNextFF` does not yet trace across two adjacent flop_w submodule INSTANCES, so the OpenTitan-style 2-stage chain (two separate prim_flop instances) is reported VIOLATION rather than INFO. The crossing IS detected end-to-end. |
+## Verilog-2005 reg-driven port chain (resolved)
+
+| Fixture | Pattern |
+|---------|---------|
+| `36_v2005_reg_port_chain` | ZipCPU afifo idiom: output ports declared as `reg` and driven directly by `always @(posedge clk)` blocks per clock domain. |
+
+## Concat-LHS sync chain (resolved)
+
+| Fixture | Pattern |
+|---------|---------|
+| `37_concat_lhs_sync_chain` | ZipCPU afifo `{wq2, wq1} <= {wq1, rgray};` idiom that compresses a 2-FF sync into a single concat assignment. Bit-aware positional matching in `ast_utils.cpp` and `ff_classifier.cpp` resolves each LHS slice to its matching RHS slice; the spurious `rgray → wq2` direct edge is eliminated, and the chain is recognised as sync_type=two_ff. Validated against the ZipCPU `wb2axip/rtl/afifo.v` upstream — 0 VIOLATION / 0 CAUTION / 2 INFO crossings (rgray and wgray). |
+
+## Macro / include path workflow (resolved)
+
+Some downstream RTL projects (VeeR-EH1, BlackParrot, OpenTitan,
+nv_small) rely heavily on `\`include` headers and `-D` preprocessor
+defines to gate which synchronizer backend is compiled. svlens
+forwards `-I`, `-D`, `-f`, `-F`, `-y`, and `+libext+` to the slang
+preprocessor (see `src/CompilationSession.cpp::expandFilelists`),
+matching the de-facto Verilog/SystemVerilog command-line conventions.
+
+The golden runner reads optional `<fixture>.flags` sidecars (one
+whitespace-separated token per line; `#` comments allowed) so a
+fixture can opt into rule-specific runner flags (`--sync-cell`,
+`--glitch-free-mux-cell`) or compilation flags (`-I`, `-D`) without
+bloating every fixture invocation.
+
+| Fixture | Pattern |
+|---------|---------|
+| `39_macro_gated_sync` | `\`SYNC_2FF` macro defined in `inc/macro_sync_chain.svh`; runner passes `-I tests/cdc/basic/inc -D SYNC_BACKEND_2FF` via the `.flags` sidecar. |
+| `40_neg_macro_gated_no_sync` (paired neg) | Same macro / include workflow but with a `\`SYNC_DIRECT` backend that omits the metastable stage; VIOLATION as expected. |
 
 ### Shift-register-style synchronizer recognition (resolved)
 
@@ -142,3 +171,43 @@ bash tests/test_cdc_golden.sh ./build/svlens           # CDC suite only
 ./build/svlens cdc tests/cdc/basic/01_no_crossing.sv \
     --top single_domain --format md                    # one fixture only
 ```
+
+## External RTL coverage (Round 11 sweep)
+
+The cumulative Round 7-11 fixes have been validated against the
+following OSS RTL modules. All produce clean classification (no
+false positives) and recognised synchronizers where applicable:
+
+| Module | FFs | V | C | INFO | Notes |
+|--------|-----|---|---|------|-------|
+| ZipCPU `afifo.v` | 11 | 0 | 0 | 2 | Concat-LHS 2-FF idiom (rgray, wgray) recognised as `two_ff` |
+| OpenTitan `prim_fifo_async.sv` | 13 | 0 | 0 | 2 | Gray-pointer crossings recognised as `two_ff` after parameter-fanin fix |
+| OpenTitan `prim_pulse_sync.sv` | 5 | 0 | 0 | 1 | Toggle-based pulse sync |
+| OpenTitan `prim_sync_reqack.sv` | 9 | 0 | 0 | 2 | Req/ack handshake pair both classified as `handshake` |
+| CVA6/pulp `cdc_fifo_gray.sv` | 18 | 0 | 0 | 8 | Multi-level genvar + sync.sv shift-register, recognised as `johnson_counter` |
+| CVA6/pulp `cdc_2phase.sv` | 9 | 0 | 0 | 0 | Top-level standalone (cross-port crossings not visible without instantiating into a 2-clock parent) |
+| BlackParrot `bsg_async_noc_link.sv` | 0 | 0 | 0 | 0 | Wrapper that delegates to `bsg_async_fifo` (BSG library not vendored in this compile). svlens correctly detects 0 FFs at the wrapper level without false positives. |
+| OpenTitan `prim_lc_sync.sv` | 0 | 0 | 0 | 0 | Life-cycle multi-bit sync wrapper; receiver-only standalone compile. |
+| OpenTitan `prim_mubi8_sync.sv` | 0 | 0 | 0 | 0 | 8-bit multi-bit-encoded synchronizer wrapper; receiver-only standalone compile. |
+| OpenTitan `prim_count.sv` | 3 | 0 | 0 | 0 | Hardened counter (single-clock); no false positives. |
+| OpenTitan `prim_edge_detector.sv` | 1 | 0 | 0 | 0 | Single-clock edge detector; no false positives. |
+| OpenTitan `prim_alert_receiver.sv` | 3 | 0 | 0 | 0 | Alert receiver (single-clock standalone); no false positives. |
+| OpenTitan `prim_fifo_async_simple.sv` | 15 | 0 | 0 | 2 | Multi-level integration: req/ack handshake pair recognized as `two_ff` across the wrapper hierarchy. |
+
+## Performance baseline (Round 18)
+
+Measured on the cumulative state after Rounds 7-17 with all optimizations applied:
+
+| Module | FFs | Crossings | `time svlens cdc` |
+|--------|-----|-----------|-------------------|
+| ZipCPU `afifo` | 11 | 2 | <50 ms |
+| OpenTitan `prim_fifo_async` | 13 | 2 | ~11 ms |
+| CVA6 `cdc_fifo_gray` | 18 | 8 | ~22 ms |
+
+The Round 12 hash-based optimizations (`clock_db.net_by_path` lookup
+replacing the linear scan, `findFFByName` suffix-scan length pre-check)
+keep CDC analysis comfortably under the design-load wall-clock budget
+of practical RTL CI gates.
+
+Compilation requires `-I <common_cells>/include -I <common_cells>/include/common_cells`
+for projects that use the `\`FFLARN` / `\`FF` register macros.

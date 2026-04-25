@@ -60,8 +60,9 @@ is the escape hatch.
 ### D2. Interface / modport semantic deepening -- `proposed`
 
 **Why**: README currently flags interface/modport handling as "partial"
-(`README.md:386-389`). Real SoC designs lean heavily on bus interfaces, so
-this is the largest gap blocking adoption.
+under the _Current implementation limits_ / _Connectivity mode_ section
+of `README.md`. Real SoC designs lean heavily on bus interfaces, so this
+is the largest gap blocking adoption.
 
 **Approach**: extend `ConnectionExtractor` to walk
 `InterfaceInstanceSymbol` and `ModportSymbol` from slang's AST, producing

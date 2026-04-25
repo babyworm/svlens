@@ -6,8 +6,10 @@ CCACHE_ARG := $(shell command -v ccache >/dev/null 2>&1 && echo -DCMAKE_CXX_COMP
 
 CLANG_FORMAT ?= clang-format
 # Use git ls-files with directory roots and grep filtering -- pathspec ** can be
-# brittle across git versions, and listing roots is more portable.
-FORMAT_FILES := $(shell git ls-files src include tests fuzz 2>/dev/null | grep -E '\.(cpp|h)$$')
+# brittle across git versions, and listing roots is more portable. The regex
+# intentionally accepts the full range of C++ header/source suffixes so that
+# future contributors using .hpp / .cxx / .cc / .hxx remain covered.
+FORMAT_FILES := $(shell git ls-files src include tests fuzz 2>/dev/null | grep -E '\.(cpp|cxx|cc|h|hpp|hxx)$$')
 
 .PHONY: help build test install clean debug format format-check
 

@@ -28,10 +28,14 @@ class Svlens < Formula
   def install
     system "./scripts/setup-deps.sh", "--prefix", "#{buildpath}/.deps"
 
-    args = std_cmake_args + %W[
-      -DCMAKE_BUILD_TYPE=Release
-      -DCMAKE_PREFIX_PATH=#{buildpath}/.deps;#{HOMEBREW_PREFIX}
-      -DSVLENS_FETCH_DEPS=OFF
+    # Use an explicit list rather than %W[] because the CMAKE_PREFIX_PATH
+    # argument carries a literal semicolon, which %W[] happens to preserve
+    # but only because whitespace (not semicolons) is the split delimiter.
+    # Explicit quoting makes that contract local to this file.
+    args = std_cmake_args + [
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DCMAKE_PREFIX_PATH=#{buildpath}/.deps;#{HOMEBREW_PREFIX}",
+      "-DSVLENS_FETCH_DEPS=OFF",
     ]
 
     system "cmake", "-B", "build", *args

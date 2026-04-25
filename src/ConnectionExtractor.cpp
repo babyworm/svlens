@@ -435,27 +435,21 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
                     // abs-path entry permits WidthChecker to fire when the
                     // consumer-side port width differs.
                     if (!ifaceInstName.empty()) {
-                        std::string netKey = scopePath + "::" + ifaceInstName +
-                                             "." + std::string(modportPort.name);
-
-                        if (signalPort.direction == slang::ast::ArgumentDirection::InOut) {
-                            netMap_[netKey].push_back({signalPort, true, ConnectionKind::Approximate});
-                            netMap_[netKey].push_back({signalPort, false, ConnectionKind::Approximate});
-                        } else {
-                            bool isDriver = (signalPort.direction == slang::ast::ArgumentDirection::Out);
-                            netMap_[netKey].push_back({signalPort, isDriver, ConnectionKind::Approximate});
-                        }
-
-                        if (modportPort.internalSymbol) {
-                            std::string absKey = modportPort.internalSymbol->getHierarchicalPath();
+                        auto emit = [&](const std::string& key, ConnectionKind k) {
                             if (signalPort.direction == slang::ast::ArgumentDirection::InOut) {
-                                netMap_[absKey].push_back({signalPort, true, ConnectionKind::Direct});
-                                netMap_[absKey].push_back({signalPort, false, ConnectionKind::Direct});
+                                netMap_[key].push_back({signalPort, true, k});
+                                netMap_[key].push_back({signalPort, false, k});
                             } else {
                                 bool isDriver = (signalPort.direction == slang::ast::ArgumentDirection::Out);
-                                netMap_[absKey].push_back({signalPort, isDriver, ConnectionKind::Direct});
+                                netMap_[key].push_back({signalPort, isDriver, k});
                             }
-                        }
+                        };
+                        emit(scopePath + "::" + ifaceInstName + "." +
+                                 std::string(modportPort.name),
+                             ConnectionKind::Approximate);
+                        if (modportPort.internalSymbol)
+                            emit(modportPort.internalSymbol->getHierarchicalPath(),
+                                 ConnectionKind::Direct);
                     }
                 }
             }

@@ -7,6 +7,7 @@ libFuzzer-based fuzzers for the parsers that consume user-provided text:
 | `fuzz_filelist` | `sv_cdccheck::FilelistParser::parseString` |
 | `fuzz_sdc` | `sv_cdccheck::SdcParser::parse` |
 | `fuzz_waiver` | `sv_cdccheck::WaiverManager::loadString` |
+| `fuzz_clock_yaml` | `sv_cdccheck::ClockYamlParser::loadString` |
 
 ## Build
 
@@ -26,11 +27,12 @@ Each binary takes an optional corpus directory. Persistent corpora live under
 `fuzz/corpus/<name>/`; create one once and reuse across runs:
 
 ```bash
-mkdir -p fuzz/corpus/filelist fuzz/corpus/sdc fuzz/corpus/waiver
+mkdir -p fuzz/corpus/filelist fuzz/corpus/sdc fuzz/corpus/waiver fuzz/corpus/clock_yaml
 
-./build-fuzz/fuzz/fuzz_filelist fuzz/corpus/filelist -max_total_time=120
-./build-fuzz/fuzz/fuzz_sdc      fuzz/corpus/sdc      -max_total_time=120
-./build-fuzz/fuzz/fuzz_waiver   fuzz/corpus/waiver   -max_total_time=120
+./build-fuzz/fuzz/fuzz_filelist   fuzz/corpus/filelist   -max_total_time=120
+./build-fuzz/fuzz/fuzz_sdc        fuzz/corpus/sdc        -max_total_time=120
+./build-fuzz/fuzz/fuzz_waiver     fuzz/corpus/waiver     -max_total_time=120
+./build-fuzz/fuzz/fuzz_clock_yaml fuzz/corpus/clock_yaml -max_total_time=120
 ```
 
 Common libFuzzer flags:

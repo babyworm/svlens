@@ -16,20 +16,37 @@ jobs:
         with:
           fetch-depth: 0  # need history for diff against base
 
-      - name: Install clang-format
+      - name: Install clang-format and clang-format-diff
         run: |
           sudo apt-get update
+          # Ubuntu's clang-format package ships /usr/bin/clang-format-diff,
+          # but we install the version-suffixed -diff tool too in case the
+          # runner image rotates the unversioned symlink.
           sudo apt-get install -y clang-format
+          # Locate clang-format-diff; fail loudly if absent so the format
+          # gate cannot silently succeed when the tool is missing.
+          if ! command -v clang-format-diff >/dev/null 2>&1 \
+            && ! ls /usr/bin/clang-format-diff-* 2>/dev/null | head -1; then
+            echo "::error::clang-format-diff not found after apt install; the format gate cannot run."
+            exit 1
+          fi
 
       - name: Determine base ref
         id: base
         run: |
+          # Empty-tree SHA used by git as a stand-in when there is no parent commit.
+          EMPTY_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
           if [ "$EVENT_NAME" = "pull_request" ]; then
             BASE="$PR_BASE_SHA"
           else
             BASE="$PUSH_BEFORE_SHA"
             if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
-              BASE="HEAD~1"
+              # New branch / first push: try HEAD~1, fall back to empty tree.
+              if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+                BASE="HEAD~1"
+              else
+                BASE="$EMPTY_TREE"
+              fi
             fi
           fi
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
@@ -38,20 +55,28 @@ jobs:
         env:
           BASE: ${{ steps.base.outputs.base }}
         run: |
-          set -e
+          set -euo pipefail
           echo "Checking format vs $BASE"
-          CHANGED=$(git diff --name-only --diff-filter=AM "$BASE" -- 'src/*.cpp' 'src/*.h' 'src/**/*.cpp' 'src/**/*.h' 'include/**/*.h' 'tests/*.cpp' 'tests/**/*.cpp' || true)
+          CHANGED=$(git diff --name-only --diff-filter=AM "$BASE" -- 'src/*.cpp' 'src/*.h' 'src/**/*.cpp' 'src/**/*.h' 'include/**/*.h' 'tests/*.cpp' 'tests/**/*.cpp' 'fuzz/*.cpp' || true)
           if [ -z "$CHANGED" ]; then
             echo "No C++ source changes; nothing to format-check."
             exit 0
           fi
           echo "Changed C++ files:"
           echo "$CHANGED"
-          DIFFCMD=$(command -v clang-format-diff || command -v clang-format-diff-15 || command -v clang-format-diff-14 || true)
+          DIFFCMD=$(command -v clang-format-diff \
+            || command -v clang-format-diff-19 \
+            || command -v clang-format-diff-18 \
+            || command -v clang-format-diff-17 \
+            || command -v clang-format-diff-16 \
+            || command -v clang-format-diff-15 \
+            || command -v clang-format-diff-14 \
+            || true)
           if [ -z "$DIFFCMD" ]; then
-            echo "clang-format-diff not found; running --dry-run per file (advisory only)."
-            for f in $CHANGED; do clang-format --dry-run "$f" || true; done
-            exit 0
+            # Hard fail rather than silently passing: see the install step's
+            # earlier guard, this branch should be unreachable in CI.
+            echo "::error::clang-format-diff still not found at format-check time; aborting."
+            exit 1
           fi
           OUT=$(git diff -U0 "$BASE" -- $CHANGED | "$DIFFCMD" -p1 -style=file)
           if [ -n "$OUT" ]; then

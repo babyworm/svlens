@@ -240,8 +240,13 @@ void emitCdcReports(const CdcCliOptions& opts,
         report.generateWaiverTemplate(fs::path(opts.outputDir) / "cdc_waiver_template.yaml");
     if (!opts.dumpGraphFile.empty())
         report.generateDOT(opts.dumpGraphFile);
-    if (!opts.svaOutputFile.empty())
-        report.generateSVA(opts.svaOutputFile, opts.topModule);
+    if (!opts.svaOutputFile.empty()) {
+        if (!report.generateSVA(opts.svaOutputFile, opts.topModule)) {
+            std::cerr << "svlens cdc: warning: failed to write --emit-sva file '"
+                      << opts.svaOutputFile << "' (parent directory missing or "
+                      << "permission denied); analysis result is unaffected.\n";
+        }
+    }
 }
 
 void printCdcSummary(const CdcCliOptions& opts,

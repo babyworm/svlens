@@ -25,8 +25,14 @@ public:
     /// The emitted file is informational and is not bind-ready as-is; it is
     /// a starting point for downstream property files. See docs/schema/
     /// cdc_report.md for field semantics.
-    void generateSVA(const std::filesystem::path& output_path,
-                     const std::string& top_module = "") const;
+    ///
+    /// Returns true on success, false when the output stream cannot be
+    /// opened (e.g. parent directory missing, permission denied). Callers
+    /// that surface this to the user should warn rather than abort —
+    /// failure to write the SVA artifact does not invalidate the
+    /// underlying analysis.
+    [[nodiscard]] bool generateSVA(const std::filesystem::path& output_path,
+                                   const std::string& top_module = "") const;
 
     /// RFC 8259 JSON string escaping
     static std::string jsonEscape(const std::string& s);

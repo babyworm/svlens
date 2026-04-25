@@ -154,12 +154,44 @@ TEST_CASE("CDC ReportGenerator: intentional primitive sync types remain visible 
     CHECK(content.find("Intentional handshake primitive") != std::string::npos);
 }
 
+TEST_CASE("CDC ReportGenerator: SVA emitter signals failure on unwritable path",
+          "[cdc][report][sva][unwritable]") {
+    // Round 29 WARN #3 fix: previously the SVA emitter opened an
+    // ofstream and silently swallowed open-failure (e.g. parent
+    // directory missing), returning void with no observable signal.
+    // Locks the new contract: generateSVA returns false when the
+    // output stream cannot be opened, true on success.
+    auto result = makeCdcResult();
+    ReportGenerator gen(result);
+
+    // Force ofstream to fail by pointing at a parent directory that
+    // does not exist. Use a path with random suffix to avoid stale
+    // state from prior runs.
+    auto bad_dir = fs::temp_directory_path() /
+                   "svlens_sva_unwritable_DIR_THAT_DOES_NOT_EXIST_XYZ";
+    auto bad_path = bad_dir / "out.sva";
+    // Make sure the parent really doesn't exist before the call.
+    fs::remove_all(bad_dir);
+
+    bool ok = gen.generateSVA(bad_path);
+    CHECK_FALSE(ok);
+    CHECK_FALSE(fs::exists(bad_path));
+
+    // Sanity: a writable path still returns true.
+    auto good_path = fs::temp_directory_path() / "svlens_sva_writable.sva";
+    fs::remove(good_path);
+    bool ok2 = gen.generateSVA(good_path);
+    CHECK(ok2);
+    CHECK(fs::exists(good_path));
+    fs::remove(good_path);
+}
+
 TEST_CASE("CDC ReportGenerator: SVA emitter on empty crossings emits header only",
           "[cdc][report][sva][empty]") {
     AnalysisResult result;  // no crossings
     ReportGenerator gen(result);
     auto path = fs::temp_directory_path() / "svlens_sva_empty.sva";
-    gen.generateSVA(path, "empty_top");
+    REQUIRE(gen.generateSVA(path, "empty_top"));
 
     std::ifstream ifs(path);
     REQUIRE(ifs.good());
@@ -208,7 +240,7 @@ TEST_CASE("CDC ReportGenerator: SVA emitter never emits unsafe leading-dot expre
 
     ReportGenerator gen(result);
     auto path = fs::temp_directory_path() / "svlens_sva_leading_dot.sva";
-    gen.generateSVA(path);
+    REQUIRE(gen.generateSVA(path));
 
     std::ifstream ifs(path);
     REQUIRE(ifs.good());
@@ -240,7 +272,7 @@ TEST_CASE("CDC ReportGenerator: SVA emitter doc-only block for GrayCode sync",
 
     ReportGenerator gen(result);
     auto path = fs::temp_directory_path() / "svlens_sva_gray.sva";
-    gen.generateSVA(path);
+    REQUIRE(gen.generateSVA(path));
 
     std::ifstream ifs(path);
     REQUIRE(ifs.good());
@@ -261,7 +293,7 @@ TEST_CASE("CDC ReportGenerator: SVA emitter splits VIOLATION cover from INFO doc
 
     ReportGenerator generator(result);
     auto path = fs::temp_directory_path() / "svlens_cdc_report.sva";
-    generator.generateSVA(path, "top_module_under_test");
+    REQUIRE(generator.generateSVA(path, "top_module_under_test"));
 
     std::ifstream ifs(path);
     REQUIRE(ifs.good());

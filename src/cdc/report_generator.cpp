@@ -433,9 +433,11 @@ static bool svaExpressionSafe(const std::string& s, std::string& out) {
     return true;
 }
 
-void ReportGenerator::generateSVA(const std::filesystem::path& output_path,
+bool ReportGenerator::generateSVA(const std::filesystem::path& output_path,
                                   const std::string& top_module) const {
     std::ofstream out(output_path);
+    if (!out.is_open() || out.fail())
+        return false;
     out << "// =====================================================================\n";
     out << "// svlens CDC analysis -- auto-generated SVA file\n";
     if (!top_module.empty())
@@ -506,6 +508,7 @@ void ReportGenerator::generateSVA(const std::filesystem::path& output_path,
         }
         out << "\n";
     }
+    return true;
 }
 
 void ReportGenerator::generateDOT(const std::filesystem::path& output_path) const {

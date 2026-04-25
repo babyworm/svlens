@@ -1,9 +1,16 @@
 # svlens
 
-Unified structural analysis toolkit for SystemVerilog RTL designs. It analysis and checks
+[![CI](https://github.com/babyworm/svlens/actions/workflows/ci.yml/badge.svg)](https://github.com/babyworm/svlens/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
+[![slang](https://img.shields.io/badge/slang-v10%2B-purple.svg)](https://github.com/MikePopoloski/slang)
+[![Latest Release](https://img.shields.io/github/v/release/babyworm/svlens)](https://github.com/babyworm/svlens/releases)
+[![GitHub stars](https://img.shields.io/github/stars/babyworm/svlens?style=social)](https://github.com/babyworm/svlens/stargazers)
 
-- simple connectivity 
-- simple strucutral CDC issues
+Unified structural analysis toolkit for SystemVerilog RTL designs. It analyzes and checks
+
+- simple connectivity
+- simple structural CDC issues
 - code quality (based on complexity estimation)
 
 svlens is built on [slang](https://github.com/MikePopoloski/slang) v10+. Thus, C++20 is required to build the project.
@@ -20,6 +27,34 @@ cmake --build build -j4
 
 Every mode accepts source files directly or via filelist.
 For real projects, **always use `-f` or `-F`**:
+
+A typical project layout that svlens expects:
+
+```text
+my_soc/
+├── rtl/
+│   ├── filelist.f          # see example below
+│   ├── include/            # `include headers (-I rtl/include)
+│   ├── pkg/soc_pkg.sv
+│   ├── top/soc_top.sv
+│   └── sub/{cpu,bus,uart}.sv
+├── syn/
+│   └── clocks.sdc          # for CDC clock-period awareness
+└── waivers/
+    ├── conn_waivers.yaml
+    └── cdc_waivers.yaml
+```
+
+```text
+# rtl/filelist.f
+-I rtl/include
+-D SYNTHESIS
+rtl/pkg/soc_pkg.sv
+rtl/top/soc_top.sv
+rtl/sub/cpu.sv
+rtl/sub/bus.sv
+rtl/sub/uart.sv
+```
 
 ```bash
 # connectivity
@@ -63,6 +98,7 @@ svlens help all
 - large-SoC waiver / baseline rollout: [`docs/waiver-baselines.md`](docs/waiver-baselines.md)
 - release / packaging flow: [`docs/release.md`](docs/release.md)
 - current release notes: [`docs/releases/v0.2.5.md`](docs/releases/v0.2.5.md)
+- contributing guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
 ---
 

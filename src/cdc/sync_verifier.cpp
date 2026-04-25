@@ -52,13 +52,45 @@ SyncType SyncVerifier::detectSyncPattern(const FFNode* dest_ff) const {
     // dest_ff (first sync stage) -> next_ff (second sync stage)
     // Both must be in the same domain with direct FF-to-FF connection
     const FFNode* second = findNextFF(dest_ff);
-    if (!second) return SyncType::None;
+    if (second) {
+        // 2-FF detected! Check for 3-FF
+        const FFNode* third = findNextFF(second);
+        if (third) return SyncType::ThreeFF;
+        return SyncType::TwoFF;
+    }
 
-    // 2-FF detected! Check for 3-FF
-    const FFNode* third = findNextFF(second);
-    if (third) return SyncType::ThreeFF;
+    // Shift-register-style synchronizer (single multi-bit register that
+    // performs the chain internally), as used by
+    // pulp-platform/common_cells/src/sync.sv:
+    //
+    //   logic [STAGES-1:0] reg_q;
+    //   always_ff @(posedge clk_i, negedge rst_ni)
+    //     if (!rst_ni) reg_q <= '0;
+    //     else         reg_q <= {reg_q[STAGES-2:0], serial_i};
+    //
+    // In our connectivity graph this manifests as a single FFNode whose
+    // fanin_signals include its own leaf name (the self-shift). Without
+    // this branch we miss the sync recognition and over-report VIOLATION
+    // on every cdc_fifo_gray-style design that wraps the chain inside
+    // sync.sv.
+    if (!dest_ff->fanin_signals.empty()) {
+        std::string dest_leaf = dest_ff->hier_path;
+        auto dot_pos = dest_leaf.rfind('.');
+        if (dot_pos != std::string::npos)
+            dest_leaf = dest_leaf.substr(dot_pos + 1);
 
-    return SyncType::TwoFF;
+        bool self_shift = false;
+        for (auto& sig : dest_ff->fanin_signals) {
+            if (sig == dest_leaf) {
+                self_shift = true;
+                break;
+            }
+        }
+        if (self_shift)
+            return SyncType::TwoFF;
+    }
+
+    return SyncType::None;
 }
 
 const FFEdge* SyncVerifier::findEdge(const std::string& source_signal,

@@ -131,19 +131,32 @@ ConnectionExtractor::ResolvedExpr ConnectionExtractor::resolveExpr(
             // internalSymbol -> the underlying signal -> its hier path
             // so both sides rendezvous on the same absolute key.
             auto& hier = expr->as<slang::ast::HierarchicalValueExpression>();
+            // Round 32 WARN-1 fix: only mark is_absolute=true when the
+            // hier path resolves through the underlying signal (i.e.
+            // ModportPort.internalSymbol is non-null). Falling back to
+            // hier.symbol.getHierarchicalPath() yields the modport-
+            // scoped path ("top.inst.slave.data") which does NOT match
+            // the modport-expansion side keying ("top.inst.data"); if
+            // we kept is_absolute=true on that fallback the connection
+            // would silently fail to form. Leave is_absolute=false so
+            // the legacy scope-relative key still pairs up downstream.
             std::string hp;
+            bool rendezvous_safe = false;
             if (hier.symbol.kind == slang::ast::SymbolKind::ModportPort) {
                 auto& mpp = hier.symbol.as<slang::ast::ModportPortSymbol>();
-                if (mpp.internalSymbol)
+                if (mpp.internalSymbol) {
                     hp = mpp.internalSymbol->getHierarchicalPath();
+                    rendezvous_safe = !hp.empty();
+                }
             }
-            if (hp.empty())
-                hp = hier.symbol.getHierarchicalPath();
-            if (!hp.empty()) {
+            if (rendezvous_safe) {
                 result.netNames.push_back(hp);
                 result.is_absolute = true;
             } else {
-                result.netNames.push_back(std::string(hier.symbol.name));
+                std::string fallback_hp = hier.symbol.getHierarchicalPath();
+                result.netNames.push_back(
+                    fallback_hp.empty() ? std::string(hier.symbol.name)
+                                        : fallback_hp);
             }
             return result;
         }

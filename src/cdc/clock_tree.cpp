@@ -213,7 +213,12 @@ void ClockTreeAnalyzer::autoDetectClockPorts() {
             auto& port = port_member.as<slang::ast::PortSymbol>();
             std::string port_name(port.name);
 
-            if (isClockName(port_name)) {
+            // Reject reset-shaped names even when they technically
+            // match isClockName ("clk_rst_n", "ck_reset_n", etc.).
+            // The reset-pattern is the dominant semantic -- treating
+            // such a port as a clock source produces phantom domains
+            // that suppress real CDC crossings.
+            if (isClockName(port_name) && !isResetName(port_name)) {
                 // Check if SDC already defined this clock
                 bool already_defined = false;
                 for (auto& src : clock_db_.sources) {
@@ -301,17 +306,68 @@ void ClockTreeAnalyzer::propagateInstance(
             std::string port_name(port.name);
 
             ClockNet* parent_clock_net = nullptr;
+            std::string actual_signal;
 
             // Resolve the actual signal name from the connection expression
             auto* expr = conn->getExpression();
             if (expr) {
-                std::string actual_signal = extractSignalNameFromExpr(*expr);
+                actual_signal = extractSignalNameFromExpr(*expr);
                 if (!actual_signal.empty()) {
                     auto it = parent_nets.find(actual_signal);
                     if (it != parent_nets.end()) {
                         parent_clock_net = it->second;
                     }
                 }
+            }
+
+            // Lazy port-driven clock unification: if the parent
+            // expression doesn't have a registered ClockNet but the
+            // submodule uses this port in an always_ff sensitivity
+            // list, the parent expression IS a clock signal. Auto-
+            // register it so the child's FFs share the parent's
+            // clock domain. Without this step, parent ports named
+            // `cb`, `tck`, `phy_clock`, etc. (which fail the
+            // isClockName heuristic) end up as separate domains
+            // from the submodule's `clk_i`, creating spurious
+            // cross-domain crossings inside what is actually one
+            // physical clock.
+            if (!parent_clock_net && !actual_signal.empty() &&
+                isPortUsedAsClock(inst, port_name)) {
+                // Build a scope-qualified key so two physically
+                // distinct clocks that happen to share a leaf name
+                // in different parent scopes do NOT merge into one
+                // ClockSource. parent_scope is `inst_path` with its
+                // last segment chopped (the scope in which
+                // actual_signal lives, since actual_signal is the
+                // parent's expression for this port connection).
+                std::string parent_scope;
+                auto last_dot = inst_path.rfind('.');
+                if (last_dot != std::string::npos) {
+                    parent_scope = inst_path.substr(0, last_dot);
+                }
+                std::string qualified = parent_scope.empty()
+                    ? actual_signal
+                    : parent_scope + "." + actual_signal;
+
+                ClockSource* src_ptr = nullptr;
+                for (auto& s : clock_db_.sources) {
+                    if (s->origin_signal == qualified) {
+                        src_ptr = s.get();
+                        break;
+                    }
+                }
+                if (!src_ptr) {
+                    auto src = std::make_unique<ClockSource>();
+                    src->id = "auto_port_" + qualified;
+                    src->name = actual_signal;       // human-readable leaf
+                    src->type = ClockSource::Type::AutoDetected;
+                    src->origin_signal = qualified;  // structural identity
+                    src_ptr = clock_db_.addSource(std::move(src));
+                }
+                auto net = std::make_unique<ClockNet>();
+                net->hier_path = qualified;
+                net->source = src_ptr;
+                parent_clock_net = clock_db_.addNet(std::move(net));
             }
 
             if (parent_clock_net) {
@@ -991,6 +1047,77 @@ static bool matchWordBoundary(const std::string& lower, const char* pattern) {
         pos = lower.find(pattern, pos + 1);
     }
     return false;
+}
+
+// Recursively scan a scope (instance body, generate block, generate
+// block array entry) for any AlwaysFF block whose sensitivity list
+// references `port_name` with a clock edge. Used by
+// isPortUsedAsClock so that genvar-wrapped synchronizers like
+// `for (genvar i...) begin sync_shift u_sync (.clk_i(...)); end`
+// still surface their inner clock edge to the parent's port-driven
+// unification logic.
+static bool scopeUsesPortAsClock(const slang::ast::Scope& scope,
+                                 const std::string& port_name) {
+    for (auto& member : scope.members()) {
+        if (member.kind == slang::ast::SymbolKind::ProceduralBlock) {
+            auto& block = member.as<slang::ast::ProceduralBlockSymbol>();
+            if (block.procedureKind !=
+                slang::ast::ProceduralBlockKind::AlwaysFF)
+                continue;
+            auto& body = block.getBody();
+            if (body.kind != slang::ast::StatementKind::Timed) continue;
+            auto& timed = body.as<slang::ast::TimedStatement>();
+            auto& timing = timed.timing;
+            auto check_event = [&](const slang::ast::TimingControl& tc) -> bool {
+                if (tc.kind != slang::ast::TimingControlKind::SignalEvent)
+                    return false;
+                auto& sec = tc.as<slang::ast::SignalEventControl>();
+                if (extractSignalNameFromExpr(sec.expr) != port_name)
+                    return false;
+                return sec.edge == slang::ast::EdgeKind::PosEdge ||
+                       sec.edge == slang::ast::EdgeKind::NegEdge;
+            };
+            if (timing.kind == slang::ast::TimingControlKind::SignalEvent) {
+                if (check_event(timing)) return true;
+            } else if (timing.kind ==
+                       slang::ast::TimingControlKind::EventList) {
+                auto& list = timing.as<slang::ast::EventListControl>();
+                for (auto* ev : list.events) {
+                    if (ev && check_event(*ev)) return true;
+                }
+            }
+            continue;
+        }
+        // Recurse into generate blocks (single + array). The
+        // canonical pulp/cdc_fifo_gray pattern wraps sync.sv inside
+        // a `for (genvar i...) begin : g_sync ... end`.
+        if (member.kind == slang::ast::SymbolKind::GenerateBlock) {
+            auto& gen = member.as<slang::ast::GenerateBlockSymbol>();
+            if (gen.isUninstantiated) continue;
+            if (scopeUsesPortAsClock(gen, port_name)) return true;
+        }
+        if (member.kind == slang::ast::SymbolKind::GenerateBlockArray) {
+            auto& arr = member.as<slang::ast::GenerateBlockArraySymbol>();
+            for (auto* entry : arr.entries) {
+                if (!entry || entry->isUninstantiated) continue;
+                if (scopeUsesPortAsClock(*entry, port_name)) return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool ClockTreeAnalyzer::isPortUsedAsClock(
+    const slang::ast::InstanceSymbol& inst,
+    const std::string& port_name)
+{
+    // Reject reset-named ports outright. async resets (`negedge
+    // rst_n` / `negedge rst_ni`) appear in the sensitivity list
+    // exactly the same way clocks do, but they are NOT clocks --
+    // treating them as such would auto-register the reset signal
+    // as a ClockSource and leak phantom domains.
+    if (isResetName(port_name)) return false;
+    return scopeUsesPortAsClock(inst.body, port_name);
 }
 
 bool ClockTreeAnalyzer::isClockName(const std::string& name) {

@@ -103,6 +103,14 @@ private:
         std::unordered_map<std::string, ClockNet*>& local_nets,
         const std::string& inst_path);
 
+    /// Returns true if `port_name` is used as a clock (appears in
+    /// any always_ff sensitivity list inside `inst.body`). Used by
+    /// propagateInstance to decide whether to lazily auto-register
+    /// the parent's expression as a ClockSource when its name does
+    /// not match the isClockName heuristic.
+    static bool isPortUsedAsClock(const slang::ast::InstanceSymbol& inst,
+                                  const std::string& port_name);
+
     // ── Phase 1b+: Clock divider detection ──
 
     /// Detect clock dividers: always_ff with q <= ~q toggle pattern

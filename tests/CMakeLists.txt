@@ -133,3 +133,8 @@ add_test(NAME metrics_source_loc
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_metrics_source_loc.sh
             $<TARGET_FILE:svlens>
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME metrics_lhs_concat_for_loop
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_metrics_lhs_concat_for_loop.sh
+            $<TARGET_FILE:svlens>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

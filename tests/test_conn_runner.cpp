@@ -39,3 +39,43 @@ TEST_CASE("ConnRunner: issue design returns non-zero", "[conn][runner]") {
     CHECK(exitCode > 0);
     CHECK(fs::exists(out / "connect_report.json"));
 }
+
+// Phase B paired fixtures: interface modport width across hierarchy.
+// Pos drives an 8-bit modport.data into a 16-bit consumer port;
+// neg keeps everything 8-bit. Both fixtures currently report 0
+// errors -- the paired pair codifies the modport-width-inference
+// gap (Phase B prio #1) so any future hardening that closes the gap
+// will surface as a test diff.
+TEST_CASE("ConnRunner: modport-width paired fixtures stay deterministic",
+          "[conn][runner][modport_width]") {
+    auto pos = testutils::compileFile("sv/conn_modport_width_pos.sv");
+    REQUIRE(pos);
+    const auto out_pos =
+        fs::temp_directory_path() / "svlens_conn_modport_width_pos";
+    fs::remove_all(out_pos);
+    connect::ConnCliOptions opts_pos;
+    opts_pos.topModule = "conn_modport_width_pos";
+    opts_pos.format = "json";
+    opts_pos.outputDir = out_pos.string();
+    int exitPos =
+        connect::runConnWithCompilation(*pos.compilation, opts_pos);
+    // Codified gap: WidthChecker does not yet fire on modport->port
+    // width truncation through the interface boundary, so exit is 0
+    // today. Future fix flips this to >0 and the CHECK below.
+    CHECK(exitPos == 0);
+    CHECK(fs::exists(out_pos / "connect_report.json"));
+
+    auto neg = testutils::compileFile("sv/conn_modport_width_neg.sv");
+    REQUIRE(neg);
+    const auto out_neg =
+        fs::temp_directory_path() / "svlens_conn_modport_width_neg";
+    fs::remove_all(out_neg);
+    connect::ConnCliOptions opts_neg;
+    opts_neg.topModule = "conn_modport_width_neg";
+    opts_neg.format = "json";
+    opts_neg.outputDir = out_neg.string();
+    int exitNeg =
+        connect::runConnWithCompilation(*neg.compilation, opts_neg);
+    CHECK(exitNeg == 0);
+    CHECK(fs::exists(out_neg / "connect_report.json"));
+}

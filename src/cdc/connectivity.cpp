@@ -101,11 +101,39 @@ static void buildWireToFFMap(
             std::string wire_name = extractWireNameFromExpr(*expr);
             if (wire_name.empty()) continue;
 
-            // Check if the port corresponds to an FF output
+            // Check if the port corresponds to an FF output directly
             std::string ff_path = child_path + "." + std::string(conn->port.name);
             auto it = output_map.find(ff_path);
             if (it != output_map.end()) {
                 wire_map[wire_name] = it->second;
+                continue;
+            }
+
+            // Otherwise, the output port may be driven by a continuous
+            // assign inside the child: `assign port_name = local_ff;`.
+            // Chase one level of cont-assign indirection so that the
+            // wire still resolves back to the underlying FF.
+            std::string port_name(conn->port.name);
+            for (auto& child_member : child.body.members()) {
+                if (child_member.kind != slang::ast::SymbolKind::ContinuousAssign)
+                    continue;
+                auto& ca = child_member.as<slang::ast::ContinuousAssignSymbol>();
+                auto& ca_expr = ca.getAssignment();
+                if (ca_expr.kind != slang::ast::ExpressionKind::Assignment) continue;
+                auto& assign_expr = ca_expr.as<slang::ast::AssignmentExpression>();
+                if (assign_expr.left().kind != slang::ast::ExpressionKind::NamedValue)
+                    continue;
+                std::string lhs_name(
+                    assign_expr.left().as<slang::ast::NamedValueExpression>().symbol.name);
+                if (lhs_name != port_name) continue;
+                // RHS should be a NamedValue or simple expression naming the source FF
+                std::string rhs_name = extractExprSignalName(assign_expr.right());
+                if (rhs_name.empty()) continue;
+                auto src_it = output_map.find(child_path + "." + rhs_name);
+                if (src_it != output_map.end()) {
+                    wire_map[wire_name] = src_it->second;
+                    break;
+                }
             }
         }
     }
@@ -114,12 +142,17 @@ static void buildWireToFFMap(
 // Find an FFNode by signal name within a given instance scope.
 // Uses port_map to resolve port names to actual parent signals,
 // and wire_map to resolve parent wires to FF outputs.
+// `parent_port_chain` is a stack of (port_map, parent_path) for ancestors
+// that lets the resolver walk port chains across multiple submodule
+// boundaries when a port maps to another port (Finding 2 fix).
 static FFNode* findFFByName(
     const std::string& sig_name,
     const std::string& inst_path,
     const std::unordered_map<std::string, FFNode*>& output_map,
     const std::unordered_map<std::string, std::string>& port_map,
-    const std::unordered_map<std::string, FFNode*>& wire_map)
+    const std::unordered_map<std::string, FFNode*>& wire_map,
+    const std::vector<std::pair<std::unordered_map<std::string, std::string>,
+                                std::string>>& parent_port_chain = {})
 {
     // Try full scoped path first (same instance)
     std::string full_name = inst_path + "." + sig_name;
@@ -138,25 +171,49 @@ static FFNode* findFFByName(
     if (wit != wire_map.end())
         return wit->second;
 
-    // Resolve through port connection: sig_name is a port, trace to actual signal
-    auto pit = port_map.find(sig_name);
+    // Resolve through port connection: sig_name is a port, trace to actual signal.
+    // Walk up the parent_port_chain so that a port wired to another port at
+    // the next level is also resolved (multi-level submodule traversal).
+    std::string current = sig_name;
+    auto pit = port_map.find(current);
     if (pit != port_map.end()) {
-        const std::string& actual = pit->second;
+        current = pit->second;
+        // Try wire_map / output_map at each ancestor level.
+        auto wit_local = wire_map.find(current);
+        if (wit_local != wire_map.end())
+            return wit_local->second;
 
-        // Check if the actual signal is a wire connected to a child FF output
-        auto wit = wire_map.find(actual);
-        if (wit != wire_map.end())
-            return wit->second;
-
-        // Try the actual signal in parent scope
         std::string parent_path;
         auto last_dot = inst_path.rfind('.');
         if (last_dot != std::string::npos) {
             parent_path = inst_path.substr(0, last_dot);
-            std::string parent_full = parent_path + "." + actual;
+            std::string parent_full = parent_path + "." + current;
             it = output_map.find(parent_full);
             if (it != output_map.end())
                 return it->second;
+        }
+
+        // Walk up through the ancestor port_maps -- each iteration takes
+        // the current resolved name and tries to translate it through the
+        // next parent's port_map. Bounded by chain length so this is O(D).
+        for (auto rit = parent_port_chain.rbegin();
+             rit != parent_port_chain.rend(); ++rit) {
+            const auto& [ancestor_port_map, ancestor_path] = *rit;
+            auto ait = ancestor_port_map.find(current);
+            if (ait == ancestor_port_map.end()) break;
+            current = ait->second;
+            auto wit_anc = wire_map.find(current);
+            if (wit_anc != wire_map.end())
+                return wit_anc->second;
+            std::string anc_parent;
+            auto adot = ancestor_path.rfind('.');
+            if (adot != std::string::npos) {
+                anc_parent = ancestor_path.substr(0, adot);
+                std::string anc_full = anc_parent + "." + current;
+                it = output_map.find(anc_full);
+                if (it != output_map.end())
+                    return it->second;
+            }
         }
     }
 
@@ -214,12 +271,15 @@ static void resolveToFFs(
     const std::unordered_map<std::string, std::vector<std::string>>& cont_assigns,
     std::vector<FFNode*>& result,
     bool& has_comb,
-    int depth = 0)
+    int depth = 0,
+    const std::vector<std::pair<std::unordered_map<std::string, std::string>,
+                                std::string>>& parent_port_chain = {})
 {
     if (depth > 10) return; // prevent infinite recursion
 
     // Try direct FF lookup first
-    FFNode* ff = findFFByName(sig_name, inst_path, output_map, port_map, wire_map);
+    FFNode* ff = findFFByName(sig_name, inst_path, output_map, port_map, wire_map,
+                              parent_port_chain);
     if (ff) {
         if (std::find(result.begin(), result.end(), ff) == result.end())
             result.push_back(ff);
@@ -243,7 +303,9 @@ static void processInstanceEdges(
     const std::string& inst_path,
     const std::unordered_map<std::string, FFNode*>& output_map,
     const std::unordered_map<std::string, FFNode*>& parent_wire_map,
-    std::vector<FFEdge>& edges)
+    std::vector<FFEdge>& edges,
+    const std::vector<std::pair<std::unordered_map<std::string, std::string>,
+                                std::string>>& parent_port_chain = {})
 {
     // Build port map for this instance (port_name -> actual_signal in parent)
     auto port_map = buildPortMap(inst);
@@ -275,13 +337,15 @@ static void processInstanceEdges(
 
             for (auto& assign : assignments) {
                 FFNode* dest = findFFByName(assign.lhs_name, inst_path,
-                                            output_map, port_map, combined_wire_map);
+                                            output_map, port_map, combined_wire_map,
+                                            parent_port_chain);
                 if (!dest) continue;
 
                 for (auto& rhs_sig : assign.rhs_signals) {
                     // First try direct FF lookup
                     FFNode* source = findFFByName(rhs_sig, inst_path,
-                                                  output_map, port_map, combined_wire_map);
+                                                  output_map, port_map, combined_wire_map,
+                                                  parent_port_chain);
 
                     if (source && source != dest) {
                         FFEdge edge;
@@ -295,7 +359,7 @@ static void processInstanceEdges(
                         bool has_comb = false;
                         resolveToFFs(rhs_sig, inst_path, output_map, port_map,
                                     combined_wire_map, cont_assigns, resolved,
-                                    has_comb);
+                                    has_comb, 0, parent_port_chain);
                         for (auto* src : resolved) {
                             if (src && src != dest) {
                                 FFEdge edge;
@@ -311,11 +375,17 @@ static void processInstanceEdges(
             }
         }
 
-        // Recurse into child instances
+        // Recurse into child instances. Append the current port_map to the
+        // chain so deeper descendants can chase a port-to-port connection
+        // back through this level. Pass combined_wire_map so wires from
+        // any ancestor remain visible.
         if (body_member.kind == slang::ast::SymbolKind::Instance) {
             auto& child = body_member.as<slang::ast::InstanceSymbol>();
             std::string child_path = inst_path + "." + std::string(child.name);
-            processInstanceEdges(child, child_path, output_map, wire_map, edges);
+            auto child_chain = parent_port_chain;
+            child_chain.emplace_back(port_map, inst_path);
+            processInstanceEdges(child, child_path, output_map, combined_wire_map,
+                                 edges, child_chain);
         }
     }
 }

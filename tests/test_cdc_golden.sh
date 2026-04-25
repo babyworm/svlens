@@ -90,5 +90,6 @@ check_fixture "18_internal_reset_cdc" "internal_reset_cdc"
 check_fixture "19_missing_reset_sync" "missing_reset_sync"
 check_fixture "20_fanout_mixed_sync" "fanout_mixed_sync"
 check_fixture "21_clock_mux" "clock_mux"
+check_fixture "22_two_level_submodule_sync" "two_level_submodule_sync"
 
 echo "=== All CDC golden tests passed ==="

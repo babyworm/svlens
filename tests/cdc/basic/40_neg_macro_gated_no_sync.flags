@@ -1,0 +1,2 @@
+-I tests/cdc/basic/inc
+-D SYNC_BACKEND_DIRECT

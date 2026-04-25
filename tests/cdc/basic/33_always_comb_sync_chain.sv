@@ -7,33 +7,33 @@
 //   prim_flop u_sync_1 (.d_i(d_o), .q_o(intq));
 //   prim_flop u_sync_2 (.d_i(intq), .q_o(q_o));
 //
-// Expected: 1 violation, 0 cautions, 0 infos, 1 crossing
-//           (data_src_q -> u_sync.u_sync_1.q_o).
+// Expected: 0 violations, 0 cautions, 1 info, 1 crossing
+//           (data_src_q -> u_sync.u_sync_1.q_o, sync_type=two_ff).
 //
-// The connectivity tracker now chases `always_comb d_o = d_i;`
-// across submodule boundaries, so the chain from data_src_q (on
-// src_clk) into the first sub-flop u_sync_1.q_o (on dst_clk)
-// resolves end-to-end.
+// The connectivity tracker chases `always_comb d_o = d_i;` across
+// submodule boundaries, so the chain from data_src_q (on src_clk)
+// into the first sub-flop u_sync_1.q_o (on dst_clk) resolves
+// end-to-end. detectSyncPattern's `findNextFF` now also walks
+// adjacent submodule instances at the dst-domain side, so it
+// recognises u_sync_1.q_o -> u_sync_2.q_o as the second stage and
+// classifies the crossing as a 2-FF synchronizer (sync_type=two_ff).
 //
-// The disposition is VIOLATION rather than INFO because the second
-// sync stage (u_sync_2) is a SEPARATE flop_w submodule instance, and
-// detectSyncPattern's `findNextFF` does not yet trace across
-// adjacent module instances at the dst-domain side. Codify the
-// current behaviour; a future sync_verifier enhancement to walk
-// adjacent submodule instances should flip this back to INFO.
+// Companion SDC declares src_clk and dst_clk as truly async via
+// set_clock_groups -asynchronous, so the disposition lands as INFO.
+// 1-bit data avoids the orthogonal Ac_cdc04 bus-width caution.
 
 module always_comb_sync_chain (
     input  logic       src_clk,
     input  logic       dst_clk,
     input  logic       rst_n,
-    input  logic [3:0] data_in
+    input  logic       data_in
 );
 
-    logic [3:0] data_src_q;
+    logic data_src_q;
 
     always_ff @(posedge src_clk or negedge rst_n) begin
         if (!rst_n)
-            data_src_q <= 4'h0;
+            data_src_q <= 1'b0;
         else
             data_src_q <= data_in;
     end
@@ -48,7 +48,7 @@ module always_comb_sync_chain (
 endmodule
 
 module sync_2flop_indirect #(
-    parameter int W = 4
+    parameter int W = 1
 ) (
     input  logic         clk_i,
     input  logic         rst_ni,
@@ -70,7 +70,7 @@ module sync_2flop_indirect #(
 endmodule
 
 module flop_w #(
-    parameter int W = 4
+    parameter int W = 1
 ) (
     input  logic         clk_i,
     input  logic         rst_ni,

@@ -11,6 +11,7 @@ add_executable(svlens-tests
     test_common_cli.cpp
     test_cli_parsers.cpp
     test_cdc_clock_database.cpp
+    test_cdc_ast_utils.cpp
     test_cdc_clock_tree.cpp
     test_cdc_ff_classifier.cpp
     test_cdc_filelist.cpp

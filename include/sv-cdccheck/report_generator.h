@@ -17,6 +17,17 @@ public:
     void generateSDC(const std::filesystem::path& output_path) const;
     void generateWaiverTemplate(const std::filesystem::path& output_path) const;
 
+    /// Emit SystemVerilog Assertions (SVA) for each crossing in the report.
+    /// VIOLATION crossings produce a `cover property` that fires when the
+    /// source signal changes between dst_clk edges (a documentation aid for
+    /// formal/simulation triage). INFO/Caution synced crossings produce a
+    /// comment-only header documenting the verified synchronizer pattern.
+    /// The emitted file is informational and is not bind-ready as-is; it is
+    /// a starting point for downstream property files. See docs/schema/
+    /// cdc_report.md for field semantics.
+    void generateSVA(const std::filesystem::path& output_path,
+                     const std::string& top_module = "") const;
+
     /// RFC 8259 JSON string escaping
     static std::string jsonEscape(const std::string& s);
 

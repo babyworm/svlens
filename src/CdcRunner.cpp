@@ -42,6 +42,9 @@ void cdccli::printCdcUsage() {
         "  --glitch-free-mux-cell <name>\n"
         "                          Treat instances of <name> as glitch-free clock muxes (repeatable)\n"
         "  --cdc-config <file>     YAML config with sync_cells / glitch_free_mux_cells lists\n"
+        "  --emit-sva <path>       Emit informational SVA properties to <path>\n"
+        "                          (one cover-property per VIOLATION crossing,\n"
+        "                          documentation-only header per verified synchronizer)\n"
         "  -v, --verbose           Detailed output\n"
         "  -q, --quiet             Only violations and summary\n\n"
         "Examples:\n"
@@ -116,6 +119,8 @@ cdccli::CdcCliOptions cdccli::parseCdcArgs(int argc, const char* const* argv,
             opts.userGlitchFreeMuxCells.emplace_back(argv[++i]);
         else if (arg == "--cdc-config" && i + 1 < argc)
             opts.cdcConfigFile = argv[++i];
+        else if (arg == "--emit-sva" && i + 1 < argc)
+            opts.svaOutputFile = argv[++i];
         else if (arg == "-q" || arg == "--quiet")
             opts.quiet = true;
         else if (arg == "-v" || arg == "--verbose")

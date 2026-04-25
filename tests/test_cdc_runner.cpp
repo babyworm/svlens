@@ -140,6 +140,43 @@ TEST_CASE("CdcRunner: --ignore-gated suppresses Low-severity gated entries",
     CHECK(body_drop.find("INFO-1") == std::string::npos);
 }
 
+TEST_CASE("CdcRunner: --emit-sva writes SVA file alongside the JSON report",
+          "[cdc][runner][emit_sva]") {
+    // Phase C: --emit-sva flag produces an SVA assertion file beside
+    // the JSON report. For a VIOLATION crossing the file contains a
+    // `cover property (cdc_<id>_src_toggle)` block; identifiers are
+    // sanitized so dashes from auto-generated ids do not break SVA
+    // parsing. Locks the wiring between CdcCliOptions::svaOutputFile
+    // and ReportGenerator::generateSVA in emitCdcReports.
+    connect::CompilationSession session;
+    std::vector<std::string> args = {"test", cdcFixture("02_missing_sync.sv")};
+    REQUIRE(session.compile(args));
+
+    const auto out = fs::temp_directory_path() / "svlens_emit_sva";
+    fs::remove_all(out);
+    fs::create_directories(out);
+
+    cdccli::CdcCliOptions opts;
+    opts.topModule = "missing_sync";
+    opts.outputDir = out.string();
+    opts.format = "json";
+    opts.svaOutputFile = (out / "cdc_assertions.sva").string();
+
+    int exitCode = cdccli::runCdcWithCompilation(session.compilation(), opts);
+    CHECK(exitCode == 1);
+
+    REQUIRE(fs::exists(opts.svaOutputFile));
+    std::ifstream ifs(opts.svaOutputFile);
+    std::string sva((std::istreambuf_iterator<char>(ifs)),
+                    std::istreambuf_iterator<char>());
+
+    CHECK(sva.find("// Top:        missing_sync") != std::string::npos);
+    // Sanitized identifier (no dash) and cover-property wrapping.
+    CHECK(sva.find("property cdc_VIOLATION_1_src_toggle") != std::string::npos);
+    CHECK(sva.find("cover property (cdc_VIOLATION_1_src_toggle)") !=
+          std::string::npos);
+}
+
 TEST_CASE("CdcRunner: --strict elevates CAUTION-only fixture to non-zero exit",
           "[cdc][runner][strict]") {
     // Round 14 US-D03: fixture 15 produces 1 CAUTION (Ac_cdc04

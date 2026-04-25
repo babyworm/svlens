@@ -240,6 +240,8 @@ void emitCdcReports(const CdcCliOptions& opts,
         report.generateWaiverTemplate(fs::path(opts.outputDir) / "cdc_waiver_template.yaml");
     if (!opts.dumpGraphFile.empty())
         report.generateDOT(opts.dumpGraphFile);
+    if (!opts.svaOutputFile.empty())
+        report.generateSVA(opts.svaOutputFile, opts.topModule);
 }
 
 void printCdcSummary(const CdcCliOptions& opts,

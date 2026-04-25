@@ -390,6 +390,88 @@ void ReportGenerator::generateSDC(const std::filesystem::path& output_path) cons
     }
 }
 
+// SVA emitter helper: turn a hierarchical name like "top.u_sub.q" or an id
+// like "VIOLATION-1" into a safe SVA identifier ("top_u_sub_q",
+// "VIOLATION_1"). Replaces non-alphanumeric/non-underscore characters with
+// underscore so the result is a valid SystemVerilog identifier.
+static std::string svaSanitize(const std::string& s) {
+    std::string r;
+    r.reserve(s.size());
+    for (char c : s) {
+        const bool isAlnum = (c >= 'a' && c <= 'z') ||
+                             (c >= 'A' && c <= 'Z') ||
+                             (c >= '0' && c <= '9') ||
+                             c == '_';
+        r.push_back(isAlnum ? c : '_');
+    }
+    return r;
+}
+
+void ReportGenerator::generateSVA(const std::filesystem::path& output_path,
+                                  const std::string& top_module) const {
+    std::ofstream out(output_path);
+    out << "// =====================================================================\n";
+    out << "// svlens CDC analysis -- auto-generated SVA file\n";
+    if (!top_module.empty())
+        out << "// Top:        " << top_module << "\n";
+    out << "// Crossings:  " << result_.crossings.size() << "\n";
+    out << "// Note: properties below are informational. Hierarchical signal\n";
+    out << "//       access via `bind` is left to the user; see comments per\n";
+    out << "//       crossing for the source/dest signal paths.\n";
+    out << "// =====================================================================\n\n";
+
+    for (auto& c : result_.crossings) {
+        const std::string id_safe = svaSanitize(c.id);
+        const std::string src_safe = svaSanitize(c.source_signal);
+        const std::string dst_safe = svaSanitize(c.dest_signal);
+        const char* category = categoryToString(c.category);
+        const char* severity = severityToString(c.severity);
+        const char* sync_type = syncTypeToString(c.sync_type);
+        const std::string& src_clk = (c.source_domain && c.source_domain->source)
+            ? c.source_domain->source->name : std::string("<unknown>");
+        const std::string& dst_clk = (c.dest_domain && c.dest_domain->source)
+            ? c.dest_domain->source->name : std::string("<unknown>");
+
+        out << "// ----------------------------------------------------------------\n";
+        out << "// Crossing  : " << c.id << "\n";
+        out << "// Category  : " << category << "\n";
+        out << "// Severity  : " << severity << "\n";
+        out << "// Rule      : " << (c.rule.empty() ? std::string("-") : c.rule) << "\n";
+        out << "// Source    : " << c.source_signal << "  (" << src_clk << ")\n";
+        out << "// Dest      : " << c.dest_signal   << "  (" << dst_clk << ")\n";
+        out << "// Sync type : " << sync_type << "\n";
+        if (!c.waive_reason.empty())
+            out << "// Waiver    : " << c.waive_reason << "\n";
+        if (!c.rationale.empty())
+            out << "// Rationale : " << c.rationale << "\n";
+        out << "// ----------------------------------------------------------------\n";
+
+        if (c.category == ViolationCategory::Violation && c.sync_type == SyncType::None) {
+            // Unsynchronized crossing: emit a cover property documenting the
+            // glitch surface. Cover (not assert) so that simulation does not
+            // false-fail on legitimate async toggling — the cover hits when
+            // the source signal toggles within a single dst_clk window.
+            out << "property cdc_" << id_safe << "_src_toggle;\n";
+            out << "    @(posedge " << dst_clk << ") "
+                << "!$stable(" << c.source_signal << ");\n";
+            out << "endproperty\n";
+            out << "cdc_" << id_safe << "_cover_toggle: cover property (cdc_"
+                << id_safe << "_src_toggle);\n";
+        } else if (c.sync_type != SyncType::None) {
+            // Verified synchronizer: emit only a documentation block. The
+            // structure is statically verified, so a runtime assertion adds
+            // no signal beyond the report itself.
+            out << "// Verified " << sync_type
+                << " synchronizer; no runtime property needed.\n";
+        } else {
+            // Caution / Convention: surface as a comment-only block so the
+            // user can decide whether to add a runtime check.
+            out << "// CAUTION/CONVENTION class — review manually.\n";
+        }
+        out << "\n";
+    }
+}
+
 void ReportGenerator::generateDOT(const std::filesystem::path& output_path) const {
     std::ofstream out(output_path);
     out << "digraph CDC {\n";

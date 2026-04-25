@@ -16,6 +16,7 @@ struct CdcCliOptions {
     std::string waiverFile;
     std::string dumpGraphFile;
     std::string cdcConfigFile;  // YAML config for safe-cell registry (--cdc-config)
+    std::string svaOutputFile;  // --emit-sva: optional SVA output path
     int syncStages = 2;
     bool strict = false;
     bool quiet = false;

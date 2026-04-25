@@ -153,3 +153,40 @@ TEST_CASE("CDC ReportGenerator: intentional primitive sync types remain visible 
     CHECK(content.find("\"sync_type\": \"handshake\"") != std::string::npos);
     CHECK(content.find("Intentional handshake primitive") != std::string::npos);
 }
+
+TEST_CASE("CDC ReportGenerator: SVA emitter splits VIOLATION cover from INFO doc",
+          "[cdc][report][sva]") {
+    auto result = makeCdcResult();
+
+    ReportGenerator generator(result);
+    auto path = fs::temp_directory_path() / "svlens_cdc_report.sva";
+    generator.generateSVA(path, "top_module_under_test");
+
+    std::ifstream ifs(path);
+    REQUIRE(ifs.good());
+    std::string content((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    fs::remove(path);
+
+    // Header advertises top + crossing count.
+    CHECK(content.find("svlens CDC analysis") != std::string::npos);
+    CHECK(content.find("top_module_under_test") != std::string::npos);
+    CHECK(content.find("Crossings:  2") != std::string::npos);
+
+    // VIOLATION crossing emits a cover property using a sanitized id.
+    CHECK(content.find("Crossing  : VIOLATION-001") != std::string::npos);
+    CHECK(content.find("property cdc_VIOLATION_001_src_toggle") !=
+          std::string::npos);
+    CHECK(content.find("cover property (cdc_VIOLATION_001_src_toggle)") !=
+          std::string::npos);
+    // The property guards on the dest clock and asserts source toggle.
+    CHECK(content.find("@(posedge ext_clk) !$stable(top.u_a.q_data)") !=
+          std::string::npos);
+
+    // Verified TwoFF synchronizer emits a doc-only block (no runtime
+    // property to avoid bind-time signal-name fragility).
+    CHECK(content.find("Crossing  : INFO-001") != std::string::npos);
+    CHECK(content.find("Verified two_ff synchronizer") != std::string::npos);
+    CHECK(content.find("property cdc_INFO_001_src_toggle") ==
+          std::string::npos);
+}

@@ -154,6 +154,107 @@ TEST_CASE("CDC ReportGenerator: intentional primitive sync types remain visible 
     CHECK(content.find("Intentional handshake primitive") != std::string::npos);
 }
 
+TEST_CASE("CDC ReportGenerator: SVA emitter on empty crossings emits header only",
+          "[cdc][report][sva][empty]") {
+    AnalysisResult result;  // no crossings
+    ReportGenerator gen(result);
+    auto path = fs::temp_directory_path() / "svlens_sva_empty.sva";
+    gen.generateSVA(path, "empty_top");
+
+    std::ifstream ifs(path);
+    REQUIRE(ifs.good());
+    std::string content((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    fs::remove(path);
+
+    CHECK(content.find("Crossings:  0") != std::string::npos);
+    CHECK(content.find("empty_top") != std::string::npos);
+    // No per-crossing header divider should appear.
+    CHECK(content.find("Crossing  :") == std::string::npos);
+    CHECK(content.find("property cdc_") == std::string::npos);
+}
+
+TEST_CASE("CDC ReportGenerator: SVA emitter never emits unsafe leading-dot expression",
+          "[cdc][report][sva][leading_dot]") {
+    // Round 28 TDD: code-reviewer flagged that a violation crossing
+    // whose source_signal begins with '.' (e.g. ".q_a" produced when
+    // the analyzer fails to prefix the hier-path) renders an invalid
+    // SVA expression "!$stable(.q_a)". Lock the invariant that the
+    // emitter never produces a leading-dot expression in $stable.
+    AnalysisResult result;
+
+    auto src = std::make_unique<ClockSource>();
+    src->name = "src_clk";
+    src->type = ClockSource::Type::Primary;
+    auto* srcPtr = result.clock_db.addSource(std::move(src));
+    auto* srcDom = result.clock_db.findOrCreateDomain(srcPtr, Edge::Posedge);
+
+    auto dst = std::make_unique<ClockSource>();
+    dst->name = "dst_clk";
+    dst->type = ClockSource::Type::Primary;
+    auto* dstPtr = result.clock_db.addSource(std::move(dst));
+    auto* dstDom = result.clock_db.findOrCreateDomain(dstPtr, Edge::Posedge);
+
+    CrossingReport bad;
+    bad.id = "VIOLATION-Z";
+    bad.category = ViolationCategory::Violation;
+    bad.severity = Severity::High;
+    bad.source_signal = ".q_leading_dot";  // truncated path
+    bad.dest_signal = ".sync_q";
+    bad.source_domain = srcDom;
+    bad.dest_domain = dstDom;
+    bad.sync_type = SyncType::None;
+    result.crossings.push_back(std::move(bad));
+
+    ReportGenerator gen(result);
+    auto path = fs::temp_directory_path() / "svlens_sva_leading_dot.sva";
+    gen.generateSVA(path);
+
+    std::ifstream ifs(path);
+    REQUIRE(ifs.good());
+    std::string content((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    fs::remove(path);
+
+    // INVARIANT: never emit a leading-dot expression inside $stable.
+    CHECK(content.find("!$stable(.q_leading_dot)") == std::string::npos);
+    // INVARIANT: the unsanitized source path remains in the comment
+    // header so a human can still trace the finding back.
+    CHECK(content.find(".q_leading_dot") != std::string::npos);
+}
+
+TEST_CASE("CDC ReportGenerator: SVA emitter doc-only block for GrayCode sync",
+          "[cdc][report][sva][gray]") {
+    auto result = makeCdcResult();
+
+    CrossingReport gray;
+    gray.id = "INFO-GRAY";
+    gray.category = ViolationCategory::Info;
+    gray.severity = Severity::Info;
+    gray.source_signal = "top.fifo.gray_ptr_q";
+    gray.dest_signal = "top.fifo.synced_ptr";
+    gray.source_domain = result.clock_db.domains[0].get();
+    gray.dest_domain = result.clock_db.domains[1].get();
+    gray.sync_type = SyncType::GrayCode;
+    result.crossings.push_back(std::move(gray));
+
+    ReportGenerator gen(result);
+    auto path = fs::temp_directory_path() / "svlens_sva_gray.sva";
+    gen.generateSVA(path);
+
+    std::ifstream ifs(path);
+    REQUIRE(ifs.good());
+    std::string content((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    fs::remove(path);
+
+    CHECK(content.find("INFO-GRAY") != std::string::npos);
+    CHECK(content.find("Verified gray_code synchronizer") != std::string::npos);
+    // Sanity: GrayCode is a verified sync, so no runtime cover.
+    CHECK(content.find("property cdc_INFO_GRAY_src_toggle") ==
+          std::string::npos);
+}
+
 TEST_CASE("CDC ReportGenerator: SVA emitter splits VIOLATION cover from INFO doc",
           "[cdc][report][sva]") {
     auto result = makeCdcResult();

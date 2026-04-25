@@ -390,10 +390,9 @@ void ReportGenerator::generateSDC(const std::filesystem::path& output_path) cons
     }
 }
 
-// SVA emitter helper: turn a hierarchical name like "top.u_sub.q" or an id
-// like "VIOLATION-1" into a safe SVA identifier ("top_u_sub_q",
-// "VIOLATION_1"). Replaces non-alphanumeric/non-underscore characters with
-// underscore so the result is a valid SystemVerilog identifier.
+// Sanitize a hierarchical name into a SystemVerilog identifier. Used for
+// generated property names (e.g. "VIOLATION-1" -> "VIOLATION_1") where
+// every char that is not alphanumeric or underscore is replaced.
 static std::string svaSanitize(const std::string& s) {
     std::string r;
     r.reserve(s.size());
@@ -405,6 +404,33 @@ static std::string svaSanitize(const std::string& s) {
         r.push_back(isAlnum ? c : '_');
     }
     return r;
+}
+
+// Sanitize a hierarchical signal path so it can be embedded inside an SVA
+// expression like `$stable(<expr>)`. Strips leading dots that the analyzer
+// may emit when a top-module prefix is missing -- a leading-dot expression
+// is rejected by SystemVerilog parsers. Returns true via `out` only when
+// the resulting path uses characters that are valid in a hierarchical
+// reference (alnum, '_', '$', '.', '[', ']'). Anything else (whitespace,
+// operators) means we cannot recover a safe reference and the caller
+// should skip the runtime property.
+static bool svaExpressionSafe(const std::string& s, std::string& out) {
+    out.clear();
+    size_t i = 0;
+    while (i < s.size() && s[i] == '.') ++i; // strip leading dots
+    if (i == s.size())
+        return false;
+    out.assign(s, i, std::string::npos);
+    for (char c : out) {
+        const bool isAlnum = (c >= 'a' && c <= 'z') ||
+                             (c >= 'A' && c <= 'Z') ||
+                             (c >= '0' && c <= '9') ||
+                             c == '_';
+        const bool isPathChar = c == '.' || c == '[' || c == ']' || c == '$';
+        if (!isAlnum && !isPathChar)
+            return false;
+    }
+    return true;
 }
 
 void ReportGenerator::generateSVA(const std::filesystem::path& output_path,
@@ -448,15 +474,27 @@ void ReportGenerator::generateSVA(const std::filesystem::path& output_path,
 
         if (c.category == ViolationCategory::Violation && c.sync_type == SyncType::None) {
             // Unsynchronized crossing: emit a cover property documenting the
-            // glitch surface. Cover (not assert) so that simulation does not
-            // false-fail on legitimate async toggling — the cover hits when
+            // glitch surface. Cover (not assert) so simulation does not
+            // false-fail on legitimate async toggling -- the cover hits when
             // the source signal toggles within a single dst_clk window.
-            out << "property cdc_" << id_safe << "_src_toggle;\n";
-            out << "    @(posedge " << dst_clk << ") "
-                << "!$stable(" << c.source_signal << ");\n";
-            out << "endproperty\n";
-            out << "cdc_" << id_safe << "_cover_toggle: cover property (cdc_"
-                << id_safe << "_src_toggle);\n";
+            //
+            // The expression body must be a valid SV hierarchical reference;
+            // svaExpressionSafe strips leading dots and rejects paths with
+            // operator-class characters. When unsafe, fall through to a
+            // doc-only block so the report stays parseable.
+            std::string src_expr;
+            if (svaExpressionSafe(c.source_signal, src_expr)) {
+                out << "property cdc_" << id_safe << "_src_toggle;\n";
+                out << "    @(posedge " << dst_clk << ") "
+                    << "!$stable(" << src_expr << ");\n";
+                out << "endproperty\n";
+                out << "cdc_" << id_safe << "_cover_toggle: cover property (cdc_"
+                    << id_safe << "_src_toggle);\n";
+            } else {
+                out << "// Source path contains characters unsafe for an SVA\n";
+                out << "// expression; cover property skipped. Triage via the\n";
+                out << "// JSON report's source_signal field instead.\n";
+            }
         } else if (c.sync_type != SyncType::None) {
             // Verified synchronizer: emit only a documentation block. The
             // structure is statically verified, so a runtime assertion adds

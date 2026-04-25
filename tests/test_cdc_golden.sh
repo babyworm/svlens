@@ -87,5 +87,8 @@ check_fixture "15_bus_cdc_no_gray" "bus_cdc_no_gray"
 check_fixture "16_comb_between_domains" "comb_between_domains"
 check_fixture "17_reset_synchronizer" "reset_synchronizer"
 check_fixture "18_internal_reset_cdc" "internal_reset_cdc"
+check_fixture "19_missing_reset_sync" "missing_reset_sync"
+check_fixture "20_fanout_mixed_sync" "fanout_mixed_sync"
+check_fixture "21_clock_mux" "clock_mux"
 
 echo "=== All CDC golden tests passed ==="

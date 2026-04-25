@@ -16,12 +16,12 @@ echo "=== svlens Integration Test ==="
 
 # Test 0: svlens help/version work
 SVLENS_HELP="$("$SVLENS_BINARY" --help)"
-if ! grep -q 'svlens v0.2.8' <<<"$SVLENS_HELP"; then
+if ! grep -q 'svlens v0.3.0' <<<"$SVLENS_HELP"; then
     echo "FAIL: svlens --help missing banner"
     exit 1
 fi
 SVLENS_VERSION="$("$SVLENS_BINARY" --version)"
-if ! grep -q '^svlens 0\.2\.8$' <<<"$SVLENS_VERSION"; then
+if ! grep -q '^svlens 0\.3\.0$' <<<"$SVLENS_VERSION"; then
     echo "FAIL: svlens --version unexpected: $SVLENS_VERSION"
     exit 1
 fi
@@ -29,12 +29,12 @@ echo "PASS: svlens help/version"
 
 # Test 1: svlens conn runs and produces expected report
 "$SVLENS_BINARY" conn --help >"$OUTDIR/svlens_conn_help.txt"
-if ! grep -q 'svlens conn v0.2.8' "$OUTDIR/svlens_conn_help.txt"; then
+if ! grep -q 'svlens conn v0.3.0' "$OUTDIR/svlens_conn_help.txt"; then
     echo "FAIL: svlens conn --help missing banner"
     exit 1
 fi
 "$SVLENS_BINARY" conn --version >"$OUTDIR/svlens_conn_version.txt"
-if ! grep -q '^svlens conn 0\.2\.8$' "$OUTDIR/svlens_conn_version.txt"; then
+if ! grep -q '^svlens conn 0\.3\.0$' "$OUTDIR/svlens_conn_version.txt"; then
     echo "FAIL: svlens conn --version unexpected"
     exit 1
 fi
@@ -52,12 +52,12 @@ echo "PASS: svlens conn"
 # Test 2: svlens cdc forwards to CDC mode
 set +e
 "$SVLENS_BINARY" cdc --help >"$OUTDIR/svlens_cdc_help.txt"
-if ! grep -q 'svlens cdc v0.2.8' "$OUTDIR/svlens_cdc_help.txt"; then
+if ! grep -q 'svlens cdc v0.3.0' "$OUTDIR/svlens_cdc_help.txt"; then
     echo "FAIL: svlens cdc --help missing banner"
     exit 1
 fi
 "$SVLENS_BINARY" cdc --version >"$OUTDIR/svlens_cdc_version.txt"
-if ! grep -q '^svlens cdc 0\.2\.8$' "$OUTDIR/svlens_cdc_version.txt"; then
+if ! grep -q '^svlens cdc 0\.3\.0$' "$OUTDIR/svlens_cdc_version.txt"; then
     echo "FAIL: svlens cdc --version unexpected"
     exit 1
 fi

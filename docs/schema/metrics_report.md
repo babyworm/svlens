@@ -13,7 +13,7 @@ based on backward transformation cones and repeated bit-lane normalization.
 
 ## Top-level keys
 - `version` (schema version, e.g. `"1.1"`)
-- `tool_version` (svlens version, e.g. `"0.2.8"`)
+- `tool_version` (svlens version, e.g. `"0.3.0"`)
 - `top`
 - `summary`
 - `analysis`

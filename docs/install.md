@@ -115,7 +115,7 @@ Download from the [Releases page](https://github.com/babyworm/svlens/releases),
 verify against the `*.sha256` companion file, then extract and install:
 
 ```bash
-TAG=v0.2.8  # replace with the desired tag
+TAG=v0.3.0  # replace with the desired tag
 ARCH=linux-x86_64  # or macos-arm64
 
 curl -LO "https://github.com/babyworm/svlens/releases/download/${TAG}/svlens-${ARCH}.tar.gz"
@@ -136,7 +136,7 @@ Each tagged release also publishes a multi-arch image to GHCR via the
 ```bash
 docker pull ghcr.io/babyworm/svlens:latest
 # or pin a version
-docker pull ghcr.io/babyworm/svlens:0.2.8
+docker pull ghcr.io/babyworm/svlens:0.3.0
 
 docker run --rm -v "$PWD:/work" -w /work ghcr.io/babyworm/svlens:latest \
   conn -f rtl/filelist.f --top soc_top

@@ -448,8 +448,6 @@ void ReportGenerator::generateSVA(const std::filesystem::path& output_path,
 
     for (auto& c : result_.crossings) {
         const std::string id_safe = svaSanitize(c.id);
-        const std::string src_safe = svaSanitize(c.source_signal);
-        const std::string dst_safe = svaSanitize(c.dest_signal);
         const char* category = categoryToString(c.category);
         const char* severity = severityToString(c.severity);
         const char* sync_type = syncTypeToString(c.sync_type);

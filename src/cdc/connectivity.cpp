@@ -34,12 +34,32 @@ std::unordered_map<std::string, FFNode*> ConnectivityBuilder::buildFFOutputMap()
     return map;
 }
 
-// Extract signal name from a NamedValueExpression
+// Extract signal name from a NamedValueExpression. Also unwraps a single
+// bit-select / range-select / conversion so a port connection written as
+// `.d_src_i(wptr_q[i])` or `.d_src_i(wptr_q[3:0])` still maps the port to
+// the underlying register name `wptr_q`.
 static std::string extractExprSignalName(const slang::ast::Expression& expr) {
-    if (expr.kind == slang::ast::ExpressionKind::NamedValue) {
-        return std::string(expr.as<slang::ast::NamedValueExpression>().symbol.name);
+    using EK = slang::ast::ExpressionKind;
+    const slang::ast::Expression* current = &expr;
+    while (true) {
+        if (current->kind == EK::NamedValue) {
+            return std::string(
+                current->as<slang::ast::NamedValueExpression>().symbol.name);
+        }
+        if (current->kind == EK::ElementSelect) {
+            current = &current->as<slang::ast::ElementSelectExpression>().value();
+            continue;
+        }
+        if (current->kind == EK::RangeSelect) {
+            current = &current->as<slang::ast::RangeSelectExpression>().value();
+            continue;
+        }
+        if (current->kind == EK::Conversion) {
+            current = &current->as<slang::ast::ConversionExpression>().operand();
+            continue;
+        }
+        return "";
     }
-    return "";
 }
 
 // Build port-to-actual-signal map for an instance: port_name -> actual_signal_name
@@ -230,6 +250,30 @@ static FFNode* findFFByName(
         }
     }
 
+    // Last-resort fallback: walk every ancestor scope (current path with
+    // the last segment chopped off, repeatedly) and try `<ancestor>.<sig>`
+    // against the output_map. This catches cases where a port maps to a
+    // bare signal name that lives several levels up the hierarchy --
+    // notably the genfor + sub-module instance combination from
+    // cdc_fifo_gray, where `i_sync` is in `gen_sync[i]` but the source
+    // flop `wptr_q` lives at the enclosing module body's level.
+    std::string ancestor = inst_path;
+    while (true) {
+        auto pos = ancestor.rfind('.');
+        if (pos == std::string::npos) break;
+        ancestor = ancestor.substr(0, pos);
+        auto cand_it = output_map.find(ancestor + "." + current);
+        if (cand_it != output_map.end())
+            return cand_it->second;
+        // Also try the original sig_name (in case port resolution
+        // already advanced `current` and we want to fall back).
+        if (current != sig_name) {
+            cand_it = output_map.find(ancestor + "." + sig_name);
+            if (cand_it != output_map.end())
+                return cand_it->second;
+        }
+    }
+
     return nullptr;
 }
 
@@ -355,6 +399,15 @@ static void processGenerateBlocks(
     }
 }
 
+static void processInstanceEdges(
+    const slang::ast::InstanceSymbol& inst,
+    const std::string& inst_path,
+    const std::unordered_map<std::string, FFNode*>& output_map,
+    const std::unordered_map<std::string, FFNode*>& parent_wire_map,
+    std::vector<FFEdge>& edges,
+    const std::vector<std::pair<std::unordered_map<std::string, std::string>,
+                                std::string>>& parent_port_chain);
+
 static void processScopeForEdges(
     const slang::ast::Scope& scope,
     const slang::ast::InstanceSymbol& enclosing_inst,
@@ -368,6 +421,23 @@ static void processScopeForEdges(
     const std::unordered_map<std::string, std::vector<std::string>>& cont_assigns)
 {
     for (auto& body_member : scope.members()) {
+        // Module instances inside a generate block must still be walked
+        // so their cross-clock crossings are reported. The `i_sync` inside
+        // `for (genvar i = 0; i < N; i++) begin : g sync u_sync (...); end`
+        // is the canonical example.
+        if (body_member.kind == slang::ast::SymbolKind::Instance) {
+            auto& child = body_member.as<slang::ast::InstanceSymbol>();
+            std::string child_path = path_prefix + "." + std::string(child.name);
+            auto child_chain = parent_port_chain;
+            child_chain.emplace_back(enclosing_port_map,
+                                     enclosing_inst.body.name.empty()
+                                         ? path_prefix
+                                         : path_prefix);
+            processInstanceEdges(child, child_path, output_map,
+                                 combined_wire_map, edges, child_chain);
+            continue;
+        }
+
         if (body_member.kind == slang::ast::SymbolKind::ProceduralBlock) {
             auto& block = body_member.as<slang::ast::ProceduralBlockSymbol>();
             if (block.procedureKind != slang::ast::ProceduralBlockKind::AlwaysFF &&

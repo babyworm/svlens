@@ -285,6 +285,16 @@ static FFNode* findFFByName(
                 // `<idx>` + suffix (e.g., "1.q_inner"), with any
                 // alphanumeric label in between.
                 std::string idx_suffix = idx + suffix;
+                // Round 31 US-31A: collect all matching paths and
+                // return the lexicographically-smallest one. The
+                // prior `return ff` inside the loop returned the
+                // first hit in unordered_map iteration order, which
+                // is implementation-defined when two sibling labels
+                // (e.g. "top.a1.x" and "top.b1.x") share the same
+                // parent_prefix + idx_suffix. Lexicographic tie-
+                // break gives a deterministic, debuggable result.
+                std::vector<std::pair<const std::string*, FFNode*>> matches;
+                matches.reserve(4);
                 for (auto& [path, ff] : output_map) {
                     if (!path.starts_with(parent_prefix)) continue;
                     if (!path.ends_with(idx_suffix)) continue;
@@ -300,7 +310,15 @@ static FFNode* findFFByName(
                     auto middle = std::string_view(path).substr(
                         middle_start, middle_end - middle_start);
                     if (middle.find('.') != std::string_view::npos) continue;
-                    return ff;
+                    matches.emplace_back(&path, ff);
+                }
+                if (!matches.empty()) {
+                    auto best = std::min_element(
+                        matches.begin(), matches.end(),
+                        [](const auto& a, const auto& b) {
+                            return *a.first < *b.first;
+                        });
+                    return best->second;
                 }
             }
         }

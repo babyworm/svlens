@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-project(svlens VERSION 0.2.7 LANGUAGES CXX)
+project(svlens VERSION 0.2.8 LANGUAGES CXX)
 
 # C++20 required by slang library headers
 set(CMAKE_CXX_STANDARD 20)

@@ -42,18 +42,18 @@ for token in "Required:" "Common:" "Metrics-specific:" "Outputs:" "Examples:" "E
     require_token "$METRICS_HELP" "$token" "metrics help"
 done
 require_token "$METRICS_HELP" "docs/schema/metrics_report.md" "metrics help"
-require_token "$METRICS_HELP" "svlens metrics v0.2.7" "metrics help"
+require_token "$METRICS_HELP" "svlens metrics v0.2.8" "metrics help"
 
 ALL_HELP="$($SVLENS_BINARY all --help)"
 for token in "Required:" "Common:" "Outputs:" "Examples:" "Exit Codes:" "Limitations:" "Notes:"; do
     require_token "$ALL_HELP" "$token" "all help"
 done
-require_token "$ALL_HELP" "svlens all v0.2.7" "all help"
+require_token "$ALL_HELP" "svlens all v0.2.8" "all help"
 require_token "$ALL_HELP" "metrics_report.json" "all help"
 
 # Backward compat: 'both' still works as alias
 BOTH_ALIAS="$($SVLENS_BINARY help both)"
-require_token "$BOTH_ALIAS" "svlens all v0.2.7" "both alias"
+require_token "$BOTH_ALIAS" "svlens all v0.2.8" "both alias"
 require_token "$BOTH_ALIAS" "Exit Codes:" "both alias"
 
 echo "PASS: help contract"

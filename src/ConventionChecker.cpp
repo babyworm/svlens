@@ -340,6 +340,25 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
         }
     }
 
+    // Round 38: surface ConnectionExtractor-collected style
+    // observations (legacy always block, anonymous enum, unnamed
+    // generate block, parameter / typedef name violations). Each
+    // observation already carries the message body in `detail`.
+    for (const auto& obs : graph.styleObservations) {
+        Issue issue;
+        issue.type = Issue::Type::CONVENTION;
+        issue.severity = Issue::Severity::INFO;
+        // Synthesize a port-info shell carrying the scope path so the
+        // existing JSON renderer surfaces a stable location.
+        PortInfo p;
+        p.instancePath = obs.scopePath;
+        p.portName = obs.name.empty() ? std::string("<no-name>") : obs.name;
+        p.location = obs.location;
+        issue.port = std::move(p);
+        issue.detail = obs.detail;
+        issues.push_back(std::move(issue));
+    }
+
     return issues;
 }
 

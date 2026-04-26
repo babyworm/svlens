@@ -34,6 +34,25 @@ struct Connection {
     ConnectionKind kind = ConnectionKind::Direct;
 };
 
+// Round 38: style-only observations recorded by ConnectionExtractor
+// during the walk, consumed by ConventionChecker. Each observation
+// captures a non-port style smell so the checker can emit lowRISC-
+// style INFO entries without re-walking the slang AST.
+struct StyleObservation {
+    enum class Kind {
+        LegacyAlwaysBlock,         // `always @*` instead of always_ff/always_comb
+        AnonymousEnum,             // `enum { A, B } sig;` without typedef
+        UnnamedGenerateBlock,      // `if (...) begin ... end` without `: name`
+        ParameterNameViolation,    // parameter not in expected case
+        TypedefSuffixViolation,    // typedef without `_t` / `_e` suffix
+    };
+    Kind kind;
+    std::string scopePath;   // hierarchical path of the enclosing module
+    std::string name;        // the offending name (parameter/typedef/etc.)
+    std::string detail;      // human-readable message body
+    slang::SourceLocation location;
+};
+
 struct ConnectionGraph {
     std::vector<Connection> connections;
     std::vector<PortInfo> allPorts;
@@ -41,6 +60,7 @@ struct ConnectionGraph {
     std::unordered_set<std::string> tieOffPorts;    // ports connected only to compile-time constants
     std::unordered_set<std::string> constantZeroTieOffPorts; // ports tied to an explicit constant zero
     std::string topModule;
+    std::vector<StyleObservation> styleObservations;
 };
 
 } // namespace connect

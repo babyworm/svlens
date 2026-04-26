@@ -120,3 +120,44 @@ module digit_suffix_bad (
 );
     assign foo_2 = foo_1;
 endmodule
+
+// ─── Legacy always @(*) (BAD) ─────────────────────────────────────
+// lowRISC requires `always_ff` for sequential and `always_comb` for
+// combinational. `always @(*)` and `always @(posedge clk)` are
+// legacy SystemVerilog forms.
+module legacy_always_bad (
+    input        clk_i,
+    input        rst_ni,
+    input  [7:0] data_i,
+    output [7:0] data_o,
+    output [7:0] reg_o
+);
+    logic [7:0] reg_q;
+    // BAD: legacy combinational always
+    logic [7:0] comb_w;
+    always @(*) begin
+        comb_w = data_i ^ 8'hAA;
+    end
+    assign data_o = comb_w;
+    // BAD: legacy sequential always
+    always @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) reg_q <= '0;
+        else         reg_q <= data_i;
+    end
+    assign reg_o = reg_q;
+endmodule
+
+// ─── Modern always_ff / always_comb (GOOD) ───────────────────────
+module modern_always_good (
+    input        clk_i,
+    input        rst_ni,
+    input  [7:0] data_i,
+    output [7:0] reg_o
+);
+    logic [7:0] reg_q;
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) reg_q <= '0;
+        else         reg_q <= data_i;
+    end
+    assign reg_o = reg_q;
+endmodule

@@ -567,6 +567,20 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
         block.procedureKind != slang::ast::ProceduralBlockKind::AlwaysFF) {
         return;
     }
+    // Round 38 US-38A: lowRISC requires `always_ff` for sequential
+    // and `always_comb` for combinational; the legacy `always @*` /
+    // `always @(posedge clk)` form is discouraged because synthesis
+    // cannot statically verify the intent. Record a style
+    // observation so ConventionChecker can emit an INFO entry.
+    if (block.procedureKind == slang::ast::ProceduralBlockKind::Always) {
+        StyleObservation obs;
+        obs.kind = StyleObservation::Kind::LegacyAlwaysBlock;
+        obs.scopePath = scopePath;
+        obs.location = block.location;
+        obs.detail = "legacy `always` block (use `always_ff` for "
+                     "sequential or `always_comb` for combinational)";
+        graph_.styleObservations.push_back(std::move(obs));
+    }
     processProceduralStatement(block.getBody(), scopePath);
 }
 

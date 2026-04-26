@@ -24,7 +24,7 @@ echo "PASS: help"
 
 # Test 0b: --version works
 VERSION_OUT="$($BINARY conn --version)"
-if ! grep -q '^svlens conn 0\.3\.0$' <<<"$VERSION_OUT"; then
+if ! grep -q '^svlens conn 0\.3\.1$' <<<"$VERSION_OUT"; then
     echo "FAIL: --version output unexpected: $VERSION_OUT"
     exit 1
 fi

@@ -17,6 +17,8 @@
 #include <slang/ast/statements/ConditionalStatements.h>
 #include <slang/ast/statements/MiscStatements.h>
 #include <slang/ast/types/Type.h>
+#include <slang/syntax/AllSyntax.h>
+#include <slang/parsing/TokenKind.h>
 
 #include <fmt/core.h>
 
@@ -820,6 +822,130 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
                 }
             };
         walk(block.getBody());
+
+        // Round 39 US-39A: lowRISC reset-polarity check.
+        // Detect two violations for always_ff blocks:
+        //   1. Comma-syntax sensitivity list: @(posedge clk, negedge rst)
+        //      instead of the required @(posedge clk or negedge rst).
+        //   2. Active-high reset: posedge on a signal whose name matches
+        //      the active-high naming pattern (^rst_p or _rst_p).
+        // Walk the syntax tree of the ProceduralBlockSyntax to inspect
+        // the original source tokens (the AST loses the comma/or
+        // distinction after elaboration).
+        if (auto* blockSyn = block.getSyntax()) {
+            using namespace slang::syntax;
+            using slang::parsing::TokenKind;
+
+            // The procedural-block syntax has a `statement` field which
+            // for always_ff is a TimingControlStatement wrapping the @(...).
+            auto& pbSyn = blockSyn->as<ProceduralBlockSyntax>();
+            if (pbSyn.statement->kind == SyntaxKind::TimingControlStatement) {
+                auto& tcStmt =
+                    pbSyn.statement->as<TimingControlStatementSyntax>();
+                auto& tcRef = *tcStmt.timingControl;
+
+                if (tcRef.kind == SyntaxKind::EventControlWithExpression) {
+                    auto& ecSyn =
+                        tcRef.as<EventControlWithExpressionSyntax>();
+
+                    // Walk the EventExpressionSyntax tree to:
+                    //   a) detect any BinaryEventExpression whose separator
+                    //      is a comma (instead of `or`)
+                    //   b) collect all SignalEventExpressions so we can
+                    //      check for active-high reset signals
+                    bool hasCommaSeparator = false;
+
+                    std::function<void(const EventExpressionSyntax&)> walkExpr =
+                        [&](const EventExpressionSyntax& e) {
+                            if (e.kind == SyntaxKind::ParenthesizedEventExpression) {
+                                // @(posedge clk, negedge rst) wraps the
+                                // event expression in parens at the syntax
+                                // level. Unwrap and recurse into the inner
+                                // event expression.
+                                walkExpr(
+                                    *e.as<ParenthesizedEventExpressionSyntax>()
+                                        .expr);
+                                return;
+                            }
+                            if (e.kind == SyntaxKind::BinaryEventExpression) {
+                                auto& bin =
+                                    e.as<BinaryEventExpressionSyntax>();
+                                if (bin.operatorToken.kind == TokenKind::Comma)
+                                    hasCommaSeparator = true;
+                                walkExpr(*bin.left);
+                                walkExpr(*bin.right);
+                            } else if (e.kind ==
+                                       SyntaxKind::SignalEventExpression) {
+                                auto& sig =
+                                    e.as<SignalEventExpressionSyntax>();
+                                // Active-high reset: posedge on a signal
+                                // whose name starts with `rst_p` or contains
+                                // `_rst_p` (lowRISC active-high naming
+                                // convention). Only flag PosEdge; negedge
+                                // rst_n is the correct lowRISC form.
+                                if (sig.edge.kind ==
+                                    TokenKind::PosEdgeKeyword) {
+                                    // Extract the signal name from the
+                                    // expression text using the raw syntax
+                                    // toString() for name matching.
+                                    std::string sigText =
+                                        sig.expr->toString();
+                                    // Trim whitespace
+                                    sigText.erase(
+                                        sigText.begin(),
+                                        std::find_if(sigText.begin(),
+                                            sigText.end(),
+                                            [](unsigned char c) {
+                                                return !std::isspace(c);
+                                            }));
+                                    sigText.erase(
+                                        std::find_if(sigText.rbegin(),
+                                            sigText.rend(),
+                                            [](unsigned char c) {
+                                                return !std::isspace(c);
+                                            }).base(),
+                                        sigText.end());
+                                    bool activeHigh =
+                                        sigText.starts_with("rst_p") ||
+                                        sigText.find("_rst_p") !=
+                                            std::string::npos;
+                                    if (activeHigh) {
+                                        StyleObservation obs;
+                                        obs.kind = StyleObservation::Kind::
+                                            ResetPolarityBad;
+                                        obs.scopePath = scopePath;
+                                        obs.name = sigText;
+                                        obs.location = block.location;
+                                        obs.detail = fmt::format(
+                                            "always_ff uses active-high reset "
+                                            "'{}' (posedge) -- lowRISC "
+                                            "requires active-low negedge "
+                                            "rst_n*",
+                                            sigText);
+                                        graph_.styleObservations.push_back(
+                                            std::move(obs));
+                                    }
+                                }
+                            }
+                        };
+
+                    walkExpr(*ecSyn.expr);
+
+                    if (hasCommaSeparator) {
+                        StyleObservation obs;
+                        obs.kind = StyleObservation::Kind::ResetPolarityBad;
+                        obs.scopePath = scopePath;
+                        obs.location = block.location;
+                        obs.detail =
+                            "always_ff sensitivity list uses comma syntax "
+                            "`@(posedge clk, negedge rst)` -- lowRISC "
+                            "requires `or` keyword: "
+                            "`@(posedge clk or negedge rst)`";
+                        graph_.styleObservations.push_back(std::move(obs));
+                    }
+                }
+            }
+        }
     }
     processProceduralStatement(block.getBody(), scopePath);
 }

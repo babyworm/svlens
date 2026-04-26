@@ -312,6 +312,38 @@ module ff_q_suffix_bad (
     assign state_o = state;
 endmodule
 
+// ─── Reset polarity: comma syntax (BAD) ──────────────────────────
+// lowRISC mandates `or` keyword in always_ff sensitivity lists, not comma.
+module reset_polarity_bad (
+    input        clk_i,
+    input        rst_ni,
+    input  [7:0] data_i,
+    output [7:0] data_o
+);
+    logic [7:0] data_q;
+    always_ff @(posedge clk_i, negedge rst_ni) begin
+        if (!rst_ni) data_q <= '0;
+        else         data_q <= data_i;
+    end
+    assign data_o = data_q;
+endmodule
+
+// ─── Reset polarity: or syntax (GOOD) ────────────────────────────
+// Canonical lowRISC form uses `or` between posedge clk and negedge rst.
+module reset_polarity_good (
+    input        clk_i,
+    input        rst_ni,
+    input  [7:0] data_i,
+    output [7:0] data_o
+);
+    logic [7:0] data_q;
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) data_q <= '0;
+        else         data_q <= data_i;
+    end
+    assign data_o = data_q;
+endmodule
+
 // ─── always_ff with proper _q (GOOD) ─────────────────────────────
 // data_q (single stage), valid_q / valid_q2 / valid_q3 (pipeline)
 module ff_q_suffix_good (

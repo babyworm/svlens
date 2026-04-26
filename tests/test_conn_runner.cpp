@@ -222,4 +222,13 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
     CHECK(fq_bad.find("'state' lacks `_q`") != std::string::npos);
     auto fq_good = run_top("ff_q_suffix_good");
     CHECK(fq_good.find("lacks `_q`") == std::string::npos);
+
+    // Round 39 US-39A: reset-polarity check.
+    // reset_polarity_bad uses comma syntax @(posedge clk_i, negedge rst_ni)
+    // which must be flagged. reset_polarity_good uses `or` and must be clean.
+    auto rp_bad = run_top("reset_polarity_bad");
+    CHECK(rp_bad.find("comma syntax") != std::string::npos);
+    auto rp_good = run_top("reset_polarity_good");
+    CHECK(rp_good.find("comma syntax") == std::string::npos);
+    CHECK(rp_good.find("reset-polarity") == std::string::npos);
 }

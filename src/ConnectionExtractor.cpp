@@ -354,7 +354,45 @@ void ConnectionExtractor::visitInstance(const slang::ast::InstanceSymbol& instan
     if (maxDepth_ >= 0 && static_cast<int>(instance.instanceDepth) > maxDepth_)
         return;
 
+    // Round 39 US-39B: save and reset the per-module _q/_d buckets so
+    // each module instance has an isolated view. After visitScope
+    // returns we compute the difference and emit MissingDSuffix
+    // observations, then restore the caller's buckets.
+    auto saved_q = std::move(registered_q_bases_);
+    auto saved_d = std::move(combinational_d_bases_);
+    bool saved_comb = has_comb_context_;
+    registered_q_bases_.clear();
+    combinational_d_bases_.clear();
+    has_comb_context_ = false;
+
     visitScope(instance.body, parentPath);
+
+    // Emit one INFO per _q base that has no matching _d driver.
+    // Conservative skip: only emit when the module has at least one
+    // always_comb or continuous assign (has_comb_context_). Purely
+    // registered modules (FSM, pipeline with no comb block) are
+    // skipped to avoid false positives.
+    if (!registered_q_bases_.empty() && has_comb_context_) {
+        for (const auto& base : registered_q_bases_) {
+            if (combinational_d_bases_.count(base) == 0) {
+                StyleObservation obs;
+                obs.kind = StyleObservation::Kind::MissingDSuffix;
+                obs.scopePath = parentPath;
+                obs.name = base + "_q";
+                obs.location = instance.location;
+                obs.detail = fmt::format(
+                    "always_ff register '{}' has no matching combinational "
+                    "input '{}' (lowRISC requires `<base>_d` -> `<base>_q` "
+                    "pairing)",
+                    base + "_q", base + "_d");
+                graph_.styleObservations.push_back(std::move(obs));
+            }
+        }
+    }
+
+    registered_q_bases_ = std::move(saved_q);
+    combinational_d_bases_ = std::move(saved_d);
+    has_comb_context_ = saved_comb;
 }
 
 void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
@@ -679,6 +717,9 @@ void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAs
         return;
 
     auto& assign = assignExpr.as<slang::ast::AssignmentExpression>();
+    // Round 39 US-39B: any continuous assign means this module has
+    // combinational logic context -- set flag before early returns.
+    has_comb_context_ = true;
     auto lhs = resolveExpr(&assign.left());
     auto rhs = resolveExpr(&assign.right());
     if (lhs.approximate || rhs.approximate ||
@@ -690,6 +731,19 @@ void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAs
 
     if (lhsKey == rhsKey)
         return;
+
+    // Round 39 US-39B: collect _d-suffixed LHS names from continuous
+    // assigns for the registered-output pairing check.
+    {
+        const std::string& lhs_leaf = lhs.netNames.front();
+        size_t br = lhs_leaf.find('[');
+        std::string leaf = (br != std::string::npos)
+            ? lhs_leaf.substr(0, br) : lhs_leaf;
+        if (leaf.find('.') == std::string::npos &&
+            leaf.size() >= 2 && leaf.ends_with("_d")) {
+            combinational_d_bases_.insert(leaf.substr(0, leaf.size() - 2));
+        }
+    }
 
     recordAlias(lhsKey, rhsKey, false);
 }
@@ -786,6 +840,19 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
                                 "convention)",
                                 leaf);
                             graph_.styleObservations.push_back(std::move(obs));
+                        }
+                        // Round 39 US-39B: collect base name of _q-suffixed
+                        // registers for the d-suffix pairing check.
+                        // Only collect when the name ends exactly with `_q`
+                        // (single-stage); pipeline stages like `valid_q2`
+                        // don't require a `valid_d` counterpart.
+                        if (ok && !leaf.empty()) {
+                            size_t pos = leaf.rfind("_q");
+                            if (pos != std::string::npos &&
+                                pos + 2 == leaf.size()) {
+                                // Ends exactly with `_q` -- base is prefix.
+                                registered_q_bases_.insert(leaf.substr(0, pos));
+                            }
                         }
                         return;
                     }
@@ -947,6 +1014,73 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
             }
         }
     }
+    // Round 39 US-39B: collect _d-suffixed LHS names from always_comb
+    // blocks for the registered-output pairing check. Walk blocking
+    // assignments only (always_comb uses blocking); non-blocking in
+    // comb context is already a separate style violation.
+    if (block.procedureKind == slang::ast::ProceduralBlockKind::AlwaysComb) {
+        has_comb_context_ = true;
+        std::function<void(const slang::ast::Statement&)> walk_comb =
+            [&](const slang::ast::Statement& s) {
+                using SK = slang::ast::StatementKind;
+                switch (s.kind) {
+                    case SK::ExpressionStatement: {
+                        auto& es = s.as<slang::ast::ExpressionStatement>();
+                        if (es.expr.kind != slang::ast::ExpressionKind::Assignment)
+                            return;
+                        auto& a = es.expr.as<slang::ast::AssignmentExpression>();
+                        if (a.isNonBlocking())
+                            return;
+                        auto resolved = resolveExpr(&a.left());
+                        if (resolved.netNames.empty())
+                            return;
+                        std::string lhs_name = resolved.netNames.front();
+                        size_t br = lhs_name.find('[');
+                        std::string leaf = (br != std::string::npos)
+                            ? lhs_name.substr(0, br) : lhs_name;
+                        if (leaf.find('.') != std::string::npos)
+                            return;
+                        if (leaf.size() >= 2 && leaf.ends_with("_d")) {
+                            combinational_d_bases_.insert(
+                                leaf.substr(0, leaf.size() - 2));
+                        }
+                        return;
+                    }
+                    case SK::Block: {
+                        auto& b = s.as<slang::ast::BlockStatement>();
+                        walk_comb(b.body);
+                        return;
+                    }
+                    case SK::List: {
+                        auto& l = s.as<slang::ast::StatementList>();
+                        for (auto* c : l.list) if (c) walk_comb(*c);
+                        return;
+                    }
+                    case SK::Conditional: {
+                        auto& c = s.as<slang::ast::ConditionalStatement>();
+                        walk_comb(c.ifTrue);
+                        if (c.ifFalse) walk_comb(*c.ifFalse);
+                        return;
+                    }
+                    case SK::Timed: {
+                        auto& t = s.as<slang::ast::TimedStatement>();
+                        walk_comb(t.stmt);
+                        return;
+                    }
+                    case SK::Case: {
+                        auto& cs = s.as<slang::ast::CaseStatement>();
+                        for (const auto& g : cs.items)
+                            if (g.stmt) walk_comb(*g.stmt);
+                        if (cs.defaultCase) walk_comb(*cs.defaultCase);
+                        return;
+                    }
+                    default:
+                        return;
+                }
+            };
+        walk_comb(block.getBody());
+    }
+
     processProceduralStatement(block.getBody(), scopePath);
 }
 

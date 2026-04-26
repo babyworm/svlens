@@ -71,6 +71,15 @@ private:
     };
     std::unordered_map<std::string, std::vector<NetBinding>> netMap_;
 
+    // Round 39 US-39B: per-module sets accumulated during visitScope.
+    // registered_q_bases_: base names of _q-suffixed always_ff NB-LHS.
+    // combinational_d_bases_: base names of _d-suffixed always_comb/assign LHS.
+    // has_comb_context_: true when at least one always_comb or assign is present.
+    // All are reset at the start of each visitInstance call.
+    std::unordered_set<std::string> registered_q_bases_;
+    std::unordered_set<std::string> combinational_d_bases_;
+    bool has_comb_context_ = false;
+
     // net alias map: key -> parent key (union-find without path compression)
     std::unordered_map<std::string, std::string> netAliases_;
     std::unordered_set<std::string> approximateAliases_;

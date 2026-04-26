@@ -231,4 +231,14 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
     auto rp_good = run_top("reset_polarity_good");
     CHECK(rp_good.find("comma syntax") == std::string::npos);
     CHECK(rp_good.find("reset-polarity") == std::string::npos);
+
+    // Round 39 US-39B: FF d-suffix check.
+    // ff_d_suffix_bad has valid_q in always_ff but comb input is
+    // named valid_next (not valid_d) -- should emit MissingDSuffix.
+    // ff_d_suffix_good uses canonical valid_d -> valid_q -- clean.
+    auto fd_bad = run_top("ff_d_suffix_bad");
+    CHECK(fd_bad.find("'valid_q'") != std::string::npos);
+    CHECK(fd_bad.find("valid_d") != std::string::npos);
+    auto fd_good = run_top("ff_d_suffix_good");
+    CHECK(fd_good.find("has no matching combinational input") == std::string::npos);
 }

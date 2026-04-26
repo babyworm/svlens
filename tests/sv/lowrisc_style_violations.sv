@@ -344,6 +344,49 @@ module reset_polarity_good (
     assign data_o = data_q;
 endmodule
 
+// ─── FF d-suffix: comb input misnamed (BAD) ──────────────────────
+// lowRISC requires always_comb to drive `<base>_d` when the
+// registered output is `<base>_q`. Here the comb input is called
+// `valid_next` instead of `valid_d`.
+module ff_d_suffix_bad (
+    input        clk_i,
+    input        rst_ni,
+    input        valid_i,
+    output       valid_o
+);
+    logic valid_q;
+    logic valid_next;  // BAD: should be valid_d
+    always_comb begin
+        valid_next = valid_i;
+    end
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) valid_q <= 1'b0;
+        else         valid_q <= valid_next;
+    end
+    assign valid_o = valid_q;
+endmodule
+
+// ─── FF d-suffix: canonical _d -> _q pairing (GOOD) ─────────────
+// Uses canonical `valid_d` -> `valid_q` pairing as required by
+// lowRISC style.
+module ff_d_suffix_good (
+    input        clk_i,
+    input        rst_ni,
+    input        valid_i,
+    output       valid_o
+);
+    logic valid_q;
+    logic valid_d;
+    always_comb begin
+        valid_d = valid_i;
+    end
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) valid_q <= 1'b0;
+        else         valid_q <= valid_d;
+    end
+    assign valid_o = valid_q;
+endmodule
+
 // ─── always_ff with proper _q (GOOD) ─────────────────────────────
 // data_q (single stage), valid_q / valid_q2 / valid_q3 (pipeline)
 module ff_q_suffix_good (

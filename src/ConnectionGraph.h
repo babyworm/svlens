@@ -46,6 +46,7 @@ struct StyleObservation {
         ParameterNameViolation,    // parameter not in expected case
         TypedefSuffixViolation,    // typedef without `_t` / `_e` suffix
         ResetPolarityBad,          // comma-syntax or active-high reset in always_ff
+        MissingDSuffix,            // _q-registered signal has no matching _d combinational driver
     };
     Kind kind;
     std::string scopePath;   // hierarchical path of the enclosing module

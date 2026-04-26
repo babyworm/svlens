@@ -1,5 +1,7 @@
 #pragma once
 #include "Checker.h"
+#include <optional>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -69,6 +71,22 @@ public:
     std::vector<Issue> check(const ConnectionGraph& graph) const override;
 private:
     ConventionRules rules_;
+
+    // Round 39 review: cache compiled std::regex per pattern instead
+    // of re-compiling on every check() call.  std::regex construction
+    // is expensive; for an SoC-scale design check() is called once
+    // per top, but for batched conn runs the cost adds up.  The
+    // optional<bool> presence flag distinguishes "not yet attempted"
+    // from "attempted and failed" so the duplicate-INFO entry is
+    // emitted exactly once per pattern.
+    struct CachedRegex {
+        bool attempted = false;
+        std::optional<std::regex> re;
+    };
+    mutable CachedRegex cachedClock_;
+    mutable CachedRegex cachedReset_;
+    mutable CachedRegex cachedParam_;
+    mutable CachedRegex cachedTypedef_;
 };
 
 } // namespace connect

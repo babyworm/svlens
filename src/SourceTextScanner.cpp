@@ -8,10 +8,10 @@
 
 #include <fmt/core.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -88,10 +88,15 @@ static void scanSourceText(const std::string& filePath,
             graph.styleObservations.push_back(std::move(obs));
         };
 
-        // US-39E.1: line length
+        // US-39E.1: line length.  Round 39 review (R4 M1): compare in
+        // size_t to avoid sign-flip when a line exceeds 2^31 chars
+        // (e.g. a generated file with no newlines).  Negative or zero
+        // configured limits already short-circuit via checkLen.
         if (checkLen) {
             size_t lineLen = lineContent.size();
-            if (static_cast<int>(lineLen) > rules.maxLineLength) {
+            size_t maxLen = static_cast<size_t>(
+                std::max(0, rules.maxLineLength));
+            if (lineLen > maxLen) {
                 emitObs(StyleObservation::Kind::LineTooLong,
                         fmt::format("{}:{}: line length {} exceeds max {} chars",
                                     filePath, lineNum, lineLen, rules.maxLineLength));

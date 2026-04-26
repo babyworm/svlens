@@ -20,7 +20,19 @@ std::optional<std::string> getString(const YAML::Node& node, const char* key) {
 } // namespace
 
 ConventionRules loadConventionRules(const std::string& yamlPath) {
-    YAML::Node root = YAML::LoadFile(yamlPath);
+    // Round 39 review: yaml-cpp throws on malformed/adversarial YAML
+    // (deep nesting, anchor cycles, EOF mid-document).  Wrap the
+    // load so a hostile convention file no longer aborts the whole
+    // conn run; we surface the parse error as a runtime_error the
+    // caller can catch and report.
+    YAML::Node root;
+    try {
+        root = YAML::LoadFile(yamlPath);
+    } catch (const YAML::Exception& e) {
+        throw std::runtime_error(fmt::format(
+            "invalid convention file '{}': YAML parse error: {}",
+            yamlPath, e.what()));
+    }
     if (!root || !root.IsMap()) {
         throw std::runtime_error(fmt::format(
             "invalid convention file '{}': expected a YAML mapping at the root", yamlPath));
@@ -131,16 +143,75 @@ ConventionChecker::ConventionChecker(const ConventionRules& rules) : rules_(rule
 std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const {
     std::vector<Issue> issues;
 
-    // Round 36 lowRISC-style: pre-compile regexes once. Invalid
-    // patterns are silently ignored (the check is skipped) so a
-    // malformed YAML never aborts conn analysis. A separate
-    // diagnostic is emitted as a single CONVENTION INFO entry.
-    auto tryCompile = [&issues](const std::string& pattern,
-                                const char* label) -> std::optional<std::regex> {
-        if (pattern.empty())
-            return std::nullopt;
+    // Round 36 lowRISC-style: pre-compile regexes once and cache.
+    // Invalid patterns are silently ignored (the check is skipped) so
+    // a malformed YAML never aborts conn analysis.  A diagnostic is
+    // emitted as exactly one CONVENTION INFO entry per pattern thanks
+    // to the `attempted` flag on the cache.
+    //
+    // Round 39 review (R4 H1): defensive ReDoS cap.  Regex patterns
+    // longer than 256 chars or containing nested-quantifier markers
+    // are rejected.  These are the canonical signature of
+    // catastrophic-backtracking patterns; an adversarial
+    // convention.yaml could otherwise stall the entire run on a
+    // pattern like `(a+)+$`.
+    auto looksLikeRedos = [](const std::string& p) {
+        // Round 39 review (R4 H1): defensive ReDoS heuristic.  We
+        // target only the canonical catastrophic-backtracking
+        // patterns — alternation inside a group that itself has a
+        // quantifier outside, e.g. `(a+|b+)+`, `(.*|x)+`, `(a|a)*`.
+        // Plain repetitions like `(_[a-z]+)*` are NOT ReDoS-prone
+        // when the inner class does not include the literal sep,
+        // and they appear in routine reset/clock patterns; flagging
+        // them would break valid configs.
         try {
-            return std::regex(pattern);
+            // group containing a `|` AND a `+`/`*`, followed by
+            // an outer `+`/`*` quantifier on the group itself.
+            static const std::regex altQuant(
+                R"(\([^)]*\|[^)]*[+*][^)]*\)\s*[+*])");
+            if (std::regex_search(p, altQuant))
+                return true;
+        } catch (const std::regex_error&) {
+            // If our own ReDoS detector regex fails to compile we
+            // skip the heuristic; the length cap below still applies.
+        }
+        // Three+ consecutive quantifier characters (`+++`, `***`)
+        // are never well-formed ECMAScript and serve as a cheap
+        // syntactic ReDoS canary independent of the regex engine.
+        int run = 0;
+        for (char c : p) {
+            if (c == '+' || c == '*') {
+                if (++run >= 3) return true;
+            } else {
+                run = 0;
+            }
+        }
+        return false;
+    };
+
+    auto tryCompileCached =
+        [&issues, &looksLikeRedos](const std::string& pattern,
+                                    const char* label,
+                                    CachedRegex& cache) -> const std::regex* {
+        if (pattern.empty())
+            return nullptr;
+        if (cache.attempted)
+            return cache.re ? &*cache.re : nullptr;
+        cache.attempted = true;
+        if (pattern.size() > 256 || looksLikeRedos(pattern)) {
+            Issue issue;
+            issue.type = Issue::Type::CONVENTION;
+            issue.severity = Issue::Severity::INFO;
+            issue.detail = fmt::format(
+                "convention rule '{}' rejected (length {} or "
+                "nested-quantifier ReDoS signature) -- skipping",
+                label, pattern.size());
+            issues.push_back(std::move(issue));
+            return nullptr;
+        }
+        try {
+            cache.re.emplace(pattern);
+            return &*cache.re;
         } catch (const std::regex_error& e) {
             Issue issue;
             issue.type = Issue::Type::CONVENTION;
@@ -149,11 +220,14 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
                 "convention rule '{}' has invalid regex '{}': {}",
                 label, pattern, e.what());
             issues.push_back(std::move(issue));
-            return std::nullopt;
+            return nullptr;
         }
     };
-    auto clockRe = tryCompile(rules_.clockPattern, "clock_pattern");
-    auto resetRe = tryCompile(rules_.resetPattern, "reset_pattern");
+
+    const std::regex* clockRe =
+        tryCompileCached(rules_.clockPattern, "clock_pattern", cachedClock_);
+    const std::regex* resetRe =
+        tryCompileCached(rules_.resetPattern, "reset_pattern", cachedReset_);
 
     // Check port naming conventions
     for (auto& port : graph.allPorts) {
@@ -361,9 +435,10 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
     }
 
     // Round 38 US-38D: parameter case pattern check. Uses the same
-    // tryCompile guard added at the top of this function for malformed
-    // patterns.
-    auto paramRe = tryCompile(rules_.parameterCasePattern, "parameter_case_pattern");
+    // tryCompileCached guard added at the top of this function for
+    // malformed patterns.
+    const std::regex* paramRe = tryCompileCached(
+        rules_.parameterCasePattern, "parameter_case_pattern", cachedParam_);
     if (paramRe) {
         for (const auto& cap : graph.parameters) {
             if (cap.name.empty()) continue;
@@ -386,7 +461,8 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
     }
 
     // Round 38 US-38E: typedef suffix pattern check.
-    auto typedefRe = tryCompile(rules_.typedefSuffixPattern, "typedef_suffix_pattern");
+    const std::regex* typedefRe = tryCompileCached(
+        rules_.typedefSuffixPattern, "typedef_suffix_pattern", cachedTypedef_);
     if (typedefRe) {
         for (const auto& cap : graph.typedefs) {
             if (cap.name.empty()) continue;

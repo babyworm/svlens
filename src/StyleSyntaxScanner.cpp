@@ -16,6 +16,14 @@ namespace connect {
 
 namespace {
 
+// Round 39 review: ancestor walk depth cap.  Realistic SystemVerilog
+// expressions can nest many levels deep (chained ternaries, nested
+// concat, packed-struct access).  Bumped from 20 to 64 so deeply
+// nested but legitimate code does not silently fall off the end of
+// the walk and produce a false negative or a false positive.  Still
+// bounded to avoid pathological O(n^2) walks in adversarial input.
+static constexpr int kAncestorWalkDepth = 64;
+
 // Return true when the ancestor chain of @p node passes through a
 // ForVariableDeclaration node (loop-index initialiser) or a
 // ParameterDeclaration node (parameter default value).  Bare integer
@@ -23,12 +31,28 @@ namespace {
 static bool isInSkippedContext(const slang::syntax::SyntaxNode& node) {
     using slang::syntax::SyntaxKind;
     const slang::syntax::SyntaxNode* cur = node.parent;
-    for (int depth = 0; depth < 20 && cur; ++depth, cur = cur->parent) {
+    for (int depth = 0; depth < kAncestorWalkDepth && cur;
+         ++depth, cur = cur->parent) {
         switch (cur->kind) {
             case SyntaxKind::ForVariableDeclaration:
             case SyntaxKind::ParameterDeclaration:
             case SyntaxKind::TypeParameterDeclaration:
             case SyntaxKind::ParameterDeclarationStatement:
+                return true;
+            // Round 39 review: parameter overrides on instance ports
+            // (`u_inst #(.WIDTH(8)) ...`) are conventional integer
+            // arguments to a typed parameter; the WIDTH parameter
+            // already constrains the value.  Same applies to type
+            // parameter port lists.
+            case SyntaxKind::ParameterValueAssignment:
+            case SyntaxKind::ParameterPortList:
+                return true;
+            // Round 39 review: contents of `{a, b, c}` concatenation
+            // and `{N{x}}` replication are width-constrained by the
+            // surrounding container; flagging an integer literal
+            // inside is noisy and not what the rule targets.
+            case SyntaxKind::ConcatenationExpression:
+            case SyntaxKind::MultipleConcatenationExpression:
                 return true;
             // Bit/range select indices (`data[0]`, `data[7:0]`) are
             // conventional untyped constants; do not flag them.
@@ -57,7 +81,8 @@ static bool isInSkippedContext(const slang::syntax::SyntaxNode& node) {
 static bool isInRtlContext(const slang::syntax::SyntaxNode& node) {
     using slang::syntax::SyntaxKind;
     const slang::syntax::SyntaxNode* cur = node.parent;
-    for (int depth = 0; depth < 20 && cur; ++depth, cur = cur->parent) {
+    for (int depth = 0; depth < kAncestorWalkDepth && cur;
+         ++depth, cur = cur->parent) {
         switch (cur->kind) {
             case SyntaxKind::ContinuousAssign:
                 return true;
@@ -72,6 +97,8 @@ static bool isInRtlContext(const slang::syntax::SyntaxNode& node) {
             case SyntaxKind::TaskDeclaration:
             case SyntaxKind::ParameterDeclaration:
             case SyntaxKind::ParameterDeclarationStatement:
+            case SyntaxKind::ParameterValueAssignment:
+            case SyntaxKind::ParameterPortList:
             case SyntaxKind::ForVariableDeclaration:
             case SyntaxKind::ModuleHeader:
                 return false;
@@ -172,6 +199,14 @@ struct StyleScanner : public slang::syntax::SyntaxVisitor<StyleScanner> {
 
         if (!isInSkippedContext(node) && isInRtlContext(node)) {
             std::string_view text = node.literal.rawText();
+            // Round 39 review: lowRISC §6.7 explicitly allows the bare
+            // literals 0 and 1 (initial values, polarity flips, count
+            // increments).  Skip them so this rule does not produce
+            // alarm fatigue on every `+ 1` or `= 0`.
+            if (text == "0" || text == "1") {
+                visitDefault(node);
+                return;
+            }
             if (text.find('\'') == std::string_view::npos) {
                 slang::SourceLocation loc = node.literal.location();
                 StyleObservation obs;

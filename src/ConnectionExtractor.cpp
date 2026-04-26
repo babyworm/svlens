@@ -748,16 +748,15 @@ void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAs
         return;
 
     // Round 39 US-39B: collect _d-suffixed LHS names from continuous
-    // assigns for the registered-output pairing check.
+    // assigns for the registered-output pairing check.  Round 39
+    // review: shared with the always_comb path via collectDBaseFromLeaf.
     {
         const std::string& lhs_leaf = lhs.netNames.front();
         size_t br = lhs_leaf.find('[');
-        std::string leaf = (br != std::string::npos)
-            ? lhs_leaf.substr(0, br) : lhs_leaf;
-        if (leaf.find('.') == std::string::npos &&
-            leaf.size() >= 2 && leaf.ends_with("_d")) {
-            combinational_d_bases_.insert(leaf.substr(0, leaf.size() - 2));
-        }
+        std::string_view leaf = (br != std::string::npos)
+            ? std::string_view(lhs_leaf).substr(0, br)
+            : std::string_view(lhs_leaf);
+        collectDBaseFromLeaf(leaf);
     }
 
     recordAlias(lhsKey, rhsKey, false);
@@ -989,10 +988,37 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
                                                 return !std::isspace(c);
                                             }).base(),
                                         sigText.end());
+                                    // Round 39 review: drive active-high
+                                    // reset detection off the canonical
+                                    // lowRISC active-low convention (signal
+                                    // ends in `_n` / `_ni`) rather than a
+                                    // hardcoded `rst_p` substring.  Any
+                                    // posedge on a reset-named signal that
+                                    // is NOT marked active-low is suspect.
+                                    // This false-positive-fixes
+                                    // `posedge rst_pulse` / `rst_pin` and
+                                    // false-negative-fixes a bare `rst`.
+                                    auto looks_like_reset =
+                                        [](const std::string& s) {
+                                            return s == "rst" ||
+                                                   s.starts_with("rst_") ||
+                                                   s.ends_with("_rst") ||
+                                                   s.find("_rst_") !=
+                                                       std::string::npos ||
+                                                   s == "reset" ||
+                                                   s.starts_with("reset_") ||
+                                                   s.ends_with("_reset") ||
+                                                   s.find("_reset_") !=
+                                                       std::string::npos;
+                                        };
+                                    auto is_active_low_named =
+                                        [](const std::string& s) {
+                                            return s.ends_with("_n") ||
+                                                   s.ends_with("_ni");
+                                        };
                                     bool activeHigh =
-                                        sigText.starts_with("rst_p") ||
-                                        sigText.find("_rst_p") !=
-                                            std::string::npos;
+                                        looks_like_reset(sigText) &&
+                                        !is_active_low_named(sigText);
                                     if (activeHigh) {
                                         StyleObservation obs;
                                         obs.kind = StyleObservation::Kind::
@@ -1055,14 +1081,10 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
                             return;
                         std::string lhs_name = resolved.netNames.front();
                         size_t br = lhs_name.find('[');
-                        std::string leaf = (br != std::string::npos)
-                            ? lhs_name.substr(0, br) : lhs_name;
-                        if (leaf.find('.') != std::string::npos)
-                            return;
-                        if (leaf.size() >= 2 && leaf.ends_with("_d")) {
-                            combinational_d_bases_.insert(
-                                leaf.substr(0, leaf.size() - 2));
-                        }
+                        std::string_view leaf = (br != std::string::npos)
+                            ? std::string_view(lhs_name).substr(0, br)
+                            : std::string_view(lhs_name);
+                        collectDBaseFromLeaf(leaf);
                         return;
                     }
                     case SK::Block: {

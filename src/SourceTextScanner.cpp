@@ -99,18 +99,23 @@ static void scanSourceText(const std::string& filePath,
         }
 
         // US-39E.2: hard tab
+        bool sawHardTab = false;
         if (checkTab) {
             if (lineContent.find('\t') != std::string_view::npos) {
                 emitObs(StyleObservation::Kind::HardTab,
                         fmt::format("{}:{}: hard tab character found (use spaces)",
                                     filePath, lineNum));
+                sawHardTab = true;
             }
         }
 
-        // US-39E.3: trailing whitespace (space/tab before the newline)
+        // US-39E.3: trailing whitespace (space/tab before the newline).
+        // Round 39 review: when a line ends in a tab the more specific
+        // HardTab rule already fires; emitting TrailingWhitespace too
+        // double-counts the same source character.
         if (checkTrail && !lineContent.empty()) {
             char last = lineContent.back();
-            if (last == ' ' || last == '\t') {
+            if (last == ' ' || (last == '\t' && !sawHardTab)) {
                 emitObs(StyleObservation::Kind::TrailingWhitespace,
                         fmt::format("{}:{}: trailing whitespace",
                                     filePath, lineNum));

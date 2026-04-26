@@ -47,6 +47,8 @@ struct StyleObservation {
         TypedefSuffixViolation,    // typedef without `_t` / `_e` suffix
         ResetPolarityBad,          // comma-syntax or active-high reset in always_ff
         MissingDSuffix,            // _q-registered signal has no matching _d combinational driver
+        WildcardPortConnection,    // instance uses `.*` instead of named .port(signal) connections
+        BareIntegerLiteral,        // integer literal without explicit width (e.g. bare `2` vs `8'd2`)
     };
     Kind kind;
     std::string scopePath;   // hierarchical path of the enclosing module

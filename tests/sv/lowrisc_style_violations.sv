@@ -387,6 +387,70 @@ module ff_d_suffix_good (
     assign valid_o = valid_q;
 endmodule
 
+// ─── US-39C: wildcard port connection (BAD) ───────────────────────
+// lowRISC prohibits `.*` because it silently binds ports by name
+// match -- an accidental rename can silently disconnect a port.
+// `dotstar_child` is the sub-module being instantiated.
+module dotstar_child (
+    input  logic clk_i,
+    input  logic [7:0] data_i,
+    output logic [7:0] data_o
+);
+    assign data_o = data_i;
+endmodule
+
+// BAD: uses `.*` -- should emit WildcardPortConnection INFO.
+module dotstar_bad (
+    input  logic clk_i,
+    input  logic [7:0] data_i,
+    output logic [7:0] data_o
+);
+    dotstar_child u_child (.*);
+endmodule
+
+// GOOD: explicit named connections -- no WildcardPortConnection INFO.
+module dotstar_good (
+    input  logic clk_i,
+    input  logic [7:0] data_i,
+    output logic [7:0] data_o
+);
+    dotstar_child u_child (
+        .clk_i (clk_i),
+        .data_i(data_i),
+        .data_o(data_o)
+    );
+endmodule
+
+// ─── US-39D: bare integer literal (BAD) ───────────────────────────
+// lowRISC requires explicit width specifiers on numeric literals in
+// RTL assignments.  Bare `2`, `255` etc. are prohibited; use
+// `8'd2`, `8'hff`, or the unsized forms `'0`/`'1`.
+module width_lit_bad (
+    input  logic clk_i,
+    input  logic rst_ni,
+    output logic [7:0] data_o
+);
+    logic [7:0] count_q;
+    // BAD: bare literal `2` on RHS of continuous assign
+    assign data_o = count_q + 2;
+    always_ff @(posedge clk_i or negedge rst_ni)
+        if (!rst_ni) count_q <= 0;
+        else         count_q <= count_q + 1;
+endmodule
+
+// GOOD: explicit-width literals everywhere.
+module width_lit_good (
+    input  logic clk_i,
+    input  logic rst_ni,
+    output logic [7:0] data_o
+);
+    logic [7:0] count_q;
+    assign data_o = count_q + 8'd2;
+    always_ff @(posedge clk_i or negedge rst_ni)
+        if (!rst_ni) count_q <= '0;
+        else         count_q <= count_q + 8'd1;
+endmodule
+
 // ─── always_ff with proper _q (GOOD) ─────────────────────────────
 // data_q (single stage), valid_q / valid_q2 / valid_q3 (pipeline)
 module ff_q_suffix_good (

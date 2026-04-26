@@ -115,6 +115,7 @@ add_library(svlens-conn-lib OBJECT
     src/ConnRunner.cpp
     src/ConnRunnerUtils.cpp
     src/ConnectionExtractor.cpp
+    src/StyleSyntaxScanner.cpp
     src/WidthChecker.cpp
     src/TypeChecker.cpp
     src/DanglingChecker.cpp

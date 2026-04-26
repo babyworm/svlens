@@ -1,4 +1,5 @@
 #include "ConnectionExtractor.h"
+#include "StyleSyntaxScanner.h"
 
 #include <slang/ast/Expression.h>
 #include <slang/ast/symbols/CompilationUnitSymbols.h>
@@ -345,6 +346,14 @@ ConnectionGraph ConnectionExtractor::extract() {
 
     visitInstance(*topInst, topPath);
     resolveConnections();
+
+    // Round 39 US-39C/US-39D: syntax-tree scan for patterns that are
+    // normalised away during elaboration (wildcard `.*` port connections
+    // and bare integer literals without explicit width specifiers).
+    // Pass topModule_ so the scanner restricts itself to the module
+    // hierarchy rooted at the requested top, ignoring sibling modules.
+    StyleSyntaxScanner::scan(compilation_, topModule_, graph_);
+
     return graph_;
 }
 

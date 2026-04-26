@@ -241,4 +241,22 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
     CHECK(fd_bad.find("valid_d") != std::string::npos);
     auto fd_good = run_top("ff_d_suffix_good");
     CHECK(fd_good.find("has no matching combinational input") == std::string::npos);
+
+    // Round 39 US-39C: wildcard port connection (`.*`) detection.
+    // dotstar_bad uses `.*` -- must emit at least one WildcardPortConnection INFO.
+    // dotstar_good uses explicit named connections -- must be clean for this kind.
+    auto ds_bad = run_top("dotstar_bad");
+    CHECK(ds_bad.find("wildcard port connection") != std::string::npos);
+    CHECK(ds_bad.find("hides signal-to-port mapping") != std::string::npos);
+    auto ds_good = run_top("dotstar_good");
+    CHECK(ds_good.find("wildcard port connection") == std::string::npos);
+
+    // Round 39 US-39D: bare integer literal (width-less) detection.
+    // width_lit_bad has `assign data_o = count_q + 2` -- bare `2` must be flagged.
+    // width_lit_good uses `8'd2` and `'0` -- must be clean for this kind.
+    auto wl_bad = run_top("width_lit_bad");
+    CHECK(wl_bad.find("bare integer literal") != std::string::npos);
+    CHECK(wl_bad.find("no explicit width") != std::string::npos);
+    auto wl_good = run_top("width_lit_good");
+    CHECK(wl_good.find("bare integer literal") == std::string::npos);
 }

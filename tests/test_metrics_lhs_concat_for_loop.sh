@@ -35,8 +35,12 @@ assert len(roots) == 3, f"FAIL: expected 3 roots, got {len(roots)}"
 # whereas the global "transform nodes extracted" counter de-duplicates.
 # We assert on the per-root sum because the report is the canonical
 # artifact downstream tooling reads.
+# Round 35 US-35G: dropped from 14 to 12 after eliminating the
+# per-concat-element redundant Slice node (TransformExtractor now
+# emits one Alias-with-slice-detail per LHS concat element instead
+# of Slice + Alias).
 total_raw = sum(rt.get("raw_node_count", 0) for rt in roots)
-assert total_raw == 14, f"FAIL: expected 14 total raw nodes, got {total_raw}"
+assert total_raw == 12, f"FAIL: expected 12 total raw nodes, got {total_raw}"
 
 depths = [rt.get("logic_depth_est", 0) for rt in roots]
 assert max(depths) >= 3, f"FAIL: expected max depth >= 3, got {depths}"

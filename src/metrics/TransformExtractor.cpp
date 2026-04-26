@@ -179,24 +179,22 @@ void TransformExtractor::processContinuousAssign(
 
             ValueRef elemRef = makeNamedRef(*operand, scopePath);
 
-            // Create a slice of the RHS for this element
-            std::string sliceTemp = nextTemp();
-            TransformNode sliceNode;
-            sliceNode.op_kind = TransformNode::Slice;
-            sliceNode.op_detail = "lhs_slice[" + std::to_string(bitOffset + elemWidth - 1) +
-                                  ":" + std::to_string(bitOffset) + "]";
-            sliceNode.inputs.push_back(rhsRef);
-            sliceNode.output = {sliceTemp, sliceTemp, "", ValueRef::Net, false};
-            sliceNode.bit_width = elemWidth;
-            sliceNode.source_loc = sourceLoc(lhs);
-            graph_.addNode(std::move(sliceNode));
-
-            // Alias the slice to the LHS element
+            // Round 35 US-35G fix: collapse the per-element Slice +
+            // Alias pair into a single Alias node with the bit-range
+            // encoded in op_detail. The previous two-node form
+            // double-counted relative to the equivalent split-assign
+            // form (`{hi, lo} = expr` produced 4 nodes vs 2 nodes for
+            // `assign hi = expr[15:8]; assign lo = expr[7:0];`).
+            // Eliminating the intermediate `sliceTemp` keeps the
+            // graph topologically equivalent (rhs -> lhs_element)
+            // while giving raw_node_count parity with the split form.
             TransformNode aliasNode;
             aliasNode.op_kind = TransformNode::Alias;
-            aliasNode.op_detail = "assign";
+            aliasNode.op_detail = "lhs_concat_slice[" +
+                std::to_string(bitOffset + elemWidth - 1) + ":" +
+                std::to_string(bitOffset) + "]";
             aliasNode.output = elemRef;
-            aliasNode.inputs.push_back({sliceTemp, sliceTemp, "", ValueRef::Net, false});
+            aliasNode.inputs.push_back(rhsRef);
             aliasNode.bit_width = elemWidth;
             aliasNode.source_loc = sourceLoc(lhs);
             graph_.addNode(std::move(aliasNode));

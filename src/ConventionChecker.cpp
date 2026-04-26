@@ -40,6 +40,14 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
 
     ConventionRules rules;
 
+    // Codex cross-review: extend the try/catch to cover the entire
+    // extraction phase. yaml-cpp's `.as<T>()` conversions throw
+    // YAML::BadConversion on malformed scalars (e.g. `max_line_length:
+    // not_an_integer`, `prohibit_hard_tabs: maybe`). Without this
+    // guard a single bad scalar would abort the whole conn run; now
+    // we log a warning and fall back to default-initialized rules.
+    try {
+
     if (auto value = getString(root, "input_prefix"); value)
         rules.inputPrefix = *value;
     else if (auto value = getString(root, "inputPrefix"); value)
@@ -134,6 +142,18 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
         root["enforce_file_module_match"].IsScalar())
         rules.enforceFileModuleMatch =
             root["enforce_file_module_match"].as<bool>();
+
+    } catch (const YAML::Exception& e) {
+        // Codex cross-review: a malformed scalar (e.g. boolean field
+        // set to a non-bool string, integer field set to non-numeric
+        // text) aborts the rest of the extraction.  Warn and return
+        // whatever we have parsed so far rather than crashing the
+        // entire conn run.
+        fmt::print(stderr,
+                   "Warning: convention file '{}' has malformed scalar "
+                   "values: {} -- continuing with partial defaults\n",
+                   yamlPath, e.what());
+    }
 
     return rules;
 }

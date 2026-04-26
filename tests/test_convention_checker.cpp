@@ -110,3 +110,32 @@ TEST_CASE("ConventionChecker: loads convention rules from YAML") {
 
     std::remove(yamlPath);
 }
+
+TEST_CASE("ConventionChecker: malformed scalar values do not crash") {
+    // Codex cross-review: previously only YAML::LoadFile was guarded
+    // by try/catch; subsequent `.as<int>()` / `.as<bool>()` conversions
+    // could throw YAML::BadConversion on malformed scalars (e.g.
+    // `max_line_length: nope`) and abort the process. The extractor
+    // now wraps the entire scalar-conversion phase, logs a warning,
+    // and returns whatever has been successfully parsed so far.
+    const char* yamlPath = "test_convention_bad_scalar.yaml";
+    {
+        std::ofstream ofs(yamlPath);
+        REQUIRE(ofs.good());
+        ofs << "input_prefix: in_\n";
+        ofs << "max_line_length: not_an_integer\n";  // bad int scalar
+        ofs << "prohibit_hard_tabs: maybe\n";        // bad bool scalar
+    }
+
+    // Must not throw / crash.
+    ConventionRules rules;
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+
+    // Whatever parsed before the bad scalar should survive; the bad
+    // scalars themselves keep their default values.
+    CHECK(rules.inputPrefix == "in_");
+    CHECK(rules.maxLineLength == 0);          // default
+    CHECK(rules.prohibitHardTabs == false);   // default
+
+    std::remove(yamlPath);
+}

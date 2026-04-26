@@ -177,11 +177,22 @@ int connect::runConnWithCompilation(slang::ast::Compilation& compilation,
     // convention checking is enabled. Rules are loaded from the YAML
     // (or defaults used when no file is given) so the per-rule enable
     // flags are respected.
+    //
+    // Codex cross-review: wrap loadConventionRules + scan in try/catch
+    // so a malformed convention YAML (or a scan-time exception) only
+    // disables source-text rules instead of crashing conn mode before
+    // report generation.
     if (opts.checkConvention) {
-        auto textRules = opts.conventionFile.empty()
-            ? connect::ConventionRules{}
-            : connect::loadConventionRules(opts.conventionFile);
-        connect::SourceTextScanner::scan(compilation, textRules, graph);
+        try {
+            auto textRules = opts.conventionFile.empty()
+                ? connect::ConventionRules{}
+                : connect::loadConventionRules(opts.conventionFile);
+            connect::SourceTextScanner::scan(compilation, textRules, graph);
+        } catch (const std::exception& e) {
+            fmt::print(stderr,
+                       "Warning: source-text convention scan skipped: {}\n",
+                       e.what());
+        }
     }
 
     std::vector<connect::Issue> issues;

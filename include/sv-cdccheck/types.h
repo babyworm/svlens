@@ -124,7 +124,7 @@ enum class SyncType {
 };
 
 /// Check if a value is a power of 2 (and non-zero)
-inline bool isPowerOf2(uint64_t val) {
+[[nodiscard]] inline bool isPowerOf2(uint64_t val) {
     return val != 0 && (val & (val - 1)) == 0;
 }
 
@@ -205,11 +205,11 @@ struct AnalysisResult {
     std::vector<FFEdge> edges;
     std::vector<CrossingReport> crossings;
 
-    int violation_count() const;
-    int caution_count() const;
-    int info_count() const;
-    int waived_count() const;
-    int convention_count() const;
+    [[nodiscard]] int violation_count() const;
+    [[nodiscard]] int caution_count() const;
+    [[nodiscard]] int info_count() const;
+    [[nodiscard]] int waived_count() const;
+    [[nodiscard]] int convention_count() const;
 };
 
 } // namespace sv_cdccheck

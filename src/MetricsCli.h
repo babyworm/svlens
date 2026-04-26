@@ -168,7 +168,7 @@ inline MetricsCliOptions parseMetricsArgs(int argc, const char* const* argv,
     return opts;
 }
 
-inline bool validateMetricsOptions(const MetricsCliOptions& opts) {
+[[nodiscard]] inline bool validateMetricsOptions(const MetricsCliOptions& opts) {
     if (opts.topModule.empty()) {
         fmt::print(stderr, "Error: --top is required for metrics analysis\n");
         return false;

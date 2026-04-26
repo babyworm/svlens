@@ -18,7 +18,7 @@ public:
     bool compile(const std::vector<std::string>& args,
                  std::string* errorMessage = nullptr);
 
-    bool hasCompilation() const { return compilation_ != nullptr; }
+    [[nodiscard]] bool hasCompilation() const { return compilation_ != nullptr; }
 
     slang::ast::Compilation& compilation();
     const slang::ast::Compilation& compilation() const;

@@ -36,7 +36,7 @@ struct CdcCliOptions {
 void printCdcUsage();
 CdcCliOptions parseCdcArgs(int argc, const char* const* argv,
                            std::vector<std::string>& compilationArgs);
-bool validateCdcOptions(const CdcCliOptions& opts);
+[[nodiscard]] bool validateCdcOptions(const CdcCliOptions& opts);
 int runCdcWithCompilation(slang::ast::Compilation& compilation,
                           const CdcCliOptions& opts);
 

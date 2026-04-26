@@ -34,7 +34,7 @@ struct ConnCliOptions {
 void printConnUsage();
 ConnCliOptions parseConnArgs(int argc, const char* const* argv,
                              std::vector<std::string>& compilationArgs);
-bool validateConnOptions(const ConnCliOptions& opts);
+[[nodiscard]] bool validateConnOptions(const ConnCliOptions& opts);
 int runConnWithCompilation(slang::ast::Compilation& compilation,
                            const ConnCliOptions& opts);
 

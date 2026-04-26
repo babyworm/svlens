@@ -323,6 +323,14 @@ TEST_CASE("ConnRunner: source-text + file-name rules emit when YAML enables them
     //   line 22: second module declaration
     CHECK(body.find(":13:") != std::string::npos);
     CHECK(body.find(":14:") != std::string::npos);
+
+    // Codex cross-review: verify the structured `line` JSON field is
+    // emitted by JsonReport, not just the line marker inside detail.
+    // SourceTextScanner populates obs.lineNumber, ConventionChecker
+    // copies it onto Issue, and JsonReport emits `"line": <n>` when
+    // nonzero.
+    CHECK(body.find("\"line\": 13") != std::string::npos);
+    CHECK(body.find("\"line\": 14") != std::string::npos);
 }
 
 TEST_CASE("ConnRunner: source-text emits FileNameMismatch for mismatched basename",

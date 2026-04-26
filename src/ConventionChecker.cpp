@@ -520,6 +520,10 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
         p.location = obs.location;
         issue.port = std::move(p);
         issue.detail = obs.detail;
+        // Codex cross-review: propagate line/column so JSON consumers
+        // get structured fields instead of having to regex-parse detail.
+        issue.lineNumber = obs.lineNumber;
+        issue.columnNumber = obs.columnNumber;
         issues.push_back(std::move(issue));
     }
 

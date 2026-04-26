@@ -49,6 +49,13 @@ struct StyleObservation {
         MissingDSuffix,            // _q-registered signal has no matching _d combinational driver
         WildcardPortConnection,    // instance uses `.*` instead of named .port(signal) connections
         BareIntegerLiteral,        // integer literal without explicit width (e.g. bare `2` vs `8'd2`)
+        // US-39E source-text checks
+        LineTooLong,               // source line exceeds max_line_length chars
+        HardTab,                   // source line contains a hard tab character
+        TrailingWhitespace,        // source line has trailing whitespace before newline
+        // US-39F file-module naming checks
+        MultipleModulesPerFile,    // .sv file declares more than one module
+        FileNameMismatch,          // .sv basename does not match the single module name
     };
     Kind kind;
     std::string scopePath;   // hierarchical path of the enclosing module

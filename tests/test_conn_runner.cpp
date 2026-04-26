@@ -260,3 +260,57 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
     auto wl_good = run_top("width_lit_good");
     CHECK(wl_good.find("bare integer literal") == std::string::npos);
 }
+
+TEST_CASE("ConnRunner: source-text + file-name rules emit when YAML enables them",
+          "[conn][runner][source_text]") {
+    // Round 39 US-39E + US-39F: source-text rules (line length,
+    // hard tabs, trailing whitespace) + file-naming rules (one
+    // module per file, file basename matches module name) are
+    // OFF by default; YAML must opt-in with explicit values.
+    auto result =
+        testutils::compileFile("sv/lowrisc_source_text_violations.sv");
+    REQUIRE(result);
+
+    const auto out =
+        fs::temp_directory_path() / "svlens_conn_source_text";
+    fs::remove_all(out);
+    fs::create_directories(out);
+
+    // Synthesize a strict YAML inline so the existing
+    // examples/styles/lowrisc.yaml defaults stay loose.
+    auto yaml_path = out / "strict.yaml";
+    {
+        std::ofstream y(yaml_path);
+        y << "input_suffix: \"_i,_pi,_ni\"\n"
+          << "output_suffix: \"_o,_po,_no\"\n"
+          << "input_prefix: \"\"\n"
+          << "output_prefix: \"\"\n"
+          << "instance_prefix: \"u_\"\n"
+          << "max_line_length: 80\n"
+          << "prohibit_hard_tabs: true\n"
+          << "prohibit_trailing_whitespace: true\n"
+          << "prohibit_multiple_modules_per_file: true\n"
+          << "enforce_file_module_match: true\n";
+    }
+
+    connect::ConnCliOptions opts;
+    opts.topModule = "source_text_primary";
+    opts.format = "json";
+    opts.outputDir = (out / "report").string();
+    opts.checkConvention = true;
+    opts.conventionFile = yaml_path.string();
+
+    int exitCode =
+        connect::runConnWithCompilation(*result.compilation, opts);
+    CHECK(exitCode > 0);
+    REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
+    std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
+    std::string body((std::istreambuf_iterator<char>(ifs)),
+                     std::istreambuf_iterator<char>());
+
+    CHECK(body.find("line length") != std::string::npos);
+    CHECK(body.find("exceeds max") != std::string::npos);
+    CHECK(body.find("hard tab character") != std::string::npos);
+    CHECK(body.find("trailing whitespace") != std::string::npos);
+    CHECK(body.find("modules declared in one file") != std::string::npos);
+}

@@ -47,6 +47,17 @@ struct ConventionRules {
     // duplication. Set true to flag any port whose name matches
     // `_[0-9]+$`.
     bool rejectDigitOnlySuffix = false;
+
+    // US-39E source-text style checks. Defaults disabled (0 / false)
+    // so the YAML must opt-in. lowrisc.yaml enables them when the
+    // user wants strict source-text style enforcement.
+    int  maxLineLength = 0;                  // 0 disables
+    bool prohibitHardTabs = false;
+    bool prohibitTrailingWhitespace = false;
+
+    // US-39F file/module naming checks (opt-in).
+    bool prohibitMultipleModulesPerFile = false;
+    bool enforceFileModuleMatch = false;
 };
 
 ConventionRules loadConventionRules(const std::string& yamlPath);

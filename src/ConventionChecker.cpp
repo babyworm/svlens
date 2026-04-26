@@ -103,6 +103,26 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
         rules.rejectDigitOnlySuffix =
             root["reject_digit_only_suffix"].as<bool>();
 
+    // US-39E source-text style checks.
+    if (root["max_line_length"] && root["max_line_length"].IsScalar())
+        rules.maxLineLength = root["max_line_length"].as<int>();
+    if (root["prohibit_hard_tabs"] && root["prohibit_hard_tabs"].IsScalar())
+        rules.prohibitHardTabs = root["prohibit_hard_tabs"].as<bool>();
+    if (root["prohibit_trailing_whitespace"] &&
+        root["prohibit_trailing_whitespace"].IsScalar())
+        rules.prohibitTrailingWhitespace =
+            root["prohibit_trailing_whitespace"].as<bool>();
+
+    // US-39F file/module naming checks.
+    if (root["prohibit_multiple_modules_per_file"] &&
+        root["prohibit_multiple_modules_per_file"].IsScalar())
+        rules.prohibitMultipleModulesPerFile =
+            root["prohibit_multiple_modules_per_file"].as<bool>();
+    if (root["enforce_file_module_match"] &&
+        root["enforce_file_module_match"].IsScalar())
+        rules.enforceFileModuleMatch =
+            root["enforce_file_module_match"].as<bool>();
+
     return rules;
 }
 

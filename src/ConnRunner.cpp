@@ -4,6 +4,8 @@
 #include "ConnectionFilters.h"
 #include "CommonCli.h"
 #include "ConnRunnerUtils.h"
+#include "ConventionChecker.h"
+#include "SourceTextScanner.h"
 #include "WaiverFilter.h"
 
 #include <fmt/core.h>
@@ -170,6 +172,17 @@ int connect::runConnWithCompilation(slang::ast::Compilation& compilation,
     filterOptions.ignoreTieOff = opts.ignoreTieOff;
     filterOptions.ignoreNc = opts.ignoreNc;
     graph = connect::applyGraphFilters(graph, filterOptions);
+
+    // US-39E / US-39F: source-text and file-naming checks run when
+    // convention checking is enabled. Rules are loaded from the YAML
+    // (or defaults used when no file is given) so the per-rule enable
+    // flags are respected.
+    if (opts.checkConvention) {
+        auto textRules = opts.conventionFile.empty()
+            ? connect::ConventionRules{}
+            : connect::loadConventionRules(opts.conventionFile);
+        connect::SourceTextScanner::scan(compilation, textRules, graph);
+    }
 
     std::vector<connect::Issue> issues;
     try {

@@ -410,6 +410,47 @@ void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
                         std::string(vs.name));
                     graph_.styleObservations.push_back(std::move(obs));
                 }
+                // Round 38 US-38I: lowRISC requires `logic` (4-state)
+                // for RTL signals; reject `bit`, `int`, `byte` etc.
+                // 2-state scalar/integer types. Walk through packed-
+                // array wrappers to reach the element scalar type.
+                {
+                    static const char* kBanned[] = {
+                        "bit", "int", "shortint", "longint", "byte",
+                        "integer", "real", "shortreal", "time"
+                    };
+                    auto check_type =
+                        [&](const slang::ast::Type& ty) -> const char* {
+                            const slang::ast::Type* p = &ty.getCanonicalType();
+                            // Drill through array wrappers to the
+                            // scalar element type.
+                            for (int depth = 0; depth < 4; ++depth) {
+                                if (p->kind == slang::ast::SymbolKind::PackedArrayType ||
+                                    p->kind == slang::ast::SymbolKind::FixedSizeUnpackedArrayType) {
+                                    p = &p->getArrayElementType()
+                                            ->getCanonicalType();
+                                    continue;
+                                }
+                                break;
+                            }
+                            for (const char* b : kBanned) {
+                                if (p->name == b) return b;
+                            }
+                            return nullptr;
+                        };
+                    if (const char* banned = check_type(t)) {
+                        StyleObservation obs;
+                        obs.kind = StyleObservation::Kind::LegacyAlwaysBlock;
+                        obs.scopePath = scopePath;
+                        obs.name = std::string(vs.name);
+                        obs.location = vs.location;
+                        obs.detail = fmt::format(
+                            "variable '{}' uses 2-state/non-logic type "
+                            "'{}' (lowRISC requires `logic` for RTL)",
+                            std::string(vs.name), banned);
+                        graph_.styleObservations.push_back(std::move(obs));
+                    }
+                }
                 break;
             }
             case slang::ast::SymbolKind::GenerateBlock: {
@@ -720,6 +761,39 @@ void ConnectionExtractor::processProceduralStatement(const slang::ast::Statement
             processProceduralStatement(cond.ifTrue, scopePath);
             if (cond.ifFalse)
                 processProceduralStatement(*cond.ifFalse, scopePath);
+            return;
+        }
+        case SK::Case: {
+            auto& cs = stmt.as<slang::ast::CaseStatement>();
+            // Round 38 US-38G: lowRISC requires `unique case` (or
+            // `priority case`) and a mandatory `default:` branch.
+            // Bare `case` without a check is flagged; missing default
+            // is flagged separately.
+            if (cs.check == slang::ast::UniquePriorityCheck::None) {
+                StyleObservation obs;
+                obs.kind = StyleObservation::Kind::LegacyAlwaysBlock;
+                obs.scopePath = scopePath;
+                obs.location = cs.sourceRange.start();
+                obs.detail = "case statement lacks `unique`/`priority` "
+                             "qualifier (lowRISC requires `unique case`)";
+                graph_.styleObservations.push_back(std::move(obs));
+            }
+            if (!cs.defaultCase) {
+                StyleObservation obs;
+                obs.kind = StyleObservation::Kind::LegacyAlwaysBlock;
+                obs.scopePath = scopePath;
+                obs.location = cs.sourceRange.start();
+                obs.detail = "case statement lacks `default:` branch "
+                             "(lowRISC requires it for synthesis safety)";
+                graph_.styleObservations.push_back(std::move(obs));
+            }
+            // Recurse into each branch's body.
+            for (const auto& g : cs.items) {
+                if (g.stmt)
+                    processProceduralStatement(*g.stmt, scopePath);
+            }
+            if (cs.defaultCase)
+                processProceduralStatement(*cs.defaultCase, scopePath);
             return;
         }
         default:

@@ -200,4 +200,19 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
     auto ng_good = run_top("named_generate_good");
     CHECK(ng_good.find("generate-for array") == std::string::npos);
     CHECK(ng_good.find("generate block at") == std::string::npos);
+
+    // Round 38 US-38G: case unique + default check.
+    auto cs_bad = run_top("case_bad");
+    CHECK(cs_bad.find("`unique`/`priority`") != std::string::npos);
+    CHECK(cs_bad.find("`default:` branch") != std::string::npos);
+    auto cs_good = run_top("case_good");
+    CHECK(cs_good.find("case statement") == std::string::npos);
+
+    // Round 38 US-38I: 2-state type rejection.
+    auto ts_bad = run_top("two_state_bad");
+    CHECK(ts_bad.find("'bit'") != std::string::npos);
+    CHECK(ts_bad.find("'int'") != std::string::npos);
+    CHECK(ts_bad.find("'byte'") != std::string::npos);
+    auto ts_good = run_top("modern_always_good");
+    CHECK(ts_good.find("2-state/non-logic type") == std::string::npos);
 }

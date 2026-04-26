@@ -238,3 +238,51 @@ module named_generate_good #(
         assign data_o[ii] = data_i[ii];
     end
 endmodule
+
+// ─── Case statement (BAD: missing unique + default) ──────────────
+module case_bad (
+    input  [1:0] sel_i,
+    output       hit_o
+);
+    logic h;
+    always_comb begin
+        case (sel_i)
+            2'b00: h = 1'b0;
+            2'b01: h = 1'b1;
+            // BAD: no `unique`, no `default:`
+        endcase
+    end
+    assign hit_o = h;
+endmodule
+
+// ─── Case statement (GOOD: unique + default) ─────────────────────
+module case_good (
+    input  [1:0] sel_i,
+    output       hit_o
+);
+    logic h;
+    always_comb begin
+        unique case (sel_i)
+            2'b00:   h = 1'b0;
+            2'b01:   h = 1'b1;
+            default: h = 1'b0;
+        endcase
+    end
+    assign hit_o = h;
+endmodule
+
+// ─── 2-state types (BAD: lowRISC requires `logic`) ───────────────
+module two_state_bad (
+    input  logic clk_i,
+    output logic data_o
+);
+    bit [7:0]  buf_q;        // BAD: bit (2-state)
+    int        counter_q;    // BAD: int (32-bit 2-state)
+    byte       sample_q;     // BAD: byte
+    always_ff @(posedge clk_i) begin
+        buf_q     <= 8'h00;
+        counter_q <= 0;
+        sample_q  <= 8'h00;
+    end
+    assign data_o = buf_q[0];
+endmodule

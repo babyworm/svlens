@@ -18,7 +18,9 @@
 #include "slang/ast/Statement.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
+#include <iostream>
 
 namespace sv_cdccheck {
 
@@ -526,7 +528,23 @@ static void resolveToFFs(
     const std::vector<std::pair<std::unordered_map<std::string, std::string>,
                                 std::string>>& parent_port_chain = {})
 {
-    if (depth > 10) return; // prevent infinite recursion
+    // Round 34 Lint-2 fix: surface deep-hierarchy bailouts instead of
+    // silently dropping resolution. Cap is set to 10 because realistic
+    // SV designs almost always resolve within depth 6-8 (parent module
+    // + 2-3 generate levels + submodule); depth >10 indicates either
+    // pathological recursion or a real design we should investigate.
+    // Once-per-process stderr warning so CI logs surface the bailout
+    // without flooding output on every miss.
+    if (depth > 10) {
+        static std::atomic<bool> warned{false};
+        if (!warned.exchange(true)) {
+            std::cerr << "svlens cdc: warning: hierarchical-name "
+                      << "resolution exceeded depth 10 for '"
+                      << sig_name << "' (further bailouts silenced; "
+                      << "run with depth-bounded RTL or report a fixture)\n";
+        }
+        return;
+    }
 
     // Try direct FF lookup first
     FFNode* ff = findFFByName(sig_name, inst_path, output_map, port_map, wire_map,

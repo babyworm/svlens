@@ -809,3 +809,41 @@ TEST_CASE("CDC SyncVerifier: multi-fanin dest blocks TwoFF",
     }
     CHECK_FALSE(foundQaTwoFF);
 }
+
+TEST_CASE("CDC SyncVerifier: 1-bit XOR self-feedback is NOT a TwoFF chain",
+          "[cdc][sync][self_feedback]") {
+    // Round 35 US-35F: the self-shift TwoFF heuristic at
+    // sync_verifier.cpp:96-110 was over-eager. Any FF whose own
+    // leaf appears in fanin_signals was classified as TwoFF, even
+    // when the underlying RHS was XOR feedback (`q <= q ^ data`)
+    // rather than a canonical shift-register concat. A 1-bit FF
+    // can never be a multi-stage shift register, so width >= 2 is
+    // a necessary structural condition for the self-shift idiom.
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module self_xor (input logic ca, cb, rstn, d);
+            logic q_a, q_b;
+            always_ff @(posedge ca or negedge rstn)
+                if (!rstn) q_a <= 1'b0; else q_a <= d;
+            // 1-bit XOR feedback: NOT a shift register, just
+            // accumulator-style storage. fanin = {q_a, q_b}.
+            always_ff @(posedge cb or negedge rstn)
+                if (!rstn) q_b <= 1'b0; else q_b <= q_b ^ q_a;
+        endmodule
+    )", "cdc_self_xor");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+
+    // The q_a -> q_b edge must NOT be classified as TwoFF: q_b is
+    // 1-bit and the self-shift heuristic should reject because no
+    // 1-bit signal can host a shift-register chain.
+    REQUIRE(!pipeline.crossings.empty());
+    bool foundFalseTwoFF = false;
+    for (const auto& c : pipeline.crossings) {
+        if (c.sync_type == SyncType::TwoFF &&
+            c.source_signal.find("q_a") != std::string::npos)
+            foundFalseTwoFF = true;
+    }
+    CHECK_FALSE(foundFalseTwoFF);
+}

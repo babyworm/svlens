@@ -93,7 +93,19 @@ SyncType SyncVerifier::detectSyncPattern(const FFNode* dest_ff) const {
     // this branch we miss the sync recognition and over-report VIOLATION
     // on every cdc_fifo_gray-style design that wraps the chain inside
     // sync.sv.
-    if (!dest_ff->fanin_signals.empty()) {
+    // Round 35 US-35F: tighten self-shift TwoFF heuristic. A 1-bit FF
+    // cannot host a multi-stage shift register, so width >= 2 is a
+    // necessary structural condition. Additionally require fanin to
+    // be EXACTLY {self_leaf, one external} (size 2) so that the
+    // pattern is plausibly `q <= {q[N-2:0], external}`. Single-fanin
+    // (`q <= q`, latch-like keep) and multi-source (`q <= q | a | b`)
+    // shapes are rejected. This still leaves an XOR-feedback false
+    // positive (`q <= q ^ data` has the same fanin signature as a
+    // shift register), but downstream detectMuxSyncPattern catches
+    // most of those by reclassifying to MuxSync; the structural
+    // guard added here at least prevents the 1-bit and >2-fanin
+    // cases from masquerading as TwoFF.
+    if (dest_ff->width >= 2 && dest_ff->fanin_signals.size() == 2) {
         std::string dest_leaf = dest_ff->hier_path;
         auto dot_pos = dest_leaf.rfind('.');
         if (dot_pos != std::string::npos)

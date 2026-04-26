@@ -1,5 +1,8 @@
 #include "TransformExtractor.h"
 
+#include <filesystem>
+#include <system_error>
+
 #include <slang/ast/Expression.h>
 #include <slang/ast/Statement.h>
 #include <slang/ast/expressions/AssignmentExpressions.h>
@@ -904,7 +907,22 @@ std::string TransformExtractor::sourceLoc(const slang::ast::Expression& expr) co
     if (fileName.empty())
         return "";
 
-    return std::string(fileName) + ":" + std::to_string(lineNum);
+    // Round 34 Metric-3 fix: normalize to a path relative to the
+    // current working directory so reports are portable across
+    // CI machines / users (e.g. "tests/sv/metrics/simple_cone.sv"
+    // instead of "/Users/alice/work/svlens/tests/...sv"). Falls back
+    // to the raw path on any normalization error.
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    auto rel = fs::relative(fs::path(std::string(fileName)),
+                            fs::current_path(ec), ec);
+    std::string out;
+    if (!ec && !rel.empty())
+        out = rel.generic_string();
+    else
+        out = std::string(fileName);
+
+    return out + ":" + std::to_string(lineNum);
 }
 
 } // namespace metrics

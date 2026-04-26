@@ -20,6 +20,7 @@
 #include <slang/ast/types/Type.h>
 #include <slang/syntax/AllSyntax.h>
 #include <slang/parsing/TokenKind.h>
+#include <slang/text/SourceManager.h>
 
 #include <fmt/core.h>
 
@@ -389,6 +390,7 @@ void ConnectionExtractor::visitInstance(const slang::ast::InstanceSymbol& instan
                 obs.scopePath = parentPath;
                 obs.name = base + "_q";
                 obs.location = instance.location;
+                populateLineColumn(obs);
                 obs.detail = fmt::format(
                     "always_ff register '{}' has no matching combinational "
                     "input '{}' (lowRISC requires `<base>_d` -> `<base>_q` "
@@ -454,6 +456,7 @@ void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
                     obs.scopePath = scopePath;
                     obs.name = std::string(vs.name);
                     obs.location = vs.location;
+                    populateLineColumn(obs);
                     obs.detail = fmt::format(
                         "anonymous enum bound to '{}' (lowRISC requires "
                         "`typedef enum {{...}} <name>_e;` first)",
@@ -490,10 +493,11 @@ void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
                         };
                     if (const char* banned = check_type(t)) {
                         StyleObservation obs;
-                        obs.kind = StyleObservation::Kind::LegacyAlwaysBlock;
+                        obs.kind = StyleObservation::Kind::BannedStateType;
                         obs.scopePath = scopePath;
                         obs.name = std::string(vs.name);
                         obs.location = vs.location;
+                        populateLineColumn(obs);
                         obs.detail = fmt::format(
                             "variable '{}' uses 2-state/non-logic type "
                             "'{}' (lowRISC requires `logic` for RTL)",
@@ -520,6 +524,7 @@ void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
                     obs.scopePath = scopePath;
                     obs.name = std::string(genBlock.name);
                     obs.location = genBlock.location;
+                    populateLineColumn(obs);
                     obs.detail = fmt::format(
                         "generate block at '{}' lacks an explicit `: name` "
                         "label (lowRISC requires lower_snake_case names)",
@@ -551,6 +556,7 @@ void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
                     obs.scopePath = scopePath;
                     obs.name = arrayName;
                     obs.location = genArray.location;
+                    populateLineColumn(obs);
                     obs.detail = fmt::format(
                         "generate-for array at '{}' lacks an explicit `: name` "
                         "label (lowRISC requires lower_snake_case names)",
@@ -774,6 +780,7 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
         obs.kind = StyleObservation::Kind::LegacyAlwaysBlock;
         obs.scopePath = scopePath;
         obs.location = block.location;
+        populateLineColumn(obs);
         obs.detail = "legacy `always` block (use `always_ff` for "
                      "sequential or `always_comb` for combinational)";
         graph_.styleObservations.push_back(std::move(obs));
@@ -839,10 +846,11 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
                         // as already-bad and skip silently).
                         if (!ok && !leaf.empty()) {
                             StyleObservation obs;
-                            obs.kind = StyleObservation::Kind::LegacyAlwaysBlock;
+                            obs.kind = StyleObservation::Kind::MissingQSuffix;
                             obs.scopePath = scopePath;
                             obs.name = leaf;
                             obs.location = a.left().sourceRange.start();
+                            populateLineColumn(obs);
                             obs.detail = fmt::format(
                                 "always_ff non-blocking LHS '{}' lacks `_q` "
                                 "(or `_q<n>`) suffix (lowRISC registered-output "
@@ -992,6 +1000,7 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
                                         obs.scopePath = scopePath;
                                         obs.name = sigText;
                                         obs.location = block.location;
+                                        populateLineColumn(obs);
                                         obs.detail = fmt::format(
                                             "always_ff uses active-high reset "
                                             "'{}' (posedge) -- lowRISC "
@@ -1012,6 +1021,7 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
                         obs.kind = StyleObservation::Kind::ResetPolarityBad;
                         obs.scopePath = scopePath;
                         obs.location = block.location;
+                        populateLineColumn(obs);
                         obs.detail =
                             "always_ff sensitivity list uses comma syntax "
                             "`@(posedge clk, negedge rst)` -- lowRISC "
@@ -1149,18 +1159,20 @@ void ConnectionExtractor::processProceduralStatement(const slang::ast::Statement
             // is flagged separately.
             if (cs.check == slang::ast::UniquePriorityCheck::None) {
                 StyleObservation obs;
-                obs.kind = StyleObservation::Kind::LegacyAlwaysBlock;
+                obs.kind = StyleObservation::Kind::MissingUniqueCase;
                 obs.scopePath = scopePath;
                 obs.location = cs.sourceRange.start();
+                populateLineColumn(obs);
                 obs.detail = "case statement lacks `unique`/`priority` "
                              "qualifier (lowRISC requires `unique case`)";
                 graph_.styleObservations.push_back(std::move(obs));
             }
             if (!cs.defaultCase) {
                 StyleObservation obs;
-                obs.kind = StyleObservation::Kind::LegacyAlwaysBlock;
+                obs.kind = StyleObservation::Kind::MissingCaseDefault;
                 obs.scopePath = scopePath;
                 obs.location = cs.sourceRange.start();
+                populateLineColumn(obs);
                 obs.detail = "case statement lacks `default:` branch "
                              "(lowRISC requires it for synthesis safety)";
                 graph_.styleObservations.push_back(std::move(obs));
@@ -1248,6 +1260,27 @@ void ConnectionExtractor::resolveConnections() {
             }
         }
     }
+}
+
+void ConnectionExtractor::populateLineColumn(StyleObservation& obs) const {
+    if (!obs.location.valid())
+        return;
+    const auto* sm = compilation_.getSourceManager();
+    if (!sm)
+        return;
+    obs.lineNumber = static_cast<uint32_t>(sm->getLineNumber(obs.location));
+    obs.columnNumber = static_cast<uint32_t>(sm->getColumnNumber(obs.location));
+}
+
+void ConnectionExtractor::collectDBaseFromLeaf(std::string_view leaf) {
+    // Leaf must be a simple (non-hierarchical) name that ends in `_d`
+    // and has at least one character before the `_d` so the base is
+    // non-empty.  `_d` alone, `foo._d`, and `_d`-less names are skipped.
+    if (leaf.find('.') != std::string_view::npos)
+        return;
+    if (leaf.size() <= 2 || !leaf.ends_with("_d"))
+        return;
+    combinational_d_bases_.insert(std::string(leaf.substr(0, leaf.size() - 2)));
 }
 
 } // namespace connect

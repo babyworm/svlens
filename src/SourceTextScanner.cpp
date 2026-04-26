@@ -82,7 +82,9 @@ static void scanSourceText(const std::string& filePath,
             obs.name = fmt::format("{}:{}", filePath, lineNum);
             obs.detail = detail;
             // location stays default (invalid) because we have no buffer
-            // offset; all location info is in the detail string.
+            // offset; line/column info is published via lineNumber so
+            // JSON consumers don't need to parse the detail string.
+            obs.lineNumber = static_cast<uint32_t>(lineNum);
             graph.styleObservations.push_back(std::move(obs));
         };
 
@@ -189,6 +191,11 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
                     "{}: {} modules declared in one file ({}) "
                     "(lowRISC requires one module per file)",
                     filePath, modules.size(), nameList);
+                // Anchor at the second module's declaration line so
+                // downstream tooling can jump to the offending decl.
+                if (modules.size() > 1)
+                    obs.lineNumber =
+                        static_cast<uint32_t>(sm.getLineNumber(modules[1].second));
                 graph_out.styleObservations.push_back(std::move(obs));
             }
 
@@ -205,6 +212,8 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
                         "{}: file basename '{}' does not match module name '{}' "
                         "(lowRISC requires file name == module name)",
                         filePath, base, modName);
+                    obs.lineNumber =
+                        static_cast<uint32_t>(sm.getLineNumber(modules[0].second));
                     graph_out.styleObservations.push_back(std::move(obs));
                 }
             }

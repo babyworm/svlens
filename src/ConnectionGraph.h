@@ -49,6 +49,11 @@ struct StyleObservation {
         MissingDSuffix,            // _q-registered signal has no matching _d combinational driver
         WildcardPortConnection,    // instance uses `.*` instead of named .port(signal) connections
         BareIntegerLiteral,        // integer literal without explicit width (e.g. bare `2` vs `8'd2`)
+        // Round 39 review: split rules previously overloaded onto LegacyAlwaysBlock
+        MissingQSuffix,            // always_ff non-blocking LHS lacks `_q`/`_q<n>` suffix
+        BannedStateType,           // RTL variable declared with bit/int/byte/... (lowRISC requires logic)
+        MissingCaseDefault,        // case statement without `default:` branch
+        MissingUniqueCase,         // case statement without `unique`/`priority` qualifier
         // US-39E source-text checks
         LineTooLong,               // source line exceeds max_line_length chars
         HardTab,                   // source line contains a hard tab character
@@ -62,6 +67,12 @@ struct StyleObservation {
     std::string name;        // the offending name (parameter/typedef/etc.)
     std::string detail;      // human-readable message body
     slang::SourceLocation location;
+    // Round 39 review: explicit line/column so JSON consumers can
+    // surface precise locations without regex-parsing `detail`. For
+    // raw-text observations (no slang::SourceLocation), the scanner
+    // populates these directly from its line counter.
+    uint32_t lineNumber = 0;
+    uint32_t columnNumber = 0;
 };
 
 // Round 38 US-38D / US-38E: raw declaration captures consumed by

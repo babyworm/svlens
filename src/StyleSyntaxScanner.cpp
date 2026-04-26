@@ -4,6 +4,7 @@
 #include <slang/syntax/SyntaxVisitor.h>
 #include <slang/syntax/SyntaxTree.h>
 #include <slang/text/SourceLocation.h>
+#include <slang/text/SourceManager.h>
 
 #include <fmt/core.h>
 
@@ -89,6 +90,10 @@ static bool isInRtlContext(const slang::syntax::SyntaxNode& node) {
 struct StyleScanner : public slang::syntax::SyntaxVisitor<StyleScanner> {
     ConnectionGraph& graph;
     std::string filePath;
+    // Source manager for the current syntax tree, used to populate
+    // StyleObservation::lineNumber / columnNumber so JSON consumers
+    // do not have to regex-parse the detail string.
+    const slang::SourceManager* sm = nullptr;
     // Set of module definition names to scan; derived from the top
     // module plus all modules that appear in the compilation and are
     // referenced as children.  We populate this lazily using a simpler
@@ -111,6 +116,13 @@ struct StyleScanner : public slang::syntax::SyntaxVisitor<StyleScanner> {
     StyleScanner(ConnectionGraph& g,
                  const std::unordered_set<std::string>& allowed)
         : graph(g), allowedModules(allowed) {}
+
+    void populateLineColumn(StyleObservation& obs) const {
+        if (!sm || !obs.location.valid())
+            return;
+        obs.lineNumber = static_cast<uint32_t>(sm->getLineNumber(obs.location));
+        obs.columnNumber = static_cast<uint32_t>(sm->getColumnNumber(obs.location));
+    }
 
     // Gate entry into module declarations: only descend into modules
     // that are in the allowed set.
@@ -135,6 +147,7 @@ struct StyleScanner : public slang::syntax::SyntaxVisitor<StyleScanner> {
         obs.scopePath = filePath;
         obs.name = ".*";
         obs.location = loc;
+        populateLineColumn(obs);
         obs.detail =
             "wildcard port connection `.*` hides signal-to-port mapping "
             "(lowRISC requires explicit `.port_name(signal)` connections)";
@@ -166,6 +179,7 @@ struct StyleScanner : public slang::syntax::SyntaxVisitor<StyleScanner> {
                 obs.scopePath = filePath;
                 obs.name = std::string(text);
                 obs.location = loc;
+                populateLineColumn(obs);
                 obs.detail = fmt::format(
                     "bare integer literal '{}' has no explicit width "
                     "(lowRISC requires `<width>'<base><value>`, e.g. "
@@ -246,6 +260,7 @@ void StyleSyntaxScanner::scan(const slang::ast::Compilation& compilation,
         scanner.filePath =
             std::string(tree->sourceManager().getFileName(
                 tree->root().getFirstToken().location()));
+        scanner.sm = &tree->sourceManager();
         tree->root().visit(scanner);
     }
 }

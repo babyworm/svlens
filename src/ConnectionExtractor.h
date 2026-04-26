@@ -6,6 +6,7 @@
 #include <slang/ast/symbols/MemberSymbols.h>
 
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -55,6 +56,19 @@ private:
 
     static ResolvedExpr resolveExpr(const slang::ast::Expression* expr);
     void recordAlias(const std::string& lhsKey, const std::string& rhsKey, bool approximate);
+
+    // Round 39 review: fill in StyleObservation::lineNumber/columnNumber
+    // from the location's source manager so JSON consumers do not need
+    // to regex-parse the detail string.  Safe to call when location is
+    // invalid; the fields stay at their default 0.
+    void populateLineColumn(StyleObservation& obs) const;
+
+    // Round 39 review: dedupe `_d` LHS collection across the always_comb
+    // body walk and the continuous-assign path.  Inserts the base name
+    // (leaf with `_d` stripped) into combinational_d_bases_ when the
+    // leaf is a non-hierarchical name ending in `_d` and the base is
+    // non-empty.
+    void collectDBaseFromLeaf(std::string_view leaf);
 
     slang::ast::Compilation& compilation_;
     std::string topModule_;

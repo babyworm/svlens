@@ -17,6 +17,24 @@ if(NOT slang_FOUND)
         "For offline / preinstalled builds see docs/install.md.\n"
         "See README.md for details.")
 endif()
+
+# slang exports `$<$<CONFIG:Debug>:SLANG_DEBUG>` in its INTERFACE_COMPILE_DEFINITIONS,
+# which assumes a Debug consumer means slang itself was built with SLANG_DEBUG. Our
+# setup-deps.sh always builds slang in Release, so a Debug build of svlens (e.g. the
+# coverage CI job) ends up with mismatched class layouts (IntervalMap, SourceLocation,
+# CommandLine) and triggers runtime exceptions like "No options defined". Strip the
+# generator-expression form here so consumers get a consistent ABI regardless of
+# CMAKE_BUILD_TYPE. If a future workflow rebuilds slang in Debug, set
+# SVLENS_KEEP_SLANG_DEBUG=ON to opt out of the strip.
+option(SVLENS_KEEP_SLANG_DEBUG "Keep slang's Debug-conditional SLANG_DEBUG macro" OFF)
+if(NOT SVLENS_KEEP_SLANG_DEBUG)
+    get_target_property(_svlens_slang_defs slang::slang INTERFACE_COMPILE_DEFINITIONS)
+    if(_svlens_slang_defs)
+        list(REMOVE_ITEM _svlens_slang_defs "$<$<CONFIG:Debug>:SLANG_DEBUG>")
+        set_target_properties(slang::slang PROPERTIES
+            INTERFACE_COMPILE_DEFINITIONS "${_svlens_slang_defs}")
+    endif()
+endif()
 # fmt: prefer slang's bundled copy; fall back to system install
 if(NOT TARGET slang::fmt)
     find_package(fmt REQUIRED)
@@ -157,7 +175,7 @@ add_library(svlens-cdc-lib OBJECT
     src/CdcRunner.cpp
 )
 target_include_directories(svlens-cdc-lib PUBLIC src include)
-target_link_libraries(svlens-cdc-lib PUBLIC svlens-common-lib slang::slang)
+target_link_libraries(svlens-cdc-lib PUBLIC svlens-common-lib slang::slang ${YAML_CPP_TARGET})
 
 add_library(svlens-metrics-lib OBJECT
     src/MetricsRunner.cpp

@@ -660,11 +660,24 @@ static void processScopeForEdges(
                                          : path_prefix);
             // Push the enclosing scope's cont_assigns so the child can
             // chase ancestor always_comb / assign renames during port
-            // resolution.
-            g_parent_cont_chain.push_back(cont_assigns);
-            processInstanceEdges(child, child_path, output_map,
-                                 combined_wire_map, edges, child_chain);
-            g_parent_cont_chain.pop_back();
+            // resolution. Round 34 CDC-3 fix: surface depth-cap drifts
+            // before they OOM on pathological generators (deeply
+            // nested generate-for or recursive submodule patterns).
+            constexpr size_t kMaxParentChain = 32;
+            if (g_parent_cont_chain.size() >= kMaxParentChain) {
+                static std::atomic<bool> warned{false};
+                if (!warned.exchange(true)) {
+                    std::cerr << "svlens cdc: warning: parent-context "
+                              << "chain depth >= " << kMaxParentChain
+                              << " in connectivity recursion; deeper "
+                              << "ancestor renames will be skipped\n";
+                }
+            } else {
+                g_parent_cont_chain.push_back(cont_assigns);
+                processInstanceEdges(child, child_path, output_map,
+                                     combined_wire_map, edges, child_chain);
+                g_parent_cont_chain.pop_back();
+            }
             continue;
         }
 
@@ -809,10 +822,24 @@ static void processInstanceEdges(
             std::string child_path = inst_path + "." + std::string(child.name);
             auto child_chain = parent_port_chain;
             child_chain.emplace_back(port_map, inst_path);
-            g_parent_cont_chain.push_back(cont_assigns);
-            processInstanceEdges(child, child_path, output_map, combined_wire_map,
-                                 edges, child_chain);
-            g_parent_cont_chain.pop_back();
+            // Round 34 CDC-3 fix (mirror of the recursion-cap added at
+            // the other push site): bound g_parent_cont_chain to avoid
+            // unbounded TLS growth on pathological hierarchies.
+            constexpr size_t kMaxParentChain = 32;
+            if (g_parent_cont_chain.size() >= kMaxParentChain) {
+                static std::atomic<bool> warned{false};
+                if (!warned.exchange(true)) {
+                    std::cerr << "svlens cdc: warning: parent-context "
+                              << "chain depth >= " << kMaxParentChain
+                              << " in scope recursion; deeper ancestor "
+                              << "renames will be skipped\n";
+                }
+            } else {
+                g_parent_cont_chain.push_back(cont_assigns);
+                processInstanceEdges(child, child_path, output_map, combined_wire_map,
+                                     edges, child_chain);
+                g_parent_cont_chain.pop_back();
+            }
         }
     }
 

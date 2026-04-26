@@ -140,6 +140,69 @@ TEST_CASE("ConventionChecker: malformed scalar values do not crash") {
     std::remove(yamlPath);
 }
 
+TEST_CASE("ConventionChecker: malformed string field keeps default and does not throw") {
+    // Codex Round 3 cross-review: getString() previously called
+    // .as<std::string>() directly; a YAML sequence like
+    // `clock_pattern: [bad]` would throw YAML::BadConversion out of
+    // loadConventionRules, skipping all subsequent fields.  Now
+    // getString() catches conversion errors and returns nullopt so
+    // one bad string field only nulls that field.
+    const char* yamlPath = "test_convention_bad_string.yaml";
+    {
+        std::ofstream ofs(yamlPath);
+        REQUIRE(ofs.good());
+        ofs << "input_prefix: in_\n";
+        // A mapping node causes YAML::BadConversion on .as<std::string>().
+        // A sequence like [bad] is silently stringified by yaml-cpp so we
+        // use a nested map to reliably trigger a conversion error.
+        ofs << "clock_pattern:\n";
+        ofs << "  nested_key: nested_val\n";   // map where scalar expected
+        ofs << "output_prefix: out_\n";         // valid string after bad one
+    }
+
+    ConventionRules rules;
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+
+    CHECK(rules.inputPrefix == "in_");
+    CHECK(rules.clockPattern.empty());   // default — bad conversion kept default
+    CHECK(rules.outputPrefix == "out_"); // valid string after bad one must apply
+
+    std::remove(yamlPath);
+}
+
+TEST_CASE("ConventionChecker: malformed nested prefix field keeps default and does not throw") {
+    // Codex Round 3 cross-review: nested paths like
+    // `instance: { prefix: [bad] }` used raw .as<std::string>() and
+    // could throw out of loadConventionRules.  Now each nested path
+    // is guarded with try/catch so one bad nested scalar only nulls
+    // that one field.
+    // Note: ConventionRules::instancePrefix defaults to "u_"; a bad
+    // conversion leaves that default in place rather than throwing.
+    const char* yamlPath = "test_convention_bad_nested.yaml";
+    {
+        std::ofstream ofs(yamlPath);
+        REQUIRE(ofs.good());
+        ofs << "input_prefix: in_\n";
+        // A mapping node causes YAML::BadConversion on .as<std::string>().
+        ofs << "instance:\n";
+        ofs << "  prefix:\n";
+        ofs << "    nested_key: nested_val\n";  // map where scalar expected
+        ofs << "output_prefix: out_\n";
+    }
+
+    ConventionRules rules;
+    // Must not throw despite bad nested scalar.
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+
+    CHECK(rules.inputPrefix == "in_");
+    // Bad conversion: instancePrefix keeps its struct default ("u_"), not overwritten.
+    ConventionRules defaultRules;
+    CHECK(rules.instancePrefix == defaultRules.instancePrefix);
+    CHECK(rules.outputPrefix == "out_");  // field after bad nested must apply
+
+    std::remove(yamlPath);
+}
+
 TEST_CASE("ConventionChecker: bad scalar does not skip later valid keys") {
     // Codex Round 2 cross-review: the previous whole-block try/catch
     // aborted on the first YAML::BadConversion, silently dropping any

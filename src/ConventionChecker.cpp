@@ -1,4 +1,5 @@
 #include "ConventionChecker.h"
+#include <cctype>
 #include <fmt/core.h>
 #include <yaml-cpp/yaml.h>
 
@@ -12,8 +13,13 @@ namespace connect {
 namespace {
 
 std::optional<std::string> getString(const YAML::Node& node, const char* key) {
-    if (node && node[key])
-        return node[key].as<std::string>();
+    if (node && node[key]) {
+        try {
+            return node[key].as<std::string>();
+        } catch (const YAML::Exception&) {
+            return std::nullopt;
+        }
+    }
     return std::nullopt;
 }
 
@@ -78,22 +84,28 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
         rules.inputPrefix = *value;
     else if (auto value = getString(root, "inputPrefix"); value)
         rules.inputPrefix = *value;
-    else if (root["input"] && root["input"]["prefix"])
-        rules.inputPrefix = root["input"]["prefix"].as<std::string>();
+    else if (root["input"] && root["input"]["prefix"]) {
+        try { rules.inputPrefix = root["input"]["prefix"].as<std::string>(); }
+        catch (const YAML::Exception&) {}
+    }
 
     if (auto value = getString(root, "output_prefix"); value)
         rules.outputPrefix = *value;
     else if (auto value = getString(root, "outputPrefix"); value)
         rules.outputPrefix = *value;
-    else if (root["output"] && root["output"]["prefix"])
-        rules.outputPrefix = root["output"]["prefix"].as<std::string>();
+    else if (root["output"] && root["output"]["prefix"]) {
+        try { rules.outputPrefix = root["output"]["prefix"].as<std::string>(); }
+        catch (const YAML::Exception&) {}
+    }
 
     if (auto value = getString(root, "instance_prefix"); value)
         rules.instancePrefix = *value;
     else if (auto value = getString(root, "instancePrefix"); value)
         rules.instancePrefix = *value;
-    else if (root["instance"] && root["instance"]["prefix"])
-        rules.instancePrefix = root["instance"]["prefix"].as<std::string>();
+    else if (root["instance"] && root["instance"]["prefix"]) {
+        try { rules.instancePrefix = root["instance"]["prefix"].as<std::string>(); }
+        catch (const YAML::Exception&) {}
+    }
 
     // Round 36 lowRISC-style fields. All optional; missing keys leave
     // the field empty/false, which disables the corresponding check.

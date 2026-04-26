@@ -161,3 +161,42 @@ module modern_always_good (
     end
     assign reg_o = reg_q;
 endmodule
+
+// ─── Parameter / typedef naming (BAD) ─────────────────────────────
+// lowRISC: parameters use UpperCamelCase; typedefs end with `_t`
+// (struct/union) or `_e` (enum). The fixture below intentionally
+// breaks both.
+module param_typedef_bad #(
+    parameter int unsigned width      = 8,   // BAD: lower_case
+    parameter int unsigned MAX_DEPTH  = 32   // BAD: ALL_CAPS at parameter level
+) (
+    input        clk_i,
+    input  [7:0] data_i,
+    output [7:0] data_o
+);
+    typedef logic [7:0] my_byte;             // BAD: missing _t suffix
+    typedef enum logic [1:0] { A, B, C } op; // BAD: missing _e suffix
+
+    my_byte byte_q;
+    op      op_q;
+    always_ff @(posedge clk_i) byte_q <= data_i;
+    assign data_o = byte_q;
+endmodule
+
+// ─── Parameter / typedef naming (GOOD) ────────────────────────────
+module param_typedef_good #(
+    parameter  int unsigned Width    = 8,
+    localparam int unsigned MaxDepth = 32
+) (
+    input        clk_i,
+    input  [Width-1:0] data_i,
+    output [Width-1:0] data_o
+);
+    typedef logic [Width-1:0] byte_t;
+    typedef enum logic [1:0] { OpA, OpB, OpC } opcode_e;
+
+    byte_t   byte_q;
+    opcode_e op_q;
+    always_ff @(posedge clk_i) byte_q <= data_i;
+    assign data_o = byte_q;
+endmodule

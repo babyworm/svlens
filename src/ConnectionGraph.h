@@ -53,6 +53,16 @@ struct StyleObservation {
     slang::SourceLocation location;
 };
 
+// Round 38 US-38D / US-38E: raw declaration captures consumed by
+// ConventionChecker for regex-based pattern matching (parameter case,
+// typedef suffix). Kept as a thin record so the extractor stays
+// rule-agnostic.
+struct DeclarationCapture {
+    std::string scopePath;
+    std::string name;
+    slang::SourceLocation location;
+};
+
 struct ConnectionGraph {
     std::vector<Connection> connections;
     std::vector<PortInfo> allPorts;
@@ -61,6 +71,8 @@ struct ConnectionGraph {
     std::unordered_set<std::string> constantZeroTieOffPorts; // ports tied to an explicit constant zero
     std::string topModule;
     std::vector<StyleObservation> styleObservations;
+    std::vector<DeclarationCapture> parameters;
+    std::vector<DeclarationCapture> typedefs;
 };
 
 } // namespace connect

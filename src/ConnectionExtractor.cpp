@@ -3,6 +3,7 @@
 #include <slang/ast/Expression.h>
 #include <slang/ast/symbols/CompilationUnitSymbols.h>
 #include <slang/ast/symbols/InstanceSymbols.h>
+#include <slang/ast/symbols/ParameterSymbols.h>
 #include <slang/ast/symbols/PortSymbols.h>
 #include <slang/ast/symbols/BlockSymbols.h>
 #include <slang/ast/symbols/MemberSymbols.h>
@@ -363,6 +364,27 @@ void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
             case slang::ast::SymbolKind::ProceduralBlock:
                 processProceduralBlock(member.as<slang::ast::ProceduralBlockSymbol>(), scopePath);
                 break;
+            case slang::ast::SymbolKind::Parameter: {
+                // Round 38 US-38D: capture name + location for the
+                // ConventionChecker's parameter_case_pattern regex.
+                auto& p = member.as<slang::ast::ParameterSymbol>();
+                DeclarationCapture cap;
+                cap.scopePath = scopePath;
+                cap.name = std::string(p.name);
+                cap.location = p.location;
+                graph_.parameters.push_back(std::move(cap));
+                break;
+            }
+            case slang::ast::SymbolKind::TypeAlias: {
+                // Round 38 US-38E: capture typedef declarations for
+                // the typedef_suffix_pattern regex.
+                DeclarationCapture cap;
+                cap.scopePath = scopePath;
+                cap.name = std::string(member.name);
+                cap.location = member.location;
+                graph_.typedefs.push_back(std::move(cap));
+                break;
+            }
             case slang::ast::SymbolKind::GenerateBlock: {
                 auto& genBlock = member.as<slang::ast::GenerateBlockSymbol>();
                 // Standalone generate blocks (if/case) — include name only if non-empty

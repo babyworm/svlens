@@ -169,4 +169,21 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
     CHECK(digit_body.find("'foo_1' has") != std::string::npos);
     CHECK(digit_body.find("'foo_2' has") != std::string::npos);
     CHECK(digit_body.find("lowRISC prohibits this") != std::string::npos);
+
+    // Round 38 US-38A: legacy `always` block detection.
+    auto la_body = run_top("legacy_always_bad");
+    // Two legacy always blocks; both should surface.
+    CHECK(count(la_body, "legacy `always` block") == 2);
+    auto modern_body = run_top("modern_always_good");
+    CHECK(count(modern_body, "legacy `always` block") == 0);
+
+    // Round 38 US-38D / US-38E: parameter case + typedef suffix.
+    auto pt_bad = run_top("param_typedef_bad");
+    CHECK(pt_bad.find("parameter 'width'") != std::string::npos);
+    CHECK(pt_bad.find("parameter 'MAX_DEPTH'") != std::string::npos);
+    CHECK(pt_bad.find("typedef 'my_byte'") != std::string::npos);
+    CHECK(pt_bad.find("typedef 'op'") != std::string::npos);
+    auto pt_good = run_top("param_typedef_good");
+    CHECK(pt_good.find("parameter '") == std::string::npos);
+    CHECK(pt_good.find("typedef '") == std::string::npos);
 }

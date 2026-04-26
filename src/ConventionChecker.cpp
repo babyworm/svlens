@@ -340,6 +340,54 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
         }
     }
 
+    // Round 38 US-38D: parameter case pattern check. Uses the same
+    // tryCompile guard added at the top of this function for malformed
+    // patterns.
+    auto paramRe = tryCompile(rules_.parameterCasePattern, "parameter_case_pattern");
+    if (paramRe) {
+        for (const auto& cap : graph.parameters) {
+            if (cap.name.empty()) continue;
+            if (!std::regex_match(cap.name, *paramRe)) {
+                Issue issue;
+                issue.type = Issue::Type::CONVENTION;
+                issue.severity = Issue::Severity::INFO;
+                PortInfo p;
+                p.instancePath = cap.scopePath;
+                p.portName = cap.name;
+                p.location = cap.location;
+                issue.port = std::move(p);
+                issue.detail = fmt::format(
+                    "parameter '{}' does not follow naming convention "
+                    "(expected pattern '{}')",
+                    cap.name, rules_.parameterCasePattern);
+                issues.push_back(std::move(issue));
+            }
+        }
+    }
+
+    // Round 38 US-38E: typedef suffix pattern check.
+    auto typedefRe = tryCompile(rules_.typedefSuffixPattern, "typedef_suffix_pattern");
+    if (typedefRe) {
+        for (const auto& cap : graph.typedefs) {
+            if (cap.name.empty()) continue;
+            if (!std::regex_search(cap.name, *typedefRe)) {
+                Issue issue;
+                issue.type = Issue::Type::CONVENTION;
+                issue.severity = Issue::Severity::INFO;
+                PortInfo p;
+                p.instancePath = cap.scopePath;
+                p.portName = cap.name;
+                p.location = cap.location;
+                issue.port = std::move(p);
+                issue.detail = fmt::format(
+                    "typedef '{}' does not follow naming convention "
+                    "(expected suffix pattern '{}')",
+                    cap.name, rules_.typedefSuffixPattern);
+                issues.push_back(std::move(issue));
+            }
+        }
+    }
+
     // Round 38: surface ConnectionExtractor-collected style
     // observations (legacy always block, anonymous enum, unnamed
     // generate block, parameter / typedef name violations). Each

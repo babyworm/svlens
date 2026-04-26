@@ -313,4 +313,115 @@ TEST_CASE("ConnRunner: source-text + file-name rules emit when YAML enables them
     CHECK(body.find("hard tab character") != std::string::npos);
     CHECK(body.find("trailing whitespace") != std::string::npos);
     CHECK(body.find("modules declared in one file") != std::string::npos);
+
+    // Round 39 review (R2 #3): bind line-number assertions to the
+    // actual line offsets in lowrisc_source_text_violations.sv so a
+    // future regression in line-number tracking surfaces as a test
+    // failure rather than a silent swap.  Fixture layout:
+    //   line 13: hard tab indent + line >100 chars
+    //   line 14: trailing whitespace before EOL
+    //   line 22: second module declaration
+    CHECK(body.find(":13:") != std::string::npos);
+    CHECK(body.find(":14:") != std::string::npos);
+}
+
+TEST_CASE("ConnRunner: source-text emits FileNameMismatch for mismatched basename",
+          "[conn][runner][source_text][file_name_mismatch]") {
+    // Round 39 review (R5 Gap 1): the FileNameMismatch rule was being
+    // emitted but never asserted on by tests, so any regression that
+    // silently disabled it would have gone unnoticed.  Fixture has
+    // exactly one module whose name differs from the file basename.
+    auto result =
+        testutils::compileFile("sv/lowrisc_filename_mismatch.sv");
+    REQUIRE(result);
+
+    const auto out =
+        fs::temp_directory_path() / "svlens_conn_filename_mismatch";
+    fs::remove_all(out);
+    fs::create_directories(out);
+
+    auto yaml_path = out / "strict.yaml";
+    {
+        std::ofstream y(yaml_path);
+        y << "input_suffix: \"_i,_pi,_ni\"\n"
+          << "output_suffix: \"_o,_po,_no\"\n"
+          << "input_prefix: \"\"\n"
+          << "output_prefix: \"\"\n"
+          << "instance_prefix: \"u_\"\n"
+          << "prohibit_multiple_modules_per_file: true\n"
+          << "enforce_file_module_match: true\n";
+    }
+
+    connect::ConnCliOptions opts;
+    opts.topModule = "not_matching_module_name";
+    opts.format = "json";
+    opts.outputDir = (out / "report").string();
+    opts.checkConvention = true;
+    opts.conventionFile = yaml_path.string();
+
+    connect::runConnWithCompilation(*result.compilation, opts);
+    REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
+    std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
+    std::string body((std::istreambuf_iterator<char>(ifs)),
+                     std::istreambuf_iterator<char>());
+
+    // The detail message format from SourceTextScanner is:
+    //   "<path>: file basename '<base>' does not match module name '<mod>' ..."
+    CHECK(body.find("file basename") != std::string::npos);
+    CHECK(body.find("does not match module name") != std::string::npos);
+    CHECK(body.find("not_matching_module_name") != std::string::npos);
+    // MultipleModulesPerFile must NOT fire (single module).
+    CHECK(body.find("modules declared in one file") == std::string::npos);
+}
+
+TEST_CASE("ConnRunner: clean source-text fixture emits zero text observations",
+          "[conn][runner][source_text][clean]") {
+    // Round 39 review (R2 #3): pair the violation fixture with a clean
+    // counterpart so a regression that turns checks into false-positive
+    // generators surfaces immediately.  clean_source_text.sv is fully
+    // compliant (no long lines, no tabs, no trailing whitespace, one
+    // module, basename matches module name).
+    auto result = testutils::compileFile("sv/clean_source_text.sv");
+    REQUIRE(result);
+
+    const auto out =
+        fs::temp_directory_path() / "svlens_conn_source_text_clean";
+    fs::remove_all(out);
+    fs::create_directories(out);
+
+    auto yaml_path = out / "strict.yaml";
+    {
+        std::ofstream y(yaml_path);
+        y << "input_suffix: \"_i,_pi,_ni\"\n"
+          << "output_suffix: \"_o,_po,_no\"\n"
+          << "input_prefix: \"\"\n"
+          << "output_prefix: \"\"\n"
+          << "instance_prefix: \"u_\"\n"
+          << "max_line_length: 100\n"
+          << "prohibit_hard_tabs: true\n"
+          << "prohibit_trailing_whitespace: true\n"
+          << "prohibit_multiple_modules_per_file: true\n"
+          << "enforce_file_module_match: true\n";
+    }
+
+    connect::ConnCliOptions opts;
+    opts.topModule = "clean_source_text";
+    opts.format = "json";
+    opts.outputDir = (out / "report").string();
+    opts.checkConvention = true;
+    opts.conventionFile = yaml_path.string();
+
+    connect::runConnWithCompilation(*result.compilation, opts);
+    REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
+    std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
+    std::string body((std::istreambuf_iterator<char>(ifs)),
+                     std::istreambuf_iterator<char>());
+
+    // None of the source-text rules should fire.
+    CHECK(body.find("line length") == std::string::npos);
+    CHECK(body.find("exceeds max") == std::string::npos);
+    CHECK(body.find("hard tab character") == std::string::npos);
+    CHECK(body.find("trailing whitespace") == std::string::npos);
+    CHECK(body.find("modules declared in one file") == std::string::npos);
+    CHECK(body.find("does not match module name") == std::string::npos);
 }

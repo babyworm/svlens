@@ -166,13 +166,26 @@ ConnectionExtractor::ResolvedExpr ConnectionExtractor::resolveExpr(
             // interface modport access (slang collapses `bus.data` into
             // a direct symbol reference rather than a MemberAccess), the
             // bare leaf name "data" loses cross-instance disambiguation.
-            // If the symbol has a non-empty hier path AND it lives under
-            // an interface instance (i.e. its hier path is longer than
-            // its leaf name), promote to absolute-path netName so the
-            // modport-expansion side rendezvous via the same key.
+            // Round 33 INFO-2: same rendezvous_safe guard as the
+            // HierarchicalValue case -- if the symbol is a ModportPort,
+            // follow internalSymbol to the underlying signal's hier
+            // path so the modport-expansion side keys match. The bare
+            // ModportPort hier path goes through the modport scope and
+            // would silently fail to rendezvous if marked is_absolute.
             std::string leaf{symbolExpr.symbol->name};
-            std::string hp = symbolExpr.symbol->getHierarchicalPath();
-            if (!hp.empty() && hp != leaf) {
+            std::string hp;
+            bool rendezvous_safe = false;
+            if (symbolExpr.symbol->kind == slang::ast::SymbolKind::ModportPort) {
+                auto& mpp = symbolExpr.symbol->as<slang::ast::ModportPortSymbol>();
+                if (mpp.internalSymbol) {
+                    hp = mpp.internalSymbol->getHierarchicalPath();
+                    rendezvous_safe = !hp.empty();
+                }
+            } else {
+                hp = symbolExpr.symbol->getHierarchicalPath();
+                rendezvous_safe = !hp.empty() && hp != leaf;
+            }
+            if (rendezvous_safe) {
                 result.netNames.push_back(hp);
                 result.is_absolute = true;
             } else {

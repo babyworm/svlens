@@ -372,6 +372,15 @@ void SyncVerifier::analyze() {
     // enclosing module path can legitimately contain words like "gray"
     // (e.g. fixture 15 `bus_cdc_no_gray.data_a`) and we don't want to
     // suppress the bus-CDC rule on those.
+    // Round 34 CDC-1/CDC-2 fix: extend the handshake/gray naming
+    // heuristic to cover modern industry idioms (AXI valid/ready,
+    // generic start/done, FIFO enq/deq, push/pop) in addition to the
+    // existing gray/req/ack matches. Substring-based matching is
+    // preserved (existing fixtures like fixture 36 rely on "rgray"
+    // matching as gray-coded). Word-boundary anchoring would reduce
+    // false positives like "request_buffer"/"ack_count" but at the
+    // cost of false negatives on legitimate single-letter prefixes
+    // (rgray/wgray/r_gray/wq2_rgray); a separate audit is needed.
     auto looks_like_gray_or_handshake = [](const std::string& signal_path) {
         std::string leaf = signal_path;
         auto pos = leaf.rfind('.');
@@ -386,7 +395,15 @@ void SyncVerifier::analyze() {
         return lower.find("gray") != std::string::npos ||
                lower.find("gry") != std::string::npos ||
                lower.find("req") != std::string::npos ||
-               lower.find("ack") != std::string::npos;
+               lower.find("ack") != std::string::npos ||
+               lower.find("valid") != std::string::npos ||
+               lower.find("ready") != std::string::npos ||
+               lower.find("start") != std::string::npos ||
+               lower.find("done") != std::string::npos ||
+               lower.find("enq") != std::string::npos ||
+               lower.find("deq") != std::string::npos ||
+               lower.find("push") != std::string::npos ||
+               lower.find("pop") != std::string::npos;
     };
     for (auto& c : crossings_) {
         if (c.sync_type != SyncType::TwoFF && c.sync_type != SyncType::ThreeFF)

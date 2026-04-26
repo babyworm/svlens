@@ -80,9 +80,20 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
         rules.inputPrefix = *value;
     else if (auto value = getString(root, "inputPrefix"); value)
         rules.inputPrefix = *value;
-    else if (root["input"] && root["input"]["prefix"]) {
+    else {
+        // Codex Round 4 cross-review: guard the parent-shape check too.
+        // If `input` is a scalar (e.g. `input: scalar_not_a_map`) then
+        // `root["input"]["prefix"]` throws YAML::BadSubscript before the
+        // inner try fires.  Wrap the entire parent+child access so a
+        // non-map parent node is silently ignored.
         try {
-            rules.inputPrefix = root["input"]["prefix"].as<std::string>();
+            if (auto in = root["input"]; in && in.IsMap()) {
+                if (auto p = in["prefix"]; p && p.IsScalar()) {
+                    try {
+                        rules.inputPrefix = p.as<std::string>();
+                    } catch (const YAML::Exception&) {}
+                }
+            }
         } catch (const YAML::Exception&) {}
     }
 
@@ -90,9 +101,15 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
         rules.outputPrefix = *value;
     else if (auto value = getString(root, "outputPrefix"); value)
         rules.outputPrefix = *value;
-    else if (root["output"] && root["output"]["prefix"]) {
+    else {
         try {
-            rules.outputPrefix = root["output"]["prefix"].as<std::string>();
+            if (auto out = root["output"]; out && out.IsMap()) {
+                if (auto p = out["prefix"]; p && p.IsScalar()) {
+                    try {
+                        rules.outputPrefix = p.as<std::string>();
+                    } catch (const YAML::Exception&) {}
+                }
+            }
         } catch (const YAML::Exception&) {}
     }
 
@@ -100,9 +117,15 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
         rules.instancePrefix = *value;
     else if (auto value = getString(root, "instancePrefix"); value)
         rules.instancePrefix = *value;
-    else if (root["instance"] && root["instance"]["prefix"]) {
+    else {
         try {
-            rules.instancePrefix = root["instance"]["prefix"].as<std::string>();
+            if (auto inst = root["instance"]; inst && inst.IsMap()) {
+                if (auto p = inst["prefix"]; p && p.IsScalar()) {
+                    try {
+                        rules.instancePrefix = p.as<std::string>();
+                    } catch (const YAML::Exception&) {}
+                }
+            }
         } catch (const YAML::Exception&) {}
     }
 

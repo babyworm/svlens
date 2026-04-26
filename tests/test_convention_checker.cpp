@@ -203,6 +203,35 @@ TEST_CASE("ConventionChecker: malformed nested prefix field keeps default and do
     std::remove(yamlPath);
 }
 
+TEST_CASE("ConventionChecker: malformed parent-shape YAML keeps default and does not throw") {
+    // Codex Round 4 cross-review: if a parent node like `input` is a
+    // scalar rather than a map (e.g. `input: scalar_not_a_map`), then
+    // `root["input"]["prefix"]` throws YAML::BadSubscript before the
+    // inner try/catch fires.  The outer try added in R4 must absorb this
+    // so load completes and the field keeps its struct default.
+    const char* yamlPath = "test_convention_parent_shape.yaml";
+    {
+        std::ofstream ofs(yamlPath);
+        REQUIRE(ofs.good());
+        ofs << "input: scalar_not_a_map\n";    // parent is scalar, not map
+        ofs << "output: scalar_not_a_map\n";   // same for output
+        ofs << "instance: scalar_not_a_map\n"; // same for instance
+        ofs << "output_prefix: out_\n";        // valid flat key after bad parents
+    }
+
+    ConventionRules rules;
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+
+    // All nested-prefix fields keep struct defaults (no throw, no crash).
+    ConventionRules defaultRules;
+    CHECK(rules.inputPrefix == defaultRules.inputPrefix);
+    CHECK(rules.instancePrefix == defaultRules.instancePrefix);
+    // The valid flat key after the bad parents must still apply.
+    CHECK(rules.outputPrefix == "out_");
+
+    std::remove(yamlPath);
+}
+
 TEST_CASE("ConventionChecker: bad scalar does not skip later valid keys") {
     // Codex Round 2 cross-review: the previous whole-block try/catch
     // aborted on the first YAML::BadConversion, silently dropping any

@@ -237,10 +237,44 @@ void TransformExtractor::processProceduralBlock(
         return;
     }
 
+    // Round 34 Metric-2 fix: name the specific unsupported procedural
+    // kind (always_latch / initial / final) and capture source_loc so
+    // the report user can see which file+line was skipped. Previously
+    // an always_latch block silently emitted a generic "procedural_
+    // block" event with no location, leaving the output port as a
+    // root with zero drivers (falsely trivial cone).
     UnsupportedEvent evt;
     evt.kind = "procedural_block";
-    evt.detail = "unsupported procedural block kind";
+    const char* pk = "unknown";
+    switch (block.procedureKind) {
+        case slang::ast::ProceduralBlockKind::AlwaysLatch:
+            pk = "always_latch"; break;
+        case slang::ast::ProceduralBlockKind::Initial:
+            pk = "initial"; break;
+        case slang::ast::ProceduralBlockKind::Final:
+            pk = "final"; break;
+        default: pk = "other"; break;
+    }
+    evt.detail = std::string("unsupported procedural block kind: ") + pk;
+    if (const auto* srcMgr = compilation_.getSourceManager(); srcMgr) {
+        auto loc = block.location;
+        if (loc.valid()) {
+            auto fname = srcMgr->getFileName(loc);
+            auto ln = srcMgr->getLineNumber(loc);
+            if (!fname.empty()) {
+                namespace fs = std::filesystem;
+                std::error_code ec;
+                auto rel = fs::relative(fs::path(std::string(fname)),
+                                        fs::current_path(ec), ec);
+                evt.source_loc = (!ec && !rel.empty()
+                                      ? rel.generic_string()
+                                      : std::string(fname))
+                                 + ":" + std::to_string(ln);
+            }
+        }
+    }
     graph_.unsupported_events.push_back(std::move(evt));
+    (void)scopePath;
 }
 
 void TransformExtractor::processStatement(const slang::ast::Statement& stmt,

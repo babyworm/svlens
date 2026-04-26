@@ -741,10 +741,17 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
                         std::string base = (br != std::string::npos)
                             ? lhs_name.substr(0, br)
                             : lhs_name;
-                        // Get leaf (after final dot).
-                        size_t dot = base.rfind('.');
-                        std::string leaf = (dot != std::string::npos)
-                            ? base.substr(dot + 1) : base;
+                        // Round 38 architect feedback: skip
+                        // hierarchical writes (`state_q.field`,
+                        // `inst.signal`, modport member assignments).
+                        // The `_q` rule is for internal registered
+                        // local variables only; struct fields and
+                        // submodule signals each have their own
+                        // naming conventions and are NOT subject to
+                        // the registered-output suffix.
+                        if (base.find('.') != std::string::npos)
+                            return;
+                        std::string leaf = base;
                         // Match `_q` or `_q<digits>` at end.
                         bool ok = false;
                         if (leaf.size() >= 2) {

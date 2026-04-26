@@ -243,6 +243,18 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
         // module declarations (pure header includes) are also skipped
         // when reachability gating is on, because they cannot be a
         // meaningful child of the requested top.
+        //
+        // Codex Round 2 cross-review: this gate is FILE-LEVEL by design.
+        // Once any module in the buffer is reachable from `topModule`,
+        // the WHOLE buffer is admitted -- including sibling modules
+        // that are not themselves reachable.  Physical-line rules
+        // (LineTooLong, HardTab, TrailingWhitespace) cannot be
+        // attributed cleanly to a single module declaration because a
+        // single source line could span module boundaries or sit
+        // entirely outside any module.  Per-module slicing of the
+        // buffer is high-effort, fragile, and unintuitive (users place
+        // unrelated code in unrelated files); the file boundary is the
+        // natural unit of these checks.  See SourceTextScanner.h.
         if (gateByReachability) {
             bool anyReachable = false;
             for (const auto& [name, _loc] : modules) {

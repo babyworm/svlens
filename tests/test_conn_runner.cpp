@@ -444,6 +444,65 @@ TEST_CASE("ConnRunner: source-text reachability suppresses unrelated file",
     CHECK(body.find("hard tab character") == std::string::npos);
 }
 
+TEST_CASE("ConnRunner: source-text scope is file-level (sibling violations included)",
+          "[conn][runner][source_text][reachability][sibling_lockin]") {
+    // Codex Round 2 cross-review: SourceTextScanner reachability is
+    // FILE-LEVEL: any reachable module in a buffer admits the whole
+    // buffer.  This is intentional -- physical-line rules like
+    // LineTooLong cannot be attributed to a single module declaration
+    // when a line could span declarations.  Sibling code in the same
+    // file is NOT exempt; users must put unrelated code in a separate
+    // file to escape these checks.
+    //
+    // This test LOCKS IN that contract: with `unreachable_top` (clean)
+    // selected as the requested top, the same file's `unrelated_sibling`
+    // (intentionally dirty) violations MUST appear in the report.  If a
+    // future change tightens the scope to module-level, this test fails
+    // and the contract change is visible.
+    namespace fs = std::filesystem;
+    auto result = testutils::compileFile("sv/lowrisc_unreachable_sibling.sv");
+    REQUIRE(result);
+
+    const auto out =
+        fs::temp_directory_path() / "svlens_conn_source_text_sibling";
+    fs::remove_all(out);
+    fs::create_directories(out);
+
+    auto yaml_path = out / "strict.yaml";
+    {
+        std::ofstream y(yaml_path);
+        y << "input_suffix: \"_i,_pi,_ni\"\n"
+          << "output_suffix: \"_o,_po,_no\"\n"
+          << "input_prefix: \"\"\n"
+          << "output_prefix: \"\"\n"
+          << "instance_prefix: \"u_\"\n"
+          << "max_line_length: 80\n"
+          << "prohibit_hard_tabs: true\n"
+          << "prohibit_trailing_whitespace: true\n";
+    }
+
+    connect::ConnCliOptions opts;
+    opts.topModule = "unreachable_top";  // clean module; sibling is dirty
+    opts.format = "json";
+    opts.outputDir = (out / "report").string();
+    opts.checkConvention = true;
+    opts.conventionFile = yaml_path.string();
+
+    connect::runConnWithCompilation(*result.compilation, opts);
+    REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
+    std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
+    std::string body((std::istreambuf_iterator<char>(ifs)),
+                     std::istreambuf_iterator<char>());
+
+    // The sibling's violations MUST appear because the file containing
+    // `unreachable_top` is admitted in full (file-level scope).  If
+    // these checks ever change to be module-level, this test fails --
+    // surfacing the contract change at test time.
+    CHECK(body.find("hard tab character") != std::string::npos);
+    CHECK(body.find("line length") != std::string::npos);
+    CHECK(body.find("trailing whitespace") != std::string::npos);
+}
+
 TEST_CASE("ConnRunner: clean source-text fixture emits zero text observations",
           "[conn][runner][source_text][clean]") {
     // Round 39 review (R2 #3): pair the violation fixture with a clean

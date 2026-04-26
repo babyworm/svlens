@@ -22,6 +22,19 @@ namespace connect {
 /// walks it line-by-line, then walks the syntax trees for module
 /// declaration counts.  Observations are appended into the provided
 /// ConnectionGraph.
+///
+/// Scope semantics (Codex Round 2 cross-review):
+///   Source-text rules apply at FILE granularity: when @p topModule is
+///   set, files containing AT LEAST ONE reachable module are scanned in
+///   full; sibling modules in the same file are NOT exempt.  This is
+///   intentional -- physical-line rules like LineTooLong cannot be
+///   cleanly attributed to a single module declaration because a single
+///   line could span declarations (e.g. an `endmodule` on the same line
+///   as the next `module`, or a comment-only line outside any module).
+///   To exempt sibling code from these checks, place it in a separate
+///   file.  Splitting buffers by per-module syntax extents would be
+///   high-effort and fragile, while the natural file boundary already
+///   matches user expectation that `topModule` selects a unit-of-build.
 class SourceTextScanner {
 public:
     /// Codex cross-review: scope source-text scanning to files that
@@ -35,6 +48,11 @@ public:
     /// and FileNameMismatch observations into @p graph_out.styleObservations.
     ///
     /// Only checks that are enabled in @p rules are performed.
+    ///
+    /// File-level scope: see the class doc-comment above.  A file that
+    /// contains the requested top (or any of its instantiation children)
+    /// is scanned in full, including sibling modules that are not
+    /// themselves reachable.
     static void scan(const slang::ast::Compilation& compilation,
                      const std::string& topModule,
                      const ConventionRules& rules,

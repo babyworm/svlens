@@ -215,4 +215,11 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
     CHECK(ts_bad.find("'byte'") != std::string::npos);
     auto ts_good = run_top("modern_always_good");
     CHECK(ts_good.find("2-state/non-logic type") == std::string::npos);
+
+    // Round 38 US-38F: always_ff registered-output `_q` suffix.
+    auto fq_bad = run_top("ff_q_suffix_bad");
+    CHECK(fq_bad.find("'data_value' lacks `_q`") != std::string::npos);
+    CHECK(fq_bad.find("'state' lacks `_q`") != std::string::npos);
+    auto fq_good = run_top("ff_q_suffix_good");
+    CHECK(fq_good.find("lacks `_q`") == std::string::npos);
 }

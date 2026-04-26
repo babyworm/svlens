@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <functional>
 
 namespace connect {
 
@@ -711,6 +712,107 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
         obs.detail = "legacy `always` block (use `always_ff` for "
                      "sequential or `always_comb` for combinational)";
         graph_.styleObservations.push_back(std::move(obs));
+    }
+    // Round 38 US-38F: lowRISC requires registered outputs (LHS of
+    // non-blocking assignments inside always_ff) to end with `_q`
+    // (single-stage) or `_q<digits>` (pipeline stages, e.g. `_q2`).
+    // Walk the body's assignments only when this is an always_ff
+    // block; comb / legacy always blocks have their own conventions.
+    if (block.procedureKind == slang::ast::ProceduralBlockKind::AlwaysFF) {
+        std::function<void(const slang::ast::Statement&)> walk =
+            [&](const slang::ast::Statement& s) {
+                using SK = slang::ast::StatementKind;
+                switch (s.kind) {
+                    case SK::ExpressionStatement: {
+                        auto& es = s.as<slang::ast::ExpressionStatement>();
+                        if (es.expr.kind != slang::ast::ExpressionKind::Assignment)
+                            return;
+                        auto& a = es.expr.as<slang::ast::AssignmentExpression>();
+                        if (!a.isNonBlocking())
+                            return;
+                        // Resolve LHS to a leaf name.
+                        auto resolved = resolveExpr(&a.left());
+                        if (resolved.netNames.empty())
+                            return;
+                        std::string lhs_name = resolved.netNames.front();
+                        // Strip any [bit:select] / [range] for the
+                        // suffix check.
+                        size_t br = lhs_name.find('[');
+                        std::string base = (br != std::string::npos)
+                            ? lhs_name.substr(0, br)
+                            : lhs_name;
+                        // Get leaf (after final dot).
+                        size_t dot = base.rfind('.');
+                        std::string leaf = (dot != std::string::npos)
+                            ? base.substr(dot + 1) : base;
+                        // Match `_q` or `_q<digits>` at end.
+                        bool ok = false;
+                        if (leaf.size() >= 2) {
+                            size_t pos = leaf.rfind("_q");
+                            if (pos != std::string::npos && pos + 2 <= leaf.size()) {
+                                bool tail_ok = true;
+                                for (size_t i = pos + 2; i < leaf.size(); ++i) {
+                                    if (!std::isdigit(static_cast<unsigned char>(leaf[i]))) {
+                                        tail_ok = false; break;
+                                    }
+                                }
+                                if (tail_ok && pos + 2 == leaf.size())
+                                    ok = true;       // ends `_q`
+                                else if (tail_ok)
+                                    ok = (pos + 2 < leaf.size()); // `_q2`, etc.
+                            }
+                        }
+                        // Suppress noise for compiler-generated temps
+                        // (slang prepends some such; treat empty leaf
+                        // as already-bad and skip silently).
+                        if (!ok && !leaf.empty()) {
+                            StyleObservation obs;
+                            obs.kind = StyleObservation::Kind::LegacyAlwaysBlock;
+                            obs.scopePath = scopePath;
+                            obs.name = leaf;
+                            obs.location = a.left().sourceRange.start();
+                            obs.detail = fmt::format(
+                                "always_ff non-blocking LHS '{}' lacks `_q` "
+                                "(or `_q<n>`) suffix (lowRISC registered-output "
+                                "convention)",
+                                leaf);
+                            graph_.styleObservations.push_back(std::move(obs));
+                        }
+                        return;
+                    }
+                    case SK::Block: {
+                        auto& b = s.as<slang::ast::BlockStatement>();
+                        walk(b.body);
+                        return;
+                    }
+                    case SK::List: {
+                        auto& l = s.as<slang::ast::StatementList>();
+                        for (auto* c : l.list) if (c) walk(*c);
+                        return;
+                    }
+                    case SK::Conditional: {
+                        auto& c = s.as<slang::ast::ConditionalStatement>();
+                        walk(c.ifTrue);
+                        if (c.ifFalse) walk(*c.ifFalse);
+                        return;
+                    }
+                    case SK::Timed: {
+                        auto& t = s.as<slang::ast::TimedStatement>();
+                        walk(t.stmt);
+                        return;
+                    }
+                    case SK::Case: {
+                        auto& cs = s.as<slang::ast::CaseStatement>();
+                        for (const auto& g : cs.items)
+                            if (g.stmt) walk(*g.stmt);
+                        if (cs.defaultCase) walk(*cs.defaultCase);
+                        return;
+                    }
+                    default:
+                        return;
+                }
+            };
+        walk(block.getBody());
     }
     processProceduralStatement(block.getBody(), scopePath);
 }

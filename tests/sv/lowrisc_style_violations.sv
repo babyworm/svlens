@@ -79,9 +79,9 @@ module clocks_good (
     input clk_dram_i,
     input rst_ni
 );
-    logic q;
+    logic enable_q;
     always_ff @(posedge clk_i or negedge rst_ni)
-        if (!rst_ni) q <= 1'b0; else q <= 1'b1;
+        if (!rst_ni) enable_q <= 1'b0; else enable_q <= 1'b1;
 endmodule
 
 // ─── Category 3: reset signals (GOOD) ─────────────────────────────
@@ -90,9 +90,9 @@ module resets_good (
     input rst_ni,
     input rst_domain_ni
 );
-    logic q;
+    logic active_q;
     always_ff @(posedge clk_i or negedge rst_ni)
-        if (!rst_ni) q <= 1'b0; else q <= 1'b1;
+        if (!rst_ni) active_q <= 1'b0; else active_q <= 1'b1;
 endmodule
 
 // ─── Category 6: instance naming (GOOD) ───────────────────────────
@@ -285,4 +285,58 @@ module two_state_bad (
         sample_q  <= 8'h00;
     end
     assign data_o = buf_q[0];
+endmodule
+
+// ─── always_ff registered-output q-suffix (BAD) ──────────────────
+// lowRISC: always_ff non-blocking LHS must end with `_q` (or `_q<n>`
+// for pipeline stages). Names like `state`/`data`/`reg_value` violate.
+module ff_q_suffix_bad (
+    input        clk_i,
+    input        rst_ni,
+    input  [7:0] data_i,
+    output [7:0] data_o,
+    output       state_o
+);
+    logic [7:0] data_value;   // BAD: missing _q
+    logic       state;        // BAD: missing _q
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            data_value <= '0;
+            state      <= 1'b0;
+        end else begin
+            data_value <= data_i;
+            state      <= 1'b1;
+        end
+    end
+    assign data_o  = data_value;
+    assign state_o = state;
+endmodule
+
+// ─── always_ff with proper _q (GOOD) ─────────────────────────────
+// data_q (single stage), valid_q / valid_q2 / valid_q3 (pipeline)
+module ff_q_suffix_good (
+    input        clk_i,
+    input        rst_ni,
+    input  [7:0] data_i,
+    input        valid_i,
+    output [7:0] data_o,
+    output       valid_q3_o
+);
+    logic [7:0] data_q;
+    logic       valid_q, valid_q2, valid_q3;
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            data_q   <= '0;
+            valid_q  <= 1'b0;
+            valid_q2 <= 1'b0;
+            valid_q3 <= 1'b0;
+        end else begin
+            data_q   <= data_i;
+            valid_q  <= valid_i;
+            valid_q2 <= valid_q;
+            valid_q3 <= valid_q2;
+        end
+    end
+    assign data_o     = data_q;
+    assign valid_q3_o = valid_q3;
 endmodule

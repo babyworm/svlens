@@ -31,8 +31,7 @@ static constexpr int kAncestorWalkDepth = 64;
 static bool isInSkippedContext(const slang::syntax::SyntaxNode& node) {
     using slang::syntax::SyntaxKind;
     const slang::syntax::SyntaxNode* cur = node.parent;
-    for (int depth = 0; depth < kAncestorWalkDepth && cur;
-         ++depth, cur = cur->parent) {
+    for (int depth = 0; depth < kAncestorWalkDepth && cur; ++depth, cur = cur->parent) {
         switch (cur->kind) {
             case SyntaxKind::ForVariableDeclaration:
             case SyntaxKind::ParameterDeclaration:
@@ -81,8 +80,7 @@ static bool isInSkippedContext(const slang::syntax::SyntaxNode& node) {
 static bool isInRtlContext(const slang::syntax::SyntaxNode& node) {
     using slang::syntax::SyntaxKind;
     const slang::syntax::SyntaxNode* cur = node.parent;
-    for (int depth = 0; depth < kAncestorWalkDepth && cur;
-         ++depth, cur = cur->parent) {
+    for (int depth = 0; depth < kAncestorWalkDepth && cur; ++depth, cur = cur->parent) {
         switch (cur->kind) {
             case SyntaxKind::ContinuousAssign:
                 return true;

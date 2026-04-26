@@ -29,9 +29,7 @@ std::optional<std::string> getString(const YAML::Node& node, const char* key) {
 // silently disabling later valid keys depending on user key order.
 // This helper catches conversion errors per-field so a typo in one
 // field no longer skips later valid ones.
-template <typename T>
-void tryAssign(const YAML::Node& node, const char* key, T& dst,
-               const std::string& yamlPath) {
+template <typename T> void tryAssign(const YAML::Node& node, const char* key, T& dst, const std::string& yamlPath) {
     if (!node[key])
         return;
     try {
@@ -56,9 +54,7 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
     try {
         root = YAML::LoadFile(yamlPath);
     } catch (const YAML::Exception& e) {
-        throw std::runtime_error(fmt::format(
-            "invalid convention file '{}': YAML parse error: {}",
-            yamlPath, e.what()));
+        throw std::runtime_error(fmt::format("invalid convention file '{}': YAML parse error: {}", yamlPath, e.what()));
     }
     if (!root || !root.IsMap()) {
         throw std::runtime_error(fmt::format(
@@ -85,8 +81,9 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
     else if (auto value = getString(root, "inputPrefix"); value)
         rules.inputPrefix = *value;
     else if (root["input"] && root["input"]["prefix"]) {
-        try { rules.inputPrefix = root["input"]["prefix"].as<std::string>(); }
-        catch (const YAML::Exception&) {}
+        try {
+            rules.inputPrefix = root["input"]["prefix"].as<std::string>();
+        } catch (const YAML::Exception&) {}
     }
 
     if (auto value = getString(root, "output_prefix"); value)
@@ -94,8 +91,9 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
     else if (auto value = getString(root, "outputPrefix"); value)
         rules.outputPrefix = *value;
     else if (root["output"] && root["output"]["prefix"]) {
-        try { rules.outputPrefix = root["output"]["prefix"].as<std::string>(); }
-        catch (const YAML::Exception&) {}
+        try {
+            rules.outputPrefix = root["output"]["prefix"].as<std::string>();
+        } catch (const YAML::Exception&) {}
     }
 
     if (auto value = getString(root, "instance_prefix"); value)
@@ -103,8 +101,9 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
     else if (auto value = getString(root, "instancePrefix"); value)
         rules.instancePrefix = *value;
     else if (root["instance"] && root["instance"]["prefix"]) {
-        try { rules.instancePrefix = root["instance"]["prefix"].as<std::string>(); }
-        catch (const YAML::Exception&) {}
+        try {
+            rules.instancePrefix = root["instance"]["prefix"].as<std::string>();
+        } catch (const YAML::Exception&) {}
     }
 
     // Round 36 lowRISC-style fields. All optional; missing keys leave
@@ -153,20 +152,16 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
         rules.regOutputSuffix = *value;
     if (auto value = getString(root, "comb_input_suffix"); value)
         rules.combInputSuffix = *value;
-    tryAssign(root, "reject_digit_only_suffix",
-              rules.rejectDigitOnlySuffix, yamlPath);
+    tryAssign(root, "reject_digit_only_suffix", rules.rejectDigitOnlySuffix, yamlPath);
 
     // US-39E source-text style checks.
     tryAssign(root, "max_line_length", rules.maxLineLength, yamlPath);
     tryAssign(root, "prohibit_hard_tabs", rules.prohibitHardTabs, yamlPath);
-    tryAssign(root, "prohibit_trailing_whitespace",
-              rules.prohibitTrailingWhitespace, yamlPath);
+    tryAssign(root, "prohibit_trailing_whitespace", rules.prohibitTrailingWhitespace, yamlPath);
 
     // US-39F file/module naming checks.
-    tryAssign(root, "prohibit_multiple_modules_per_file",
-              rules.prohibitMultipleModulesPerFile, yamlPath);
-    tryAssign(root, "enforce_file_module_match",
-              rules.enforceFileModuleMatch, yamlPath);
+    tryAssign(root, "prohibit_multiple_modules_per_file", rules.prohibitMultipleModulesPerFile, yamlPath);
+    tryAssign(root, "enforce_file_module_match", rules.enforceFileModuleMatch, yamlPath);
 
     return rules;
 }
@@ -200,8 +195,7 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
         try {
             // group containing a `|` AND a `+`/`*`, followed by
             // an outer `+`/`*` quantifier on the group itself.
-            static const std::regex altQuant(
-                R"(\([^)]*\|[^)]*[+*][^)]*\)\s*[+*])");
+            static const std::regex altQuant(R"(\([^)]*\|[^)]*[+*][^)]*\)\s*[+*])");
             if (std::regex_search(p, altQuant))
                 return true;
         } catch (const std::regex_error&) {
@@ -214,7 +208,8 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
         int run = 0;
         for (char c : p) {
             if (c == '+' || c == '*') {
-                if (++run >= 3) return true;
+                if (++run >= 3)
+                    return true;
             } else {
                 run = 0;
             }
@@ -222,10 +217,8 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
         return false;
     };
 
-    auto tryCompileCached =
-        [&issues, &looksLikeRedos](const std::string& pattern,
-                                    const char* label,
-                                    CachedRegex& cache) -> const std::regex* {
+    auto tryCompileCached = [&issues, &looksLikeRedos](const std::string& pattern, const char* label,
+                                                       CachedRegex& cache) -> const std::regex* {
         if (pattern.empty())
             return nullptr;
         if (cache.attempted)
@@ -235,10 +228,9 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
             Issue issue;
             issue.type = Issue::Type::CONVENTION;
             issue.severity = Issue::Severity::INFO;
-            issue.detail = fmt::format(
-                "convention rule '{}' rejected (length {} or "
-                "nested-quantifier ReDoS signature) -- skipping",
-                label, pattern.size());
+            issue.detail = fmt::format("convention rule '{}' rejected (length {} or "
+                                       "nested-quantifier ReDoS signature) -- skipping",
+                                       label, pattern.size());
             issues.push_back(std::move(issue));
             return nullptr;
         }
@@ -257,10 +249,8 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
         }
     };
 
-    const std::regex* clockRe =
-        tryCompileCached(rules_.clockPattern, "clock_pattern", cachedClock_);
-    const std::regex* resetRe =
-        tryCompileCached(rules_.resetPattern, "reset_pattern", cachedReset_);
+    const std::regex* clockRe = tryCompileCached(rules_.clockPattern, "clock_pattern", cachedClock_);
+    const std::regex* resetRe = tryCompileCached(rules_.resetPattern, "reset_pattern", cachedReset_);
 
     // Check port naming conventions
     for (auto& port : graph.allPorts) {
@@ -470,8 +460,7 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
     // Round 38 US-38D: parameter case pattern check. Uses the same
     // tryCompileCached guard added at the top of this function for
     // malformed patterns.
-    const std::regex* paramRe = tryCompileCached(
-        rules_.parameterCasePattern, "parameter_case_pattern", cachedParam_);
+    const std::regex* paramRe = tryCompileCached(rules_.parameterCasePattern, "parameter_case_pattern", cachedParam_);
     if (paramRe) {
         for (const auto& cap : graph.parameters) {
             if (cap.name.empty()) continue;
@@ -494,8 +483,8 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
     }
 
     // Round 38 US-38E: typedef suffix pattern check.
-    const std::regex* typedefRe = tryCompileCached(
-        rules_.typedefSuffixPattern, "typedef_suffix_pattern", cachedTypedef_);
+    const std::regex* typedefRe =
+        tryCompileCached(rules_.typedefSuffixPattern, "typedef_suffix_pattern", cachedTypedef_);
     if (typedefRe) {
         for (const auto& cap : graph.typedefs) {
             if (cap.name.empty()) continue;

@@ -123,8 +123,8 @@ TEST_CASE("ConventionChecker: malformed scalar values do not crash") {
         std::ofstream ofs(yamlPath);
         REQUIRE(ofs.good());
         ofs << "input_prefix: in_\n";
-        ofs << "max_line_length: not_an_integer\n";  // bad int scalar
-        ofs << "prohibit_hard_tabs: maybe\n";        // bad bool scalar
+        ofs << "max_line_length: not_an_integer\n"; // bad int scalar
+        ofs << "prohibit_hard_tabs: maybe\n";       // bad bool scalar
     }
 
     // Must not throw / crash.
@@ -134,8 +134,8 @@ TEST_CASE("ConventionChecker: malformed scalar values do not crash") {
     // Whatever parsed before the bad scalar should survive; the bad
     // scalars themselves keep their default values.
     CHECK(rules.inputPrefix == "in_");
-    CHECK(rules.maxLineLength == 0);          // default
-    CHECK(rules.prohibitHardTabs == false);   // default
+    CHECK(rules.maxLineLength == 0);        // default
+    CHECK(rules.prohibitHardTabs == false); // default
 
     std::remove(yamlPath);
 }
@@ -156,8 +156,8 @@ TEST_CASE("ConventionChecker: malformed string field keeps default and does not 
         // A sequence like [bad] is silently stringified by yaml-cpp so we
         // use a nested map to reliably trigger a conversion error.
         ofs << "clock_pattern:\n";
-        ofs << "  nested_key: nested_val\n";   // map where scalar expected
-        ofs << "output_prefix: out_\n";         // valid string after bad one
+        ofs << "  nested_key: nested_val\n"; // map where scalar expected
+        ofs << "output_prefix: out_\n";      // valid string after bad one
     }
 
     ConventionRules rules;
@@ -186,7 +186,7 @@ TEST_CASE("ConventionChecker: malformed nested prefix field keeps default and do
         // A mapping node causes YAML::BadConversion on .as<std::string>().
         ofs << "instance:\n";
         ofs << "  prefix:\n";
-        ofs << "    nested_key: nested_val\n";  // map where scalar expected
+        ofs << "    nested_key: nested_val\n"; // map where scalar expected
         ofs << "output_prefix: out_\n";
     }
 
@@ -198,7 +198,7 @@ TEST_CASE("ConventionChecker: malformed nested prefix field keeps default and do
     // Bad conversion: instancePrefix keeps its struct default ("u_"), not overwritten.
     ConventionRules defaultRules;
     CHECK(rules.instancePrefix == defaultRules.instancePrefix);
-    CHECK(rules.outputPrefix == "out_");  // field after bad nested must apply
+    CHECK(rules.outputPrefix == "out_"); // field after bad nested must apply
 
     std::remove(yamlPath);
 }
@@ -217,8 +217,8 @@ TEST_CASE("ConventionChecker: bad scalar does not skip later valid keys") {
         // old behavior the entire block would abort on the first bad
         // value and rules.prohibitHardTabs would remain false.  With
         // per-field extraction the valid keys still apply.
-        ofs << "max_line_length: nope\n";          // bad int scalar
-        ofs << "prohibit_hard_tabs: true\n";       // valid bool
+        ofs << "max_line_length: nope\n";              // bad int scalar
+        ofs << "prohibit_hard_tabs: true\n";           // valid bool
         ofs << "prohibit_trailing_whitespace: true\n"; // valid bool
         ofs << "enforce_file_module_match: true\n";    // valid bool
     }

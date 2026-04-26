@@ -44,10 +44,8 @@ collectModuleDeclarations(const slang::syntax::SyntaxNode& root) {
 // reachable from `topModule` via instantiation. Mirrors the BFS in
 // StyleSyntaxScanner so that source-text rules honor the requested
 // top and ignore unrelated files in a filelist.
-static std::unordered_set<std::string> collectReachableModules(
-    const slang::ast::Compilation& compilation,
-    const std::string& topModule)
-{
+static std::unordered_set<std::string> collectReachableModules(const slang::ast::Compilation& compilation,
+                                                               const std::string& topModule) {
     using namespace slang::syntax;
     std::unordered_set<std::string> reachable;
     if (topModule.empty())
@@ -55,7 +53,8 @@ static std::unordered_set<std::string> collectReachableModules(
 
     std::unordered_map<std::string, const ModuleDeclarationSyntax*> defMap;
     for (const auto& tree : compilation.getSyntaxTrees()) {
-        if (!tree) continue;
+        if (!tree)
+            continue;
         AllSyntaxVisitor finder([&](const SyntaxNode& n) {
             if (n.kind == SyntaxKind::ModuleDeclaration) {
                 const auto& mod = static_cast<const ModuleDeclarationSyntax&>(n);
@@ -80,8 +79,7 @@ static std::unordered_set<std::string> collectReachableModules(
 
         AllSyntaxVisitor childFinder([&](const SyntaxNode& n) {
             if (n.kind == SyntaxKind::HierarchyInstantiation) {
-                const auto& hi =
-                    static_cast<const HierarchyInstantiationSyntax&>(n);
+                const auto& hi = static_cast<const HierarchyInstantiationSyntax&>(n);
                 std::string childType(hi.type.valueText());
                 if (!reachable.count(childType))
                     worklist.push_back(childType);
@@ -147,8 +145,7 @@ static void scanSourceText(const std::string& filePath,
         // configured limits already short-circuit via checkLen.
         if (checkLen) {
             size_t lineLen = lineContent.size();
-            size_t maxLen = static_cast<size_t>(
-                std::max(0, rules.maxLineLength));
+            size_t maxLen = static_cast<size_t>(std::max(0, rules.maxLineLength));
             if (lineLen > maxLen) {
                 emitObs(StyleObservation::Kind::LineTooLong,
                         fmt::format("{}:{}: line length {} exceeds max {} chars",
@@ -189,10 +186,8 @@ static void scanSourceText(const std::string& filePath,
 
 } // namespace
 
-void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
-                              const std::string& topModule,
-                              const ConventionRules& rules,
-                              ConnectionGraph& graph_out) {
+void SourceTextScanner::scan(const slang::ast::Compilation& compilation, const std::string& topModule,
+                             const ConventionRules& rules, ConnectionGraph& graph_out) {
     const bool needTextScans =
         (rules.maxLineLength > 0) ||
         rules.prohibitHardTabs ||
@@ -301,8 +296,7 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
                 // Anchor at the second module's declaration line so
                 // downstream tooling can jump to the offending decl.
                 if (modules.size() > 1)
-                    obs.lineNumber =
-                        static_cast<uint32_t>(sm.getLineNumber(modules[1].second));
+                    obs.lineNumber = static_cast<uint32_t>(sm.getLineNumber(modules[1].second));
                 graph_out.styleObservations.push_back(std::move(obs));
             }
 
@@ -319,8 +313,7 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
                         "{}: file basename '{}' does not match module name '{}' "
                         "(lowRISC requires file name == module name)",
                         filePath, base, modName);
-                    obs.lineNumber =
-                        static_cast<uint32_t>(sm.getLineNumber(modules[0].second));
+                    obs.lineNumber = static_cast<uint32_t>(sm.getLineNumber(modules[0].second));
                     graph_out.styleObservations.push_back(std::move(obs));
                 }
             }
@@ -328,9 +321,8 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
     }
 }
 
-void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
-                              const ConventionRules& rules,
-                              ConnectionGraph& graph_out) {
+void SourceTextScanner::scan(const slang::ast::Compilation& compilation, const ConventionRules& rules,
+                             ConnectionGraph& graph_out) {
     // Legacy overload: passing an empty topModule disables reachability
     // gating, preserving the original "scan every syntax tree" behavior.
     scan(compilation, /*topModule=*/std::string{}, rules, graph_out);

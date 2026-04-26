@@ -343,12 +343,10 @@ TEST_CASE("ConnRunner: source-text emits FileNameMismatch for mismatched basenam
     // emitted but never asserted on by tests, so any regression that
     // silently disabled it would have gone unnoticed.  Fixture has
     // exactly one module whose name differs from the file basename.
-    auto result =
-        testutils::compileFile("sv/lowrisc_filename_mismatch.sv");
+    auto result = testutils::compileFile("sv/lowrisc_filename_mismatch.sv");
     REQUIRE(result);
 
-    const auto out =
-        fs::temp_directory_path() / "svlens_conn_filename_mismatch";
+    const auto out = fs::temp_directory_path() / "svlens_conn_filename_mismatch";
     fs::remove_all(out);
     fs::create_directories(out);
 
@@ -374,8 +372,7 @@ TEST_CASE("ConnRunner: source-text emits FileNameMismatch for mismatched basenam
     connect::runConnWithCompilation(*result.compilation, opts);
     REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
     std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
-    std::string body((std::istreambuf_iterator<char>(ifs)),
-                     std::istreambuf_iterator<char>());
+    std::string body((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 
     // The detail message format from SourceTextScanner is:
     //   "<path>: file basename '<base>' does not match module name '<mod>' ..."
@@ -400,12 +397,10 @@ TEST_CASE("ConnRunner: source-text reachability suppresses unrelated file",
     auto sib_path = fs::path(TEST_SV_DIR) / "lowrisc_unreachable_sibling.sv";
     REQUIRE(fs::exists(top_path));
     REQUIRE(fs::exists(sib_path));
-    std::vector<std::string> args = {
-        "test", top_path.string(), sib_path.string()};
+    std::vector<std::string> args = {"test", top_path.string(), sib_path.string()};
     REQUIRE(session->compile(args));
 
-    const auto out =
-        fs::temp_directory_path() / "svlens_conn_source_text_unrelated";
+    const auto out = fs::temp_directory_path() / "svlens_conn_source_text_unrelated";
     fs::remove_all(out);
     fs::create_directories(out);
 
@@ -423,7 +418,7 @@ TEST_CASE("ConnRunner: source-text reachability suppresses unrelated file",
     }
 
     connect::ConnCliOptions opts;
-    opts.topModule = "clean_source_text";  // clean fixture is the top
+    opts.topModule = "clean_source_text"; // clean fixture is the top
     opts.format = "json";
     opts.outputDir = (out / "report").string();
     opts.checkConvention = true;
@@ -432,8 +427,7 @@ TEST_CASE("ConnRunner: source-text reachability suppresses unrelated file",
     connect::runConnWithCompilation(session->compilation(), opts);
     REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
     std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
-    std::string body((std::istreambuf_iterator<char>(ifs)),
-                     std::istreambuf_iterator<char>());
+    std::string body((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 
     // The unrelated_sibling fixture has hard tab, long line, and
     // trailing whitespace.  None of these must appear because the
@@ -463,8 +457,7 @@ TEST_CASE("ConnRunner: source-text scope is file-level (sibling violations inclu
     auto result = testutils::compileFile("sv/lowrisc_unreachable_sibling.sv");
     REQUIRE(result);
 
-    const auto out =
-        fs::temp_directory_path() / "svlens_conn_source_text_sibling";
+    const auto out = fs::temp_directory_path() / "svlens_conn_source_text_sibling";
     fs::remove_all(out);
     fs::create_directories(out);
 
@@ -482,7 +475,7 @@ TEST_CASE("ConnRunner: source-text scope is file-level (sibling violations inclu
     }
 
     connect::ConnCliOptions opts;
-    opts.topModule = "unreachable_top";  // clean module; sibling is dirty
+    opts.topModule = "unreachable_top"; // clean module; sibling is dirty
     opts.format = "json";
     opts.outputDir = (out / "report").string();
     opts.checkConvention = true;
@@ -491,8 +484,7 @@ TEST_CASE("ConnRunner: source-text scope is file-level (sibling violations inclu
     connect::runConnWithCompilation(*result.compilation, opts);
     REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
     std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
-    std::string body((std::istreambuf_iterator<char>(ifs)),
-                     std::istreambuf_iterator<char>());
+    std::string body((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 
     // The sibling's violations MUST appear because the file containing
     // `unreachable_top` is admitted in full (file-level scope).  If
@@ -503,8 +495,7 @@ TEST_CASE("ConnRunner: source-text scope is file-level (sibling violations inclu
     CHECK(body.find("trailing whitespace") != std::string::npos);
 }
 
-TEST_CASE("ConnRunner: clean source-text fixture emits zero text observations",
-          "[conn][runner][source_text][clean]") {
+TEST_CASE("ConnRunner: clean source-text fixture emits zero text observations", "[conn][runner][source_text][clean]") {
     // Round 39 review (R2 #3): pair the violation fixture with a clean
     // counterpart so a regression that turns checks into false-positive
     // generators surfaces immediately.  clean_source_text.sv is fully
@@ -513,8 +504,7 @@ TEST_CASE("ConnRunner: clean source-text fixture emits zero text observations",
     auto result = testutils::compileFile("sv/clean_source_text.sv");
     REQUIRE(result);
 
-    const auto out =
-        fs::temp_directory_path() / "svlens_conn_source_text_clean";
+    const auto out = fs::temp_directory_path() / "svlens_conn_source_text_clean";
     fs::remove_all(out);
     fs::create_directories(out);
 
@@ -543,8 +533,7 @@ TEST_CASE("ConnRunner: clean source-text fixture emits zero text observations",
     connect::runConnWithCompilation(*result.compilation, opts);
     REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
     std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
-    std::string body((std::istreambuf_iterator<char>(ifs)),
-                     std::istreambuf_iterator<char>());
+    std::string body((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 
     // None of the source-text rules should fire.
     CHECK(body.find("line length") == std::string::npos);

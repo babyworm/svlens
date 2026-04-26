@@ -40,27 +40,27 @@ struct Connection {
 // style INFO entries without re-walking the slang AST.
 struct StyleObservation {
     enum class Kind {
-        LegacyAlwaysBlock,         // `always @*` instead of always_ff/always_comb
-        AnonymousEnum,             // `enum { A, B } sig;` without typedef
-        UnnamedGenerateBlock,      // `if (...) begin ... end` without `: name`
-        ParameterNameViolation,    // parameter not in expected case
-        TypedefSuffixViolation,    // typedef without `_t` / `_e` suffix
-        ResetPolarityBad,          // comma-syntax or active-high reset in always_ff
-        MissingDSuffix,            // _q-registered signal has no matching _d combinational driver
-        WildcardPortConnection,    // instance uses `.*` instead of named .port(signal) connections
-        BareIntegerLiteral,        // integer literal without explicit width (e.g. bare `2` vs `8'd2`)
+        LegacyAlwaysBlock,      // `always @*` instead of always_ff/always_comb
+        AnonymousEnum,          // `enum { A, B } sig;` without typedef
+        UnnamedGenerateBlock,   // `if (...) begin ... end` without `: name`
+        ParameterNameViolation, // parameter not in expected case
+        TypedefSuffixViolation, // typedef without `_t` / `_e` suffix
+        ResetPolarityBad,       // comma-syntax or active-high reset in always_ff
+        MissingDSuffix,         // _q-registered signal has no matching _d combinational driver
+        WildcardPortConnection, // instance uses `.*` instead of named .port(signal) connections
+        BareIntegerLiteral,     // integer literal without explicit width (e.g. bare `2` vs `8'd2`)
         // Round 39 review: split rules previously overloaded onto LegacyAlwaysBlock
-        MissingQSuffix,            // always_ff non-blocking LHS lacks `_q`/`_q<n>` suffix
-        BannedStateType,           // RTL variable declared with bit/int/byte/... (lowRISC requires logic)
-        MissingCaseDefault,        // case statement without `default:` branch
-        MissingUniqueCase,         // case statement without `unique`/`priority` qualifier
+        MissingQSuffix,     // always_ff non-blocking LHS lacks `_q`/`_q<n>` suffix
+        BannedStateType,    // RTL variable declared with bit/int/byte/... (lowRISC requires logic)
+        MissingCaseDefault, // case statement without `default:` branch
+        MissingUniqueCase,  // case statement without `unique`/`priority` qualifier
         // US-39E source-text checks
-        LineTooLong,               // source line exceeds max_line_length chars
-        HardTab,                   // source line contains a hard tab character
-        TrailingWhitespace,        // source line has trailing whitespace before newline
+        LineTooLong,        // source line exceeds max_line_length chars
+        HardTab,            // source line contains a hard tab character
+        TrailingWhitespace, // source line has trailing whitespace before newline
         // US-39F file-module naming checks
-        MultipleModulesPerFile,    // .sv file declares more than one module
-        FileNameMismatch,          // .sv basename does not match the single module name
+        MultipleModulesPerFile, // .sv file declares more than one module
+        FileNameMismatch,       // .sv basename does not match the single module name
     };
     Kind kind;
     std::string scopePath;   // hierarchical path of the enclosing module

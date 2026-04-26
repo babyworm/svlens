@@ -53,10 +53,8 @@ public:
     /// contains the requested top (or any of its instantiation children)
     /// is scanned in full, including sibling modules that are not
     /// themselves reachable.
-    static void scan(const slang::ast::Compilation& compilation,
-                     const std::string& topModule,
-                     const ConventionRules& rules,
-                     ConnectionGraph& graph_out);
+    static void scan(const slang::ast::Compilation& compilation, const std::string& topModule,
+                     const ConventionRules& rules, ConnectionGraph& graph_out);
 
     /// Legacy "scan everything" overload kept for callers that do not
     /// have a top module name; equivalent to passing an empty topModule

@@ -184,20 +184,16 @@ int connect::runConnWithCompilation(slang::ast::Compilation& compilation,
     // report generation.
     if (opts.checkConvention) {
         try {
-            auto textRules = opts.conventionFile.empty()
-                ? connect::ConventionRules{}
-                : connect::loadConventionRules(opts.conventionFile);
+            auto textRules = opts.conventionFile.empty() ? connect::ConventionRules{}
+                                                         : connect::loadConventionRules(opts.conventionFile);
             // Codex cross-review: scope source-text scanning to files
             // that participate in the requested top so a filelist with
             // unrelated vendor IP / alternate tops does not produce
             // INFOs (and inflate the issue exit code) for files outside
             // the analysis.
-            connect::SourceTextScanner::scan(
-                compilation, opts.topModule, textRules, graph);
+            connect::SourceTextScanner::scan(compilation, opts.topModule, textRules, graph);
         } catch (const std::exception& e) {
-            fmt::print(stderr,
-                       "Warning: source-text convention scan skipped: {}\n",
-                       e.what());
+            fmt::print(stderr, "Warning: source-text convention scan skipped: {}\n", e.what());
         }
     }
 

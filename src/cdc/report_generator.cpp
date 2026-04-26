@@ -464,13 +464,29 @@ bool ReportGenerator::generateSVA(const std::filesystem::path& output_path,
     for (auto& c : result_.crossings) {
         std::string id_safe = svaSanitize(c.id);
         if (id_emitted.count(id_safe) > 0) {
+            // Bounded retry: at most crossings.size() + 8 attempts. The
+            // upper bound is provably sufficient because no more than
+            // (crossings.size() - 1) prior emissions exist when this
+            // collision fires; the +8 slack absorbs literal _dup<n>
+            // user ids interleaved with synthetic ones. If we still
+            // cannot find a unique name (pathological input), fall
+            // back to a per-instance suffix that includes the index
+            // in result.crossings so each call gets a distinct name.
+            const size_t cap = result_.crossings.size() + 8;
             int n = 1;
             std::string candidate;
             do {
                 ++n;
                 candidate = id_safe + "_dup" + std::to_string(n);
-            } while (id_emitted.count(candidate) > 0);
-            id_safe = candidate;
+            } while (id_emitted.count(candidate) > 0 &&
+                     static_cast<size_t>(n) < cap);
+            if (id_emitted.count(candidate) > 0) {
+                // Final fallback: use the address of the crossing
+                // record (stable per call) for guaranteed uniqueness.
+                candidate = id_safe + "_dup_addr_" +
+                            std::to_string(reinterpret_cast<uintptr_t>(&c));
+            }
+            id_safe = std::move(candidate);
         }
         id_emitted.insert(id_safe);
         const char* category = categoryToString(c.category);

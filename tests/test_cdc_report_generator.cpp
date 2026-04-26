@@ -338,6 +338,10 @@ TEST_CASE("CDC ReportGenerator: SVA emitter deduplicates colliding property name
     // The total number of `property cdc_` declarations should equal
     // the number of crossings (2) — none silently dropped.
     CHECK(count_substr(content, "property cdc_") == 2);
+    // Round 33 WARN-2: pin the suffix-starts-at-2 contract so a
+    // future change to the do-while index doesn't silently drift.
+    CHECK(content.find("property cdc_VIOLATION_1_dup2_src_toggle;") !=
+          std::string::npos);
 }
 
 TEST_CASE("CDC ReportGenerator: SVA emitter signals failure on unwritable path",

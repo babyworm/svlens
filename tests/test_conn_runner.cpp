@@ -1,10 +1,14 @@
 #include <catch2/catch_test_macros.hpp>
+#include "CompilationSession.h"
 #include "ConnRunner.h"
 #include "TestUtils.h"
 
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
+#include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -380,6 +384,64 @@ TEST_CASE("ConnRunner: source-text emits FileNameMismatch for mismatched basenam
     CHECK(body.find("not_matching_module_name") != std::string::npos);
     // MultipleModulesPerFile must NOT fire (single module).
     CHECK(body.find("modules declared in one file") == std::string::npos);
+}
+
+TEST_CASE("ConnRunner: source-text reachability suppresses unrelated file",
+          "[conn][runner][source_text][reachability][unrelated]") {
+    // Codex cross-review: more direct test for SourceTextScanner
+    // reachability gating.  Compile two files together (the clean top
+    // fixture and the unrelated sibling fixture) and request the
+    // clean top.  The sibling file's violations must NOT appear in
+    // the report because its only module is not reachable from the
+    // requested top.
+    namespace fs = std::filesystem;
+    auto session = std::make_unique<connect::CompilationSession>();
+    auto top_path = fs::path(TEST_SV_DIR) / "clean_source_text.sv";
+    auto sib_path = fs::path(TEST_SV_DIR) / "lowrisc_unreachable_sibling.sv";
+    REQUIRE(fs::exists(top_path));
+    REQUIRE(fs::exists(sib_path));
+    std::vector<std::string> args = {
+        "test", top_path.string(), sib_path.string()};
+    REQUIRE(session->compile(args));
+
+    const auto out =
+        fs::temp_directory_path() / "svlens_conn_source_text_unrelated";
+    fs::remove_all(out);
+    fs::create_directories(out);
+
+    auto yaml_path = out / "strict.yaml";
+    {
+        std::ofstream y(yaml_path);
+        y << "input_suffix: \"_i,_pi,_ni\"\n"
+          << "output_suffix: \"_o,_po,_no\"\n"
+          << "input_prefix: \"\"\n"
+          << "output_prefix: \"\"\n"
+          << "instance_prefix: \"u_\"\n"
+          << "max_line_length: 80\n"
+          << "prohibit_hard_tabs: true\n"
+          << "prohibit_trailing_whitespace: true\n";
+    }
+
+    connect::ConnCliOptions opts;
+    opts.topModule = "clean_source_text";  // clean fixture is the top
+    opts.format = "json";
+    opts.outputDir = (out / "report").string();
+    opts.checkConvention = true;
+    opts.conventionFile = yaml_path.string();
+
+    connect::runConnWithCompilation(session->compilation(), opts);
+    REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
+    std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
+    std::string body((std::istreambuf_iterator<char>(ifs)),
+                     std::istreambuf_iterator<char>());
+
+    // The unrelated_sibling fixture has hard tab, long line, and
+    // trailing whitespace.  None of these must appear because the
+    // sibling file contains no module reachable from
+    // `clean_source_text`.  The path basename "lowrisc_unreachable_sibling"
+    // is stable enough to use as a positive substring check.
+    CHECK(body.find("lowrisc_unreachable_sibling") == std::string::npos);
+    CHECK(body.find("hard tab character") == std::string::npos);
 }
 
 TEST_CASE("ConnRunner: clean source-text fixture emits zero text observations",

@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -37,6 +38,58 @@ collectModuleDeclarations(const slang::syntax::SyntaxNode& root) {
     });
     visitor.visit(root);
     return result;
+}
+
+// Codex cross-review: collect the set of module definition names
+// reachable from `topModule` via instantiation. Mirrors the BFS in
+// StyleSyntaxScanner so that source-text rules honor the requested
+// top and ignore unrelated files in a filelist.
+static std::unordered_set<std::string> collectReachableModules(
+    const slang::ast::Compilation& compilation,
+    const std::string& topModule)
+{
+    using namespace slang::syntax;
+    std::unordered_set<std::string> reachable;
+    if (topModule.empty())
+        return reachable;
+
+    std::unordered_map<std::string, const ModuleDeclarationSyntax*> defMap;
+    for (const auto& tree : compilation.getSyntaxTrees()) {
+        if (!tree) continue;
+        AllSyntaxVisitor finder([&](const SyntaxNode& n) {
+            if (n.kind == SyntaxKind::ModuleDeclaration) {
+                const auto& mod = static_cast<const ModuleDeclarationSyntax&>(n);
+                std::string name(mod.header->name.valueText());
+                defMap.emplace(name, &mod);
+            }
+        });
+        finder.visit(tree->root());
+    }
+
+    std::vector<std::string> worklist{topModule};
+    while (!worklist.empty()) {
+        std::string cur = worklist.back();
+        worklist.pop_back();
+        if (reachable.count(cur))
+            continue;
+        reachable.insert(cur);
+
+        auto it = defMap.find(cur);
+        if (it == defMap.end())
+            continue;
+
+        AllSyntaxVisitor childFinder([&](const SyntaxNode& n) {
+            if (n.kind == SyntaxKind::HierarchyInstantiation) {
+                const auto& hi =
+                    static_cast<const HierarchyInstantiationSyntax&>(n);
+                std::string childType(hi.type.valueText());
+                if (!reachable.count(childType))
+                    worklist.push_back(childType);
+            }
+        });
+        childFinder.visit(*it->second);
+    }
+    return reachable;
 }
 
 // Scan raw source text line-by-line and append style observations.
@@ -137,6 +190,7 @@ static void scanSourceText(const std::string& filePath,
 } // namespace
 
 void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
+                              const std::string& topModule,
                               const ConventionRules& rules,
                               ConnectionGraph& graph_out) {
     const bool needTextScans =
@@ -149,6 +203,14 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
 
     if (!needTextScans && !needFileModuleChecks)
         return;
+
+    // Codex cross-review: build the reachable-module set for the
+    // requested top so files with no participating modules (vendor IP,
+    // alternate tops in a filelist) are skipped.  An empty `topModule`
+    // means the legacy "scan everything" behavior; in that case we
+    // pass `nullptr` to all per-file checks below.
+    auto reachable = collectReachableModules(compilation, topModule);
+    const bool gateByReachability = !topModule.empty();
 
     // Track already-scanned buffers so we don't double-report when
     // the same file appears in multiple syntax trees (rare but possible
@@ -172,6 +234,27 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
             continue;
         scannedBuffers.insert(rawId);
 
+        // Collect this file's module declarations once; reused for
+        // both reachability gating and file-naming checks.
+        auto modules = collectModuleDeclarations(root);
+
+        // Codex cross-review: skip the entire file if no module in it
+        // participates in the topModule analysis.  Files with zero
+        // module declarations (pure header includes) are also skipped
+        // when reachability gating is on, because they cannot be a
+        // meaningful child of the requested top.
+        if (gateByReachability) {
+            bool anyReachable = false;
+            for (const auto& [name, _loc] : modules) {
+                if (reachable.count(name)) {
+                    anyReachable = true;
+                    break;
+                }
+            }
+            if (!anyReachable)
+                continue;
+        }
+
         // Resolve human-readable file path.
         std::string filePath(sm.getRawFileName(bufId));
         if (filePath.empty())
@@ -185,9 +268,11 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
 
         // US-39F: file/module naming checks.
         if (needFileModuleChecks) {
-            auto modules = collectModuleDeclarations(root);
 
             if (rules.prohibitMultipleModulesPerFile && modules.size() > 1) {
+                // Codex cross-review: only emit when at least one
+                // reachable module lives in the file (gate already
+                // ensured this above when reachability is on).
                 std::string nameList;
                 for (size_t i = 0; i < modules.size(); ++i) {
                     if (i) nameList += ", ";
@@ -229,6 +314,14 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
             }
         }
     }
+}
+
+void SourceTextScanner::scan(const slang::ast::Compilation& compilation,
+                              const ConventionRules& rules,
+                              ConnectionGraph& graph_out) {
+    // Legacy overload: passing an empty topModule disables reachability
+    // gating, preserving the original "scan every syntax tree" behavior.
+    scan(compilation, /*topModule=*/std::string{}, rules, graph_out);
 }
 
 } // namespace connect

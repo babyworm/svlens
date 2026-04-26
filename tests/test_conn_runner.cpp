@@ -3,6 +3,8 @@
 #include "TestUtils.h"
 
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 
 namespace fs = std::filesystem;
 
@@ -80,4 +82,57 @@ TEST_CASE("ConnRunner: modport-width paired fixtures stay deterministic",
         connect::runConnWithCompilation(*neg.compilation, opts_neg);
     CHECK(exitNeg == 0);
     CHECK(fs::exists(out_neg / "connect_report.json"));
+}
+
+TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
+          "[conn][runner][lowrisc_style]") {
+    // Round 36: end-to-end exercise of the lowRISC-style convention
+    // YAML against a fixture that intentionally violates several
+    // rules. Verifies the new patterns (clock/reset/lowercase/
+    // active-low) wire through ConventionChecker correctly and that
+    // properly-named ports (clk, i_command, o_status) are NOT
+    // flagged. All issues remain at Severity::INFO so exit code is
+    // unaffected.
+    auto result = testutils::compileFile("sv/lowrisc_style_violations.sv");
+    REQUIRE(result);
+
+    const auto out =
+        fs::temp_directory_path() / "svlens_conn_lowrisc_style";
+    fs::remove_all(out);
+
+    // Use absolute path resolved from TEST_SV_DIR so the test is
+    // location-independent (ctest WORKING_DIRECTORY is the build
+    // directory; the YAML file lives in the source tree).
+    auto yaml_path =
+        fs::path(TEST_SV_DIR).parent_path().parent_path() /
+        "examples" / "styles" / "lowrisc.yaml";
+    REQUIRE(fs::exists(yaml_path));
+
+    connect::ConnCliOptions opts;
+    opts.topModule = "lowrisc_violator";
+    opts.format = "json";
+    opts.outputDir = out.string();
+    opts.checkConvention = true;
+    opts.conventionFile = yaml_path.string();
+
+    int exitCode = connect::runConnWithCompilation(*result.compilation, opts);
+    // ConnRunner counts ALL active issues (including INFO) into the
+    // exit code, capped at 255. The fixture violates 8 lowRISC rules.
+    CHECK(exitCode > 0);
+    REQUIRE(fs::exists(out / "connect_report.json"));
+
+    std::ifstream ifs(out / "connect_report.json");
+    std::string body((std::istreambuf_iterator<char>(ifs)),
+                     std::istreambuf_iterator<char>());
+
+    // Specific violations the YAML should surface:
+    CHECK(body.find("'RstN' is not lowercase") != std::string::npos);
+    CHECK(body.find("'dataIn' is not lowercase") != std::string::npos);
+    CHECK(body.find("'enable_n' has active-low suffix") !=
+          std::string::npos);
+    CHECK(body.find("instance 'bad'") != std::string::npos);
+    // Properly-named ports must NOT appear:
+    CHECK(body.find("port 'clk' does not") == std::string::npos);
+    CHECK(body.find("port 'i_command' does not") == std::string::npos);
+    CHECK(body.find("port 'o_status' does not") == std::string::npos);
 }

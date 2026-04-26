@@ -1,0 +1,54 @@
+# lowRISC SystemVerilog style guide convention rules for svlens conn.
+#
+# Reference: https://github.com/lowRISC/style-guides/blob/master/VerilogCodingStyle.md
+#
+# Usage:
+#   svlens conn rtl/*.sv --top your_top \
+#       --check-convention --convention examples/styles/lowrisc.yaml
+#
+# All rule violations are reported at Severity::INFO so this file is
+# safe to enable in CI without affecting exit codes. Disable any
+# individual rule by setting it to "" (empty string) or omitting the
+# key entirely.
+
+# ─── Direction prefixes ────────────────────────────────────────────
+# lowRISC requires `i_` / `o_` prefixes on all module-level signals
+# except clocks, resets, and a small set of well-known control names.
+# The checker auto-excludes ports that match clock_pattern or
+# reset_pattern below.
+input_prefix: "i_"
+output_prefix: "o_"
+
+# Instance prefix for module instantiations. lowRISC convention is
+# `u_<name>` (e.g., `u_alu`, `u_regfile`).
+instance_prefix: "u_"
+
+# ─── Clock / reset patterns ────────────────────────────────────────
+# Clock names: bare `clk`, or `clk_<domain>` (lowercase, alphanumeric).
+clock_pattern: "^clk(_[a-z0-9]+)*$"
+
+# Reset names (active-low). lowRISC uses `rst_n` for primary, with
+# `rst_ni` for the input variant inside modules. Domain-suffixed
+# resets like `rst_n_aon` are also accepted.
+reset_pattern: "^rst(_[a-z0-9]+)*_n[i]?$"
+
+# ─── Active-low suffix ─────────────────────────────────────────────
+# lowRISC marks active-low signals with `_n` (or `_ni` on inputs).
+# This rule fires when an input port carries the suffix but is NOT a
+# recognized reset or clock pattern -- a hint to verify the signal
+# is genuinely active-low (not just an unfortunate suffix collision).
+active_low_suffix: "_n"
+
+# ─── Lowercase + snake_case ────────────────────────────────────────
+# lowRISC requires lowercase snake_case for all signal/port names.
+# This catches `dataIn` / `MyPort` / `WriteReady` style violations.
+lowercase_port_names: true
+
+# ─── Parameter / typedef conventions ───────────────────────────────
+# These two are recorded for future expansion. The current
+# ConventionChecker operates on port names only; parameter and
+# typedef checks await a ConnectionExtractor enhancement that
+# captures Parameter and TypedefSymbol entries from the slang AST.
+# Keep them documented here so the YAML schema is forward-compatible.
+parameter_case_pattern: "^[A-Z][A-Z0-9_]*$"
+typedef_suffix_pattern: ".*_t$"

@@ -91,23 +91,16 @@ parameter_case_pattern: "^[A-Z][a-zA-Z0-9]*$"
 typedef_suffix_pattern: "_(t|e)$"
 
 # ─── Coverage gaps (NOT yet enforced) ──────────────────────────────
-# The following lowRISC rules require AST/source-text access beyond
-# the current ConventionChecker scope and will be added in future
-# rounds (or remain manual review):
+# Round 38/39 closed most of the AST/source-text rules.  The list
+# below tracks lowRISC sections that the current ConventionChecker
+# still does not enforce; these remain manual-review items.
+# See `docs/releases/v0.3.2.md` for the precise list of what IS
+# covered today.
 #
-# * always_ff (not always @*) for sequential blocks
-# * always_comb (not always @*) for combinational blocks
-# * Reset polarity active-low + asynchronous (negedge rst_n)
-# * `(posedge clk or negedge rst_n)` preferred over comma form
-# * `unique case` + mandatory `default:`
-# * Anonymous enum types prohibited
-# * `logic` mandatory (no `bit`/`int` in RTL)
-# * Number literals must include width specifier
-# * One module per file (file == module name)
-# * Maximum line length 100, no tabs, no trailing whitespace
-# * Named port instantiation (`.*` prohibited)
-# * Generate blocks must be named (lower_snake_case)
 # * Function `automatic` only; tasks prohibited in RTL
 # * `_p`/`_n` differential pair signals must come together
 # * No hierarchical references in RTL
 # * No `defparam`, `#delay`, positional parameter lists
+# * `inout` port prohibition (signal direction must be in/out)
+# * Blocking assignment prohibition inside always_ff
+# * Multiple drivers / non-resettable FF detection

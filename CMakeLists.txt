@@ -33,6 +33,11 @@ if(NOT SVLENS_KEEP_SLANG_DEBUG)
         list(REMOVE_ITEM _svlens_slang_defs "$<$<CONFIG:Debug>:SLANG_DEBUG>")
         set_target_properties(slang::slang PROPERTIES
             INTERFACE_COMPILE_DEFINITIONS "${_svlens_slang_defs}")
+        message(STATUS
+            "svlens: stripped slang's $<$<CONFIG:Debug>:SLANG_DEBUG> "
+            "interface (slang prebuilt as Release; see CMakeLists.txt "
+            "for details). Set SVLENS_KEEP_SLANG_DEBUG=ON if your "
+            "slang was built Debug.")
     endif()
 endif()
 # fmt: prefer slang's bundled copy; fall back to system install

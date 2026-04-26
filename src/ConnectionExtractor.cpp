@@ -18,7 +18,10 @@
 #include <slang/ast/statements/MiscStatements.h>
 #include <slang/ast/types/Type.h>
 
+#include <fmt/core.h>
+
 #include <algorithm>
+#include <cctype>
 
 namespace connect {
 
@@ -385,8 +388,53 @@ void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
                 graph_.typedefs.push_back(std::move(cap));
                 break;
             }
+            case slang::ast::SymbolKind::Variable:
+            case slang::ast::SymbolKind::Net: {
+                // Round 38 US-38B: detect anonymous enums.
+                // An enum declared without a typedef binds the
+                // EnumType directly to the variable; lowRISC requires
+                // every enum to be named via typedef so the type can
+                // be referenced explicitly.
+                auto& vs = member.as<slang::ast::ValueSymbol>();
+                auto& t = vs.getType();
+                if (t.kind == slang::ast::SymbolKind::EnumType &&
+                    t.name.empty()) {
+                    StyleObservation obs;
+                    obs.kind = StyleObservation::Kind::AnonymousEnum;
+                    obs.scopePath = scopePath;
+                    obs.name = std::string(vs.name);
+                    obs.location = vs.location;
+                    obs.detail = fmt::format(
+                        "anonymous enum bound to '{}' (lowRISC requires "
+                        "`typedef enum {{...}} <name>_e;` first)",
+                        std::string(vs.name));
+                    graph_.styleObservations.push_back(std::move(obs));
+                }
+                break;
+            }
             case slang::ast::SymbolKind::GenerateBlock: {
                 auto& genBlock = member.as<slang::ast::GenerateBlockSymbol>();
+                // Round 38 US-38C: lowRISC requires explicit
+                // generate-block names. Slang auto-synthesizes
+                // "genblk<N>" when the user omits the `: name`
+                // label; flag those as a style observation.
+                if (genBlock.name.empty() ||
+                    (genBlock.name.starts_with("genblk") &&
+                     std::all_of(genBlock.name.begin() +
+                                     std::string_view("genblk").size(),
+                                 genBlock.name.end(),
+                                 [](char c) { return std::isdigit(static_cast<unsigned char>(c)); }))) {
+                    StyleObservation obs;
+                    obs.kind = StyleObservation::Kind::UnnamedGenerateBlock;
+                    obs.scopePath = scopePath;
+                    obs.name = std::string(genBlock.name);
+                    obs.location = genBlock.location;
+                    obs.detail = fmt::format(
+                        "generate block at '{}' lacks an explicit `: name` "
+                        "label (lowRISC requires lower_snake_case names)",
+                        scopePath);
+                    graph_.styleObservations.push_back(std::move(obs));
+                }
                 // Standalone generate blocks (if/case) — include name only if non-empty
                 std::string blockScope = scopePath;
                 if (!genBlock.name.empty())
@@ -398,6 +446,26 @@ void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
                 // Generate-for: each element is a GenerateBlock with an arrayIndex
                 auto& genArray = member.as<slang::ast::GenerateBlockArraySymbol>();
                 std::string arrayName(genArray.name);
+                // Round 38 US-38C: generate-for array also needs an
+                // explicit `: name` label. Slang synthesizes
+                // "genblk<N>" when omitted.
+                if (arrayName.empty() ||
+                    (arrayName.starts_with("genblk") &&
+                     std::all_of(arrayName.begin() +
+                                     std::string_view("genblk").size(),
+                                 arrayName.end(),
+                                 [](char c) { return std::isdigit(static_cast<unsigned char>(c)); }))) {
+                    StyleObservation obs;
+                    obs.kind = StyleObservation::Kind::UnnamedGenerateBlock;
+                    obs.scopePath = scopePath;
+                    obs.name = arrayName;
+                    obs.location = genArray.location;
+                    obs.detail = fmt::format(
+                        "generate-for array at '{}' lacks an explicit `: name` "
+                        "label (lowRISC requires lower_snake_case names)",
+                        scopePath);
+                    graph_.styleObservations.push_back(std::move(obs));
+                }
                 for (auto& elem : genArray.members()) {
                     if (elem.kind == slang::ast::SymbolKind::GenerateBlock) {
                         auto& block = elem.as<slang::ast::GenerateBlockSymbol>();

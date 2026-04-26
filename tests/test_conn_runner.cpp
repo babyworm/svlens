@@ -186,4 +186,18 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
     auto pt_good = run_top("param_typedef_good");
     CHECK(pt_good.find("parameter '") == std::string::npos);
     CHECK(pt_good.find("typedef '") == std::string::npos);
+
+    // Round 38 US-38B: anonymous enum detection.
+    auto ae_bad = run_top("anonymous_enum_bad");
+    CHECK(ae_bad.find("anonymous enum bound to 'req_access'") !=
+          std::string::npos);
+    auto pt_good_no_enum = pt_good;
+    CHECK(pt_good_no_enum.find("anonymous enum") == std::string::npos);
+
+    // Round 38 US-38C: generate block naming.
+    auto ug_bad = run_top("unnamed_generate_bad");
+    CHECK(ug_bad.find("generate-for array") != std::string::npos);
+    auto ng_good = run_top("named_generate_good");
+    CHECK(ng_good.find("generate-for array") == std::string::npos);
+    CHECK(ng_good.find("generate block at") == std::string::npos);
 }

@@ -200,3 +200,41 @@ module param_typedef_good #(
     always_ff @(posedge clk_i) byte_q <= data_i;
     assign data_o = byte_q;
 endmodule
+
+// ─── Anonymous enum (BAD) ─────────────────────────────────────────
+// lowRISC: every enum must be named via typedef (`typedef enum
+// {...} <name>_e;`). Inline anonymous enums are prohibited.
+module anonymous_enum_bad (
+    input        clk_i,
+    output       data_o
+);
+    enum logic [1:0] { Read, Write } req_access;
+    assign data_o = (req_access == Read);
+endmodule
+
+// ─── Generate block naming (BAD) ──────────────────────────────────
+// lowRISC: every generate block must have an explicit `: name`
+// label. Slang synthesizes "genblk<N>" when the user omits it.
+module unnamed_generate_bad #(
+    parameter int unsigned NumLanes = 4
+) (
+    input  [NumLanes-1:0] data_i,
+    output [NumLanes-1:0] data_o
+);
+    // BAD: generate-for without `: lanes` label
+    for (genvar ii = 0; ii < NumLanes; ii++) begin
+        assign data_o[ii] = data_i[ii];
+    end
+endmodule
+
+// ─── Generate block naming (GOOD) ─────────────────────────────────
+module named_generate_good #(
+    parameter int unsigned NumLanes = 4
+) (
+    input  [NumLanes-1:0] data_i,
+    output [NumLanes-1:0] data_o
+);
+    for (genvar ii = 0; ii < NumLanes; ii++) begin : my_lanes
+        assign data_o[ii] = data_i[ii];
+    end
+endmodule

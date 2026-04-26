@@ -108,31 +108,65 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
         "examples" / "styles" / "lowrisc.yaml";
     REQUIRE(fs::exists(yaml_path));
 
-    connect::ConnCliOptions opts;
-    opts.topModule = "lowrisc_violator";
-    opts.format = "json";
-    opts.outputDir = out.string();
-    opts.checkConvention = true;
-    opts.conventionFile = yaml_path.string();
+    // Drive each lowRISC-style category through the fixture and
+    // assert: GOOD modules emit zero CONVENTION INFO entries; the
+    // BAD modules emit the expected violations. This locks the
+    // SUFFIX-mode contract (lowRISC `_i`/`_o`/`_io`) plus
+    // differential-pair (`_po`/`_no`) acceptance and digit-tail
+    // rejection (lowRISC: `foo_1` -> use `foo_q2` instead).
+    auto run_top = [&](const std::string& top) {
+        const auto out_top = out / top;
+        fs::remove_all(out_top);
+        connect::ConnCliOptions o;
+        o.topModule = top;
+        o.format = "json";
+        o.outputDir = out_top.string();
+        o.checkConvention = true;
+        o.conventionFile = yaml_path.string();
+        connect::runConnWithCompilation(*result.compilation, o);
+        std::ifstream ifs(out_top / "connect_report.json");
+        return std::string((std::istreambuf_iterator<char>(ifs)),
+                           std::istreambuf_iterator<char>());
+    };
 
-    int exitCode = connect::runConnWithCompilation(*result.compilation, opts);
-    // ConnRunner counts ALL active issues (including INFO) into the
-    // exit code, capped at 255. The fixture violates 8 lowRISC rules.
-    CHECK(exitCode > 0);
-    REQUIRE(fs::exists(out / "connect_report.json"));
+    auto count = [](const std::string& body, const std::string& needle) {
+        size_t n = 0, p = 0;
+        while ((p = body.find(needle, p)) != std::string::npos) {
+            ++n; p += needle.size();
+        }
+        return n;
+    };
 
-    std::ifstream ifs(out / "connect_report.json");
-    std::string body((std::istreambuf_iterator<char>(ifs)),
-                     std::istreambuf_iterator<char>());
+    // GOOD modules: zero CONVENTION INFO each.
+    for (const auto& top : {std::string("ports_good"),
+                            std::string("ports_simple_good"),
+                            std::string("clocks_good"),
+                            std::string("resets_good"),
+                            std::string("instances_good")}) {
+        auto body = run_top(top);
+        INFO("top=" << top);
+        // No "CONVENTION" type issue should appear in the GOOD list.
+        // Note: the JSON renderer wraps Issue::Type::CONVENTION as
+        // string "CONVENTION".
+        CHECK(count(body, "\"type\": \"CONVENTION\"") == 0);
+    }
 
-    // Specific violations the YAML should surface:
-    CHECK(body.find("'RstN' is not lowercase") != std::string::npos);
-    CHECK(body.find("'dataIn' is not lowercase") != std::string::npos);
-    CHECK(body.find("'enable_n' has active-low suffix") !=
+    // BAD: ports_bad triggers many rule violations.
+    auto bad_body = run_top("ports_bad");
+    CHECK(bad_body.find("'RstN' is not lowercase") != std::string::npos);
+    CHECK(bad_body.find("'dataIn' is not lowercase") != std::string::npos);
+    CHECK(bad_body.find("'enable_n' has active-low suffix") !=
           std::string::npos);
-    CHECK(body.find("instance 'bad'") != std::string::npos);
-    // Properly-named ports must NOT appear:
-    CHECK(body.find("port 'clk' does not") == std::string::npos);
-    CHECK(body.find("port 'i_command' does not") == std::string::npos);
-    CHECK(body.find("port 'o_status' does not") == std::string::npos);
+    CHECK(bad_body.find("instance 'bad_inst'") != std::string::npos);
+    // ports `clk_i`, `i_command`, `o_status` (plus the GOOD-suffix
+    // forms) must not be flagged.
+    CHECK(bad_body.find("port 'clk_i' does not") == std::string::npos);
+
+    // BAD: digit_suffix_bad triggers the reject_digit_only_suffix rule.
+    // The detail message contains `_<digit>` which the JSON renderer
+    // escapes the `<` to `\u003c`, so we search on a stable prefix.
+    auto digit_body = run_top("digit_suffix_bad");
+    CHECK(digit_body.find("'foo_1' has") != std::string::npos);
+    CHECK(digit_body.find("'foo_2' has") != std::string::npos);
+    CHECK(digit_body.find("lowRISC prohibits this") != std::string::npos);
 }

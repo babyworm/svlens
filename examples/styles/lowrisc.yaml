@@ -2,53 +2,112 @@
 #
 # Reference: https://github.com/lowRISC/style-guides/blob/master/VerilogCodingStyle.md
 #
+# Coverage: this YAML drives ConventionChecker which currently
+# inspects PORT NAMES + INSTANCE NAMES from the slang ConnectionGraph.
+# Rules outside that surface (always_ff vs always, anonymous enums,
+# typedef names, parameter case, line length, etc.) require future
+# extensions. The "Coverage gaps" section at the bottom of this file
+# documents what is NOT yet enforced so you can read the full lowRISC
+# guide for human review of the unchecked areas.
+#
 # Usage:
 #   svlens conn rtl/*.sv --top your_top \
 #       --check-convention --convention examples/styles/lowrisc.yaml
 #
-# All rule violations are reported at Severity::INFO so this file is
-# safe to enable in CI without affecting exit codes. Disable any
-# individual rule by setting it to "" (empty string) or omitting the
-# key entirely.
+# All rule violations are reported at Severity::INFO. The conn-mode
+# exit code is the active-issue count, capped at 255 -- so style-only
+# violations DO contribute. Use a waiver file or `2>/dev/null` if you
+# want a non-blocking lint pass.
 
-# ─── Direction prefixes ────────────────────────────────────────────
-# lowRISC requires `i_` / `o_` prefixes on all module-level signals
-# except clocks, resets, and a small set of well-known control names.
-# The checker auto-excludes ports that match clock_pattern or
-# reset_pattern below.
-input_prefix: "i_"
-output_prefix: "o_"
+# ─── Direction suffixes (lowRISC actual) ───────────────────────────
+# lowRISC uses _i / _o / _io SUFFIXES on module ports, NOT prefixes.
+# Differential-pair markers (`_p` / `_n`) compound with the direction
+# marker, so output_suffix accepts `_o`, `_po`, `_no`. Comma-separated
+# values give the alternative-suffix list.
+# Examples (all GOOD):
+#   clk_i, rst_ni, d_i, q_o, data_i, valid_i, ready_o, driver_io,
+#   lvds_po, lvds_no
+input_suffix: "_i,_pi,_ni"
+output_suffix: "_o,_po,_no"
+inout_suffix: "_io"
 
-# Instance prefix for module instantiations. lowRISC convention is
-# `u_<name>` (e.g., `u_alu`, `u_regfile`).
+# Set the prefix fields empty so the checker accepts suffix-only
+# naming. (Setting both prefix AND suffix would accept either.)
+input_prefix: ""
+output_prefix: ""
+
+# ─── Instance prefix ────────────────────────────────────────────────
+# lowRISC examples show both `i_<name>` and `u_<name>` styles. The
+# guide does not mandate a single form; OpenTitan uses `u_`. Set
+# this to whichever convention your project picked.
 instance_prefix: "u_"
 
 # ─── Clock / reset patterns ────────────────────────────────────────
-# Clock names: bare `clk`, or `clk_<domain>` (lowercase, alphanumeric).
-clock_pattern: "^clk(_[a-z0-9]+)*$"
+# Default clock is `clk_i` (port) or `clk` (internal); multiple
+# clocks add a domain suffix: clk_dram, clk_axi, etc.
+clock_pattern: "^clk(_[a-z0-9]+)*_i?$"
 
-# Reset names (active-low). lowRISC uses `rst_n` for primary, with
-# `rst_ni` for the input variant inside modules. Domain-suffixed
-# resets like `rst_n_aon` are also accepted.
+# Default reset `rst_n` (internal) or `rst_ni` (port). Domain-
+# suffixed resets like rst_domain_n / rst_domain_ni are also
+# accepted.
 reset_pattern: "^rst(_[a-z0-9]+)*_n[i]?$"
 
 # ─── Active-low suffix ─────────────────────────────────────────────
 # lowRISC marks active-low signals with `_n` (or `_ni` on inputs).
-# This rule fires when an input port carries the suffix but is NOT a
-# recognized reset or clock pattern -- a hint to verify the signal
-# is genuinely active-low (not just an unfortunate suffix collision).
+# This rule fires when an INPUT port carries the suffix but is NOT
+# a recognized reset/clock pattern. Output `lvds_no` (differential)
+# is automatically excluded because the rule scopes to inputs.
 active_low_suffix: "_n"
 
 # ─── Lowercase + snake_case ────────────────────────────────────────
 # lowRISC requires lowercase snake_case for all signal/port names.
-# This catches `dataIn` / `MyPort` / `WriteReady` style violations.
+# Catches `dataIn` / `MyPort` / `WriteReady` style violations.
 lowercase_port_names: true
 
+# ─── Pipeline _q / _d markers ──────────────────────────────────────
+# lowRISC uses `<name>_q` for registered output, `<name>_d` for the
+# combinational input feeding the FF. Pipeline stages add a digit:
+# `_q2`, `_q3`. These are recorded for future ConventionChecker
+# extensions; the current implementation does not yet inspect
+# internal nets or always_ff bodies.
+reg_output_suffix: "_q"
+comb_input_suffix: "_d"
+
+# ─── Reject `_<digit>` suffix on signal names ─────────────────────
+# lowRISC: "Avoid `foo_1`, `foo_2`-style suffixes". Pipeline stages
+# should chain off `_q` (e.g., `foo_q2`, `foo_q3`).
+reject_digit_only_suffix: true
+
 # ─── Parameter / typedef conventions ───────────────────────────────
-# These two are recorded for future expansion. The current
-# ConventionChecker operates on port names only; parameter and
-# typedef checks await a ConnectionExtractor enhancement that
-# captures Parameter and TypedefSymbol entries from the slang AST.
-# Keep them documented here so the YAML schema is forward-compatible.
-parameter_case_pattern: "^[A-Z][A-Z0-9_]*$"
-typedef_suffix_pattern: ".*_t$"
+# Documented for forward compatibility. ConventionChecker currently
+# operates on port names only -- parameter and typedef checks await
+# a ConnectionExtractor enhancement that captures Parameter/Typedef
+# symbols from the slang AST.
+#
+# lowRISC: parameters use UpperCamelCase, package-level constants
+# may use ALL_CAPS, typedef structs/unions end with `_t`,
+# typedef enums end with `_e`.
+parameter_case_pattern: "^[A-Z][a-zA-Z0-9]*$"
+typedef_suffix_pattern: "_(t|e)$"
+
+# ─── Coverage gaps (NOT yet enforced) ──────────────────────────────
+# The following lowRISC rules require AST/source-text access beyond
+# the current ConventionChecker scope and will be added in future
+# rounds (or remain manual review):
+#
+# * always_ff (not always @*) for sequential blocks
+# * always_comb (not always @*) for combinational blocks
+# * Reset polarity active-low + asynchronous (negedge rst_n)
+# * `(posedge clk or negedge rst_n)` preferred over comma form
+# * `unique case` + mandatory `default:`
+# * Anonymous enum types prohibited
+# * `logic` mandatory (no `bit`/`int` in RTL)
+# * Number literals must include width specifier
+# * One module per file (file == module name)
+# * Maximum line length 100, no tabs, no trailing whitespace
+# * Named port instantiation (`.*` prohibited)
+# * Generate blocks must be named (lower_snake_case)
+# * Function `automatic` only; tasks prohibited in RTL
+# * `_p`/`_n` differential pair signals must come together
+# * No hierarchical references in RTL
+# * No `defparam`, `#delay`, positional parameter lists

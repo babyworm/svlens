@@ -26,6 +26,9 @@ std::vector<Issue> UndrivenChecker::check(const ConnectionGraph& graph) const {
         if (port.direction != slang::ast::ArgumentDirection::In &&
             port.direction != slang::ast::ArgumentDirection::InOut)
             continue;
+        // Round 37: top-module inputs are driven externally
+        // (testbench/parent), so we cannot detect undriven here.
+        if (port.instancePath == graph.topModule) continue;
         if (drivenDests.contains(port.fullPath())) continue;
         // Port connected to a local wire (not another instance) is not undriven
         if (graph.connectedPorts.contains(port.fullPath())) continue;

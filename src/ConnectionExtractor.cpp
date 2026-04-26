@@ -307,7 +307,36 @@ ConnectionGraph ConnectionExtractor::extract() {
     if (!topInst)
         return graph_;
 
-    visitInstance(*topInst, std::string(topInst->name));
+    // Round 37: emit the TOP module's own ports into allPorts so the
+    // ConventionChecker can validate top-level port naming. Child
+    // instance ports are added by processChildInstance during the
+    // descent. Without this loop, a single-module top is invisible
+    // to convention checks.
+    std::string topPath(topInst->name);
+    for (auto* port_member : topInst->body.getPortList()) {
+        if (!port_member) continue;
+        if (port_member->kind != slang::ast::SymbolKind::Port &&
+            port_member->kind != slang::ast::SymbolKind::InterfacePort)
+            continue;
+        PortInfo pinfo;
+        pinfo.instancePath = topPath;
+        pinfo.portName = std::string(port_member->name);
+        pinfo.location = port_member->location;
+        if (port_member->kind == slang::ast::SymbolKind::Port) {
+            auto& port = port_member->as<slang::ast::PortSymbol>();
+            auto& portType = port.getType();
+            pinfo.direction = port.direction;
+            pinfo.width = portType.getBitWidth();
+            pinfo.isSigned = portType.isSigned();
+        } else {
+            pinfo.direction = slang::ast::ArgumentDirection::InOut;
+            pinfo.width = 0;
+            pinfo.isSigned = false;
+        }
+        graph_.allPorts.push_back(pinfo);
+    }
+
+    visitInstance(*topInst, topPath);
     resolveConnections();
     return graph_;
 }

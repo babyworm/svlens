@@ -1,62 +1,122 @@
-// Fixture for the lowRISC-style convention checker.
-// Intentionally violates several rules so the YAML config can be
-// exercised end-to-end:
-//   * `clk` is fine (matches clock_pattern)
-//   * `RstN` is wrong: not lowercase, not matching reset_pattern
-//   * `dataIn` is wrong: not lowercase, no `i_` prefix
-//   * `o_DataValid` is wrong: not lowercase
-//   * `enable_n` triggers active_low_suffix INFO (not a recognized
-//     reset/clock pattern)
-//   * `i_command` is correct: matches input_prefix
-//   * `o_status` is correct: matches output_prefix
+// Comprehensive fixture exercising the lowRISC style guide examples.
+// Each module corresponds to a category from
+// https://github.com/lowRISC/style-guides/blob/master/VerilogCodingStyle.md
+//
+// Modules ending with `_good` use the canonical lowRISC examples and
+// are expected to produce ZERO convention violations from the
+// matching --convention examples/styles/lowrisc.yaml run.
+//
+// Modules ending with `_bad` deliberately violate one or more rules
+// and are checked by the [lowrisc_style] integration test for
+// expected INFO entries.
 
-module lowrisc_inner (
-    input  logic        clk,
-    input  logic        RstN,
-    input  logic [7:0]  dataIn,
-    input  logic        i_command,
-    input  logic        enable_n,
-    output logic [7:0]  o_DataValid,
-    output logic        o_status
+// ─── Category 1: port direction (GOOD) ────────────────────────────
+module ports_good (
+    input              clk_i,
+    input              rst_ni,
+    input        [7:0] d_i,
+    output logic [7:0] q_o
 );
-    assign o_DataValid = dataIn;
-    assign o_status    = i_command & enable_n;
+    assign q_o = d_i;
 endmodule
 
-module lowrisc_violator (
-    input  logic       clk,
-    input  logic       rst_n,
-    input  logic [7:0] data_in,
-    output logic [7:0] data_out
+// ─── Category 1: ports + differential pair + inout (GOOD) ─────────
+module ports_simple_good (
+    input         clk_i,
+    input         rst_ni,
+    input  [15:0] data_i,
+    input         valid_i,
+    output        ready_o,
+    inout  [7:0]  driver_io,
+    output        lvds_po,
+    output        lvds_no
 );
-    logic       i_command;
-    logic       enable_n;
-    logic       o_status;
-    assign i_command = 1'b0;
-    assign enable_n  = rst_n;
-    BadInstance bad (
-        .clk         (clk),
-        .RstN        (rst_n),
-        .dataIn      (data_in),
-        .i_command   (i_command),
-        .enable_n    (enable_n),
-        .o_DataValid (data_out),
-        .o_status    (o_status)
+    assign ready_o = valid_i;
+    assign lvds_po = data_i[0];
+    assign lvds_no = ~data_i[0];
+endmodule
+
+// ─── Category 1: BAD port names ───────────────────────────────────
+// Violations:
+//   * `RstN` not lowercase
+//   * `dataIn` not lowercase, no `_i` suffix
+//   * `o_DataValid` mixed case (legacy prefix style is also wrong)
+//   * `enable_n` is `_n` suffix on input, not matching reset pattern
+//   * `bad_inst` instance prefix missing `u_`
+module ports_bad (
+    input              clk_i,
+    input              RstN,
+    input        [7:0] dataIn,
+    input              i_command,
+    input              enable_n,
+    output logic [7:0] o_DataValid,
+    output             o_status
+);
+    inner_used u_inner1 (
+        .clk_i (clk_i),
+        .data_i(dataIn),
+        .data_o(o_DataValid)
+    );
+    inner_used bad_inst (  // missing u_ prefix
+        .clk_i (clk_i),
+        .data_i(dataIn),
+        .data_o()
+    );
+    assign o_status = i_command & enable_n;
+endmodule
+
+module inner_used (
+    input              clk_i,
+    input        [7:0] data_i,
+    output logic [7:0] data_o
+);
+    assign data_o = data_i;
+endmodule
+
+// ─── Category 2: clock signals (GOOD) ─────────────────────────────
+module clocks_good (
+    input clk_i,
+    input clk_dram_i,
+    input rst_ni
+);
+    logic q;
+    always_ff @(posedge clk_i or negedge rst_ni)
+        if (!rst_ni) q <= 1'b0; else q <= 1'b1;
+endmodule
+
+// ─── Category 3: reset signals (GOOD) ─────────────────────────────
+module resets_good (
+    input clk_i,
+    input rst_ni,
+    input rst_domain_ni
+);
+    logic q;
+    always_ff @(posedge clk_i or negedge rst_ni)
+        if (!rst_ni) q <= 1'b0; else q <= 1'b1;
+endmodule
+
+// ─── Category 6: instance naming (GOOD) ───────────────────────────
+module instances_good (
+    input        clk_i,
+    input        rst_ni,
+    input  [7:0] data_i,
+    output [7:0] data_o
+);
+    // lowRISC accepts `i_<name>` and `u_<name>` instance prefixes.
+    inner_used u_my_instance (
+        .clk_i (clk_i),
+        .data_i(data_i),
+        .data_o(data_o)
     );
 endmodule
 
-// Note: BadInstance is intentionally lowrisc_inner — kept as a
-// distinct typedef name so the instance label `bad` (not `u_bad`)
-// also surfaces an instance-prefix violation.
-module BadInstance (
-    input  logic        clk,
-    input  logic        RstN,
-    input  logic [7:0]  dataIn,
-    input  logic        i_command,
-    input  logic        enable_n,
-    output logic [7:0]  o_DataValid,
-    output logic        o_status
+// ─── Reject `_<digit>` suffix (BAD) ───────────────────────────────
+// `foo_1` violates the digit-tail rule; pipeline should be `foo_q2`.
+module digit_suffix_bad (
+    input         clk_i,
+    input         rst_ni,
+    input  [7:0]  foo_1,
+    output [7:0]  foo_2
 );
-    assign o_DataValid = dataIn;
-    assign o_status    = i_command & enable_n;
+    assign foo_2 = foo_1;
 endmodule

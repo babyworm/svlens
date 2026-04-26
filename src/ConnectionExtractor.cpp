@@ -107,6 +107,21 @@ ConnectionExtractor::ConnectionExtractor(slang::ast::Compilation& compilation,
                                          int maxDepth)
     : compilation_(compilation), topModule_(topModule), maxDepth_(maxDepth) {}
 
+// Round 33 deslop: shared helper for the modport-rendezvous logic
+// used by HierarchicalValue and ArbitrarySymbol cases. Returns the
+// underlying signal's absolute hier path when `sym` is a ModportPort
+// with a non-null internalSymbol; empty string otherwise. The empty
+// return is the caller's signal to fall back to scope-relative
+// keying without claiming is_absolute=true.
+static std::string modportInternalAbsPath(const slang::ast::Symbol& sym) {
+    if (sym.kind != slang::ast::SymbolKind::ModportPort)
+        return {};
+    auto& mpp = sym.as<slang::ast::ModportPortSymbol>();
+    if (!mpp.internalSymbol)
+        return {};
+    return mpp.internalSymbol->getHierarchicalPath();
+}
+
 ConnectionExtractor::ResolvedExpr ConnectionExtractor::resolveExpr(
     const slang::ast::Expression* expr) {
     ResolvedExpr result;
@@ -120,76 +135,45 @@ ConnectionExtractor::ResolvedExpr ConnectionExtractor::resolveExpr(
             return result;
         }
         case slang::ast::ExpressionKind::HierarchicalValue: {
-            // Round 30 US-R05: slang represents `bus.data` (modport
-            // member access through an interface port) as a
-            // HierarchicalValueExpression whose .symbol is the
-            // ModportPortSymbol. The hier path of that symbol goes
-            // through the modport scope (e.g. "top.inst.slave.data"),
-            // which doesn't match the modport-expansion side that keys
-            // by the underlying signal's hier path ("top.inst.data").
-            // When the referenced symbol IS a ModportPort, follow
-            // internalSymbol -> the underlying signal -> its hier path
-            // so both sides rendezvous on the same absolute key.
+            // Round 30 US-R05 / Round 32 WARN-1 / Round 33 deslop:
+            // for ModportPort references, follow internalSymbol to the
+            // underlying signal's hier path so the consumer-side key
+            // rendezvous with the modport-expansion side
+            // ("top.inst.data"). Otherwise the bare hier path goes
+            // through the modport scope ("top.inst.slave.data") and
+            // would silently fail to pair; fall back to
+            // scope-relative keying without is_absolute=true.
             auto& hier = expr->as<slang::ast::HierarchicalValueExpression>();
-            // Round 32 WARN-1 fix: only mark is_absolute=true when the
-            // hier path resolves through the underlying signal (i.e.
-            // ModportPort.internalSymbol is non-null). Falling back to
-            // hier.symbol.getHierarchicalPath() yields the modport-
-            // scoped path ("top.inst.slave.data") which does NOT match
-            // the modport-expansion side keying ("top.inst.data"); if
-            // we kept is_absolute=true on that fallback the connection
-            // would silently fail to form. Leave is_absolute=false so
-            // the legacy scope-relative key still pairs up downstream.
-            std::string hp;
-            bool rendezvous_safe = false;
-            if (hier.symbol.kind == slang::ast::SymbolKind::ModportPort) {
-                auto& mpp = hier.symbol.as<slang::ast::ModportPortSymbol>();
-                if (mpp.internalSymbol) {
-                    hp = mpp.internalSymbol->getHierarchicalPath();
-                    rendezvous_safe = !hp.empty();
-                }
-            }
-            if (rendezvous_safe) {
-                result.netNames.push_back(hp);
+            std::string hp = modportInternalAbsPath(hier.symbol);
+            if (!hp.empty()) {
+                result.netNames.push_back(std::move(hp));
                 result.is_absolute = true;
             } else {
-                std::string fallback_hp = hier.symbol.getHierarchicalPath();
+                auto fallback = hier.symbol.getHierarchicalPath();
                 result.netNames.push_back(
-                    fallback_hp.empty() ? std::string(hier.symbol.name)
-                                        : fallback_hp);
+                    fallback.empty() ? std::string(hier.symbol.name)
+                                     : fallback);
             }
             return result;
         }
         case slang::ast::ExpressionKind::ArbitrarySymbol: {
+            // Round 30 US-R05 / Round 33 INFO-2: same rendezvous logic
+            // as HierarchicalValue. For non-ModportPort symbols,
+            // promote to absolute path only when hp differs from the
+            // leaf name (i.e. the symbol lives under an instance).
             auto& symbolExpr = expr->as<slang::ast::ArbitrarySymbolExpression>();
-            // Round 30 US-R05: when the symbol resolves through an
-            // interface modport access (slang collapses `bus.data` into
-            // a direct symbol reference rather than a MemberAccess), the
-            // bare leaf name "data" loses cross-instance disambiguation.
-            // Round 33 INFO-2: same rendezvous_safe guard as the
-            // HierarchicalValue case -- if the symbol is a ModportPort,
-            // follow internalSymbol to the underlying signal's hier
-            // path so the modport-expansion side keys match. The bare
-            // ModportPort hier path goes through the modport scope and
-            // would silently fail to rendezvous if marked is_absolute.
             std::string leaf{symbolExpr.symbol->name};
-            std::string hp;
-            bool rendezvous_safe = false;
-            if (symbolExpr.symbol->kind == slang::ast::SymbolKind::ModportPort) {
-                auto& mpp = symbolExpr.symbol->as<slang::ast::ModportPortSymbol>();
-                if (mpp.internalSymbol) {
-                    hp = mpp.internalSymbol->getHierarchicalPath();
-                    rendezvous_safe = !hp.empty();
-                }
-            } else {
-                hp = symbolExpr.symbol->getHierarchicalPath();
-                rendezvous_safe = !hp.empty() && hp != leaf;
+            std::string hp = modportInternalAbsPath(*symbolExpr.symbol);
+            if (hp.empty()) {
+                auto raw = symbolExpr.symbol->getHierarchicalPath();
+                if (!raw.empty() && raw != leaf)
+                    hp = std::move(raw);
             }
-            if (rendezvous_safe) {
-                result.netNames.push_back(hp);
+            if (!hp.empty()) {
+                result.netNames.push_back(std::move(hp));
                 result.is_absolute = true;
             } else {
-                result.netNames.push_back(leaf);
+                result.netNames.push_back(std::move(leaf));
             }
             return result;
         }

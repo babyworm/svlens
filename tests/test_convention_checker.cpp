@@ -139,3 +139,36 @@ TEST_CASE("ConventionChecker: malformed scalar values do not crash") {
 
     std::remove(yamlPath);
 }
+
+TEST_CASE("ConventionChecker: bad scalar does not skip later valid keys") {
+    // Codex Round 2 cross-review: the previous whole-block try/catch
+    // aborted on the first YAML::BadConversion, silently dropping any
+    // subsequent valid keys depending on key order in the user's YAML.
+    // After per-field tryAssign, a typo in `max_line_length` no longer
+    // disables `prohibit_hard_tabs: true` further down in the file.
+    const char* yamlPath = "test_convention_per_field.yaml";
+    {
+        std::ofstream ofs(yamlPath);
+        REQUIRE(ofs.good());
+        // Bad scalar comes FIRST, valid scalars come AFTER.  Under the
+        // old behavior the entire block would abort on the first bad
+        // value and rules.prohibitHardTabs would remain false.  With
+        // per-field extraction the valid keys still apply.
+        ofs << "max_line_length: nope\n";          // bad int scalar
+        ofs << "prohibit_hard_tabs: true\n";       // valid bool
+        ofs << "prohibit_trailing_whitespace: true\n"; // valid bool
+        ofs << "enforce_file_module_match: true\n";    // valid bool
+    }
+
+    ConventionRules rules;
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+
+    // The bad int keeps its default.
+    CHECK(rules.maxLineLength == 0);
+    // The valid bools after the bad scalar MUST be applied.
+    CHECK(rules.prohibitHardTabs == true);
+    CHECK(rules.prohibitTrailingWhitespace == true);
+    CHECK(rules.enforceFileModuleMatch == true);
+
+    std::remove(yamlPath);
+}

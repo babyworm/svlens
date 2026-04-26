@@ -17,6 +17,27 @@ std::optional<std::string> getString(const YAML::Node& node, const char* key) {
     return std::nullopt;
 }
 
+// Codex Round 2 cross-review: per-field YAML extraction. Previously the
+// whole extraction block was wrapped in a single try/catch; a single
+// bad scalar (`max_line_length: nope`) aborted the rest of the parse,
+// silently disabling later valid keys depending on user key order.
+// This helper catches conversion errors per-field so a typo in one
+// field no longer skips later valid ones.
+template <typename T>
+void tryAssign(const YAML::Node& node, const char* key, T& dst,
+               const std::string& yamlPath) {
+    if (!node[key])
+        return;
+    try {
+        dst = node[key].as<T>();
+    } catch (const YAML::Exception& e) {
+        fmt::print(stderr,
+                   "Warning: convention file '{}' has malformed scalar "
+                   "for '{}': {} -- keeping default value\n",
+                   yamlPath, key, e.what());
+    }
+}
+
 } // namespace
 
 ConventionRules loadConventionRules(const std::string& yamlPath) {
@@ -40,14 +61,19 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
 
     ConventionRules rules;
 
-    // Codex cross-review: extend the try/catch to cover the entire
-    // extraction phase. yaml-cpp's `.as<T>()` conversions throw
-    // YAML::BadConversion on malformed scalars (e.g. `max_line_length:
-    // not_an_integer`, `prohibit_hard_tabs: maybe`). Without this
-    // guard a single bad scalar would abort the whole conn run; now
-    // we log a warning and fall back to default-initialized rules.
-    try {
+    // Codex Round 2 cross-review: replaced the previous single outer
+    // try/catch with per-field tryAssign helpers. The old behavior
+    // aborted on the first YAML::BadConversion, silently dropping any
+    // later valid keys (e.g. `max_line_length: nope` would disable
+    // `prohibit_hard_tabs: true` if the bool came after the int in
+    // the user's YAML). Now each field independently catches its own
+    // conversion error and the remaining fields still apply.
 
+    // Round 36+: input_prefix has alternate keys (camelCase, nested).
+    // The string-typed primary path uses tryAssign for consistency;
+    // the alternate paths remain raw because they're already guarded
+    // by node existence checks and string conversion of YAML scalars
+    // is not a typical failure mode (it accepts any scalar repr).
     if (auto value = getString(root, "input_prefix"); value)
         rules.inputPrefix = *value;
     else if (auto value = getString(root, "inputPrefix"); value)
@@ -77,10 +103,7 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
         rules.resetPattern = *value;
     if (auto value = getString(root, "active_low_suffix"); value)
         rules.activeLowSuffix = *value;
-    if (root["lowercase_port_names"] &&
-        root["lowercase_port_names"].IsScalar())
-        rules.lowercasePortNames =
-            root["lowercase_port_names"].as<bool>();
+    tryAssign(root, "lowercase_port_names", rules.lowercasePortNames, yamlPath);
     if (auto value = getString(root, "parameter_case_pattern"); value)
         rules.parameterCasePattern = *value;
     if (auto value = getString(root, "typedef_suffix_pattern"); value)
@@ -118,42 +141,20 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
         rules.regOutputSuffix = *value;
     if (auto value = getString(root, "comb_input_suffix"); value)
         rules.combInputSuffix = *value;
-    if (root["reject_digit_only_suffix"] &&
-        root["reject_digit_only_suffix"].IsScalar())
-        rules.rejectDigitOnlySuffix =
-            root["reject_digit_only_suffix"].as<bool>();
+    tryAssign(root, "reject_digit_only_suffix",
+              rules.rejectDigitOnlySuffix, yamlPath);
 
     // US-39E source-text style checks.
-    if (root["max_line_length"] && root["max_line_length"].IsScalar())
-        rules.maxLineLength = root["max_line_length"].as<int>();
-    if (root["prohibit_hard_tabs"] && root["prohibit_hard_tabs"].IsScalar())
-        rules.prohibitHardTabs = root["prohibit_hard_tabs"].as<bool>();
-    if (root["prohibit_trailing_whitespace"] &&
-        root["prohibit_trailing_whitespace"].IsScalar())
-        rules.prohibitTrailingWhitespace =
-            root["prohibit_trailing_whitespace"].as<bool>();
+    tryAssign(root, "max_line_length", rules.maxLineLength, yamlPath);
+    tryAssign(root, "prohibit_hard_tabs", rules.prohibitHardTabs, yamlPath);
+    tryAssign(root, "prohibit_trailing_whitespace",
+              rules.prohibitTrailingWhitespace, yamlPath);
 
     // US-39F file/module naming checks.
-    if (root["prohibit_multiple_modules_per_file"] &&
-        root["prohibit_multiple_modules_per_file"].IsScalar())
-        rules.prohibitMultipleModulesPerFile =
-            root["prohibit_multiple_modules_per_file"].as<bool>();
-    if (root["enforce_file_module_match"] &&
-        root["enforce_file_module_match"].IsScalar())
-        rules.enforceFileModuleMatch =
-            root["enforce_file_module_match"].as<bool>();
-
-    } catch (const YAML::Exception& e) {
-        // Codex cross-review: a malformed scalar (e.g. boolean field
-        // set to a non-bool string, integer field set to non-numeric
-        // text) aborts the rest of the extraction.  Warn and return
-        // whatever we have parsed so far rather than crashing the
-        // entire conn run.
-        fmt::print(stderr,
-                   "Warning: convention file '{}' has malformed scalar "
-                   "values: {} -- continuing with partial defaults\n",
-                   yamlPath, e.what());
-    }
+    tryAssign(root, "prohibit_multiple_modules_per_file",
+              rules.prohibitMultipleModulesPerFile, yamlPath);
+    tryAssign(root, "enforce_file_module_match",
+              rules.enforceFileModuleMatch, yamlPath);
 
     return rules;
 }

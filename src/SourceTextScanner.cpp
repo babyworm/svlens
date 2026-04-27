@@ -1,4 +1,5 @@
 #include "SourceTextScanner.h"
+#include "StyleReachability.h"
 
 #include <slang/syntax/AllSyntax.h>
 #include <slang/syntax/SyntaxVisitor.h>
@@ -12,7 +13,6 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -38,56 +38,6 @@ collectModuleDeclarations(const slang::syntax::SyntaxNode& root) {
     });
     visitor.visit(root);
     return result;
-}
-
-// Codex cross-review: collect the set of module definition names
-// reachable from `topModule` via instantiation. Mirrors the BFS in
-// StyleSyntaxScanner so that source-text rules honor the requested
-// top and ignore unrelated files in a filelist.
-static std::unordered_set<std::string> collectReachableModules(const slang::ast::Compilation& compilation,
-                                                               const std::string& topModule) {
-    using namespace slang::syntax;
-    std::unordered_set<std::string> reachable;
-    if (topModule.empty())
-        return reachable;
-
-    std::unordered_map<std::string, const ModuleDeclarationSyntax*> defMap;
-    for (const auto& tree : compilation.getSyntaxTrees()) {
-        if (!tree)
-            continue;
-        AllSyntaxVisitor finder([&](const SyntaxNode& n) {
-            if (n.kind == SyntaxKind::ModuleDeclaration) {
-                const auto& mod = static_cast<const ModuleDeclarationSyntax&>(n);
-                std::string name(mod.header->name.valueText());
-                defMap.emplace(name, &mod);
-            }
-        });
-        finder.visit(tree->root());
-    }
-
-    std::vector<std::string> worklist{topModule};
-    while (!worklist.empty()) {
-        std::string cur = worklist.back();
-        worklist.pop_back();
-        if (reachable.count(cur))
-            continue;
-        reachable.insert(cur);
-
-        auto it = defMap.find(cur);
-        if (it == defMap.end())
-            continue;
-
-        AllSyntaxVisitor childFinder([&](const SyntaxNode& n) {
-            if (n.kind == SyntaxKind::HierarchyInstantiation) {
-                const auto& hi = static_cast<const HierarchyInstantiationSyntax&>(n);
-                std::string childType(hi.type.valueText());
-                if (!reachable.count(childType))
-                    worklist.push_back(childType);
-            }
-        });
-        childFinder.visit(*it->second);
-    }
-    return reachable;
 }
 
 // Scan raw source text line-by-line and append style observations.

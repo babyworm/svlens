@@ -470,26 +470,37 @@ module width_lit_good (
         else         count_q <= count_q + 8'd1;
 endmodule
 
-// ─── R1 MAJOR: end-anchored _q suffix (GOOD) ─────────────────────
-// Locks in the fix that anchors `_q` to end-of-name (or `_q[0-9]+$`).
-// Both `data_qual_next` and `data_q_next` are combinational always_ff
-// targets that should NOT be flagged: the previous rfind("_q") logic
-// matched `_q` mid-string and incorrectly emitted MissingQSuffix.
-// Note: these names are still NB-LHS in always_ff so they DO get the
-// MissingQSuffix violation -- that part is correct.  The regression
-// test below asserts only that the BAD-style `_q_next` and `_qual_next`
-// patterns DO get flagged (because they are NOT end-anchored `_q`),
-// while pipeline stages `_q2`/`_q3` DO NOT get flagged.
+// ─── R1 MAJOR: end-anchored _q suffix (regression check) ────────
+// Locks in the fix that anchors the `_q` suffix detector at
+// END-OF-NAME (or `_q[0-9]+$`).  Before the v0.3.3 anchor fix the
+// rfind("_q") form happily matched `_q` mid-string, so:
+//   * `data_qual_next` was NOT flagged because the substring `_q`
+//     inside `_qual` was found and the trailing `ual_next` then
+//     failed an unrelated digit check.
+//   * `data_q_next` was likewise spared because `_q` was found mid-
+//     string ahead of `_next`.
+// After the anchor fix these names DO get the MissingQSuffix violation
+// (every always_ff NB-LHS must end in `_q` or `_q<digit>+`), while
+// `data_q` and the pipeline-stage `data_q2` correctly do NOT.
+//
+// The MissingQSuffix rule is independent of the `_q` mid-string
+// concern; the comments below explicitly call out the END-anchored
+// semantic so readers don't conflate the two concerns.
 module q_suffix_anchor_check (
     input        clk_i,
     input        rst_ni,
     input  [7:0] data_i,
     output [7:0] data_o
 );
-    logic [7:0] data_qual_next;  // BAD: _q is mid-string, not anchored
-    logic [7:0] data_q_next;     // BAD: _q not at end (followed by _next)
-    logic [7:0] data_q;          // GOOD: ends with _q
-    logic [7:0] data_q2;         // GOOD: ends with _q[0-9]+
+    // BAD (MissingQSuffix): NB-LHS in always_ff but the name does NOT
+    // end in `_q` / `_q<digit>+`.  The trailing `_next` defeats the
+    // end-anchored detector.
+    logic [7:0] data_qual_next;
+    logic [7:0] data_q_next;
+    // GOOD: ends with `_q` exactly.
+    logic [7:0] data_q;
+    // GOOD: ends with `_q<digit>+` (pipeline-stage form).
+    logic [7:0] data_q2;
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
             data_qual_next <= '0;

@@ -40,6 +40,9 @@ output_prefix: ""
 # lowRISC examples show both `i_<name>` and `u_<name>` styles. The
 # guide does not mandate a single form; OpenTitan uses `u_`. Set
 # this to whichever convention your project picked.
+# Note: instance_prefix accepts only a single value (no list form).
+# Passing "u_,inst_" is interpreted as a literal prefix, NOT as
+# alternation; pick one prefix per project.
 instance_prefix: "u_"
 
 # ─── Clock / reset patterns ────────────────────────────────────────

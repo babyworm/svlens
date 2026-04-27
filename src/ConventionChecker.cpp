@@ -43,6 +43,26 @@ template <typename T> void tryAssign(const YAML::Node& node, const char* key, T&
     }
 }
 
+// Fresh review R2 MAJOR: collapse the triplicated input/output/instance
+// nested-prefix YAML guard blocks into a single helper.  Codex Round 4
+// added the parent-shape guard; Round 36 added the inner conversion
+// catch.  Replicating both per direction made the next paste a fourth
+// time inevitable.
+void tryAssignNestedPrefix(const YAML::Node& root, const char* parent,
+                           const char* child, std::string& dst) {
+    try {
+        auto p = root[parent];
+        if (!p || !p.IsMap())
+            return;
+        auto c = p[child];
+        if (!c || !c.IsScalar())
+            return;
+        try {
+            dst = c.as<std::string>();
+        } catch (const YAML::Exception&) {}
+    } catch (const YAML::Exception&) {}
+}
+
 } // namespace
 
 ConventionRules loadConventionRules(const std::string& yamlPath) {
@@ -81,54 +101,22 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
         rules.inputPrefix = *value;
     else if (auto value = getString(root, "inputPrefix"); value)
         rules.inputPrefix = *value;
-    else {
-        // Codex Round 4 cross-review: guard the parent-shape check too.
-        // If `input` is a scalar (e.g. `input: scalar_not_a_map`) then
-        // `root["input"]["prefix"]` throws YAML::BadSubscript before the
-        // inner try fires.  Wrap the entire parent+child access so a
-        // non-map parent node is silently ignored.
-        try {
-            if (auto in = root["input"]; in && in.IsMap()) {
-                if (auto p = in["prefix"]; p && p.IsScalar()) {
-                    try {
-                        rules.inputPrefix = p.as<std::string>();
-                    } catch (const YAML::Exception&) {}
-                }
-            }
-        } catch (const YAML::Exception&) {}
-    }
+    else
+        tryAssignNestedPrefix(root, "input", "prefix", rules.inputPrefix);
 
     if (auto value = getString(root, "output_prefix"); value)
         rules.outputPrefix = *value;
     else if (auto value = getString(root, "outputPrefix"); value)
         rules.outputPrefix = *value;
-    else {
-        try {
-            if (auto out = root["output"]; out && out.IsMap()) {
-                if (auto p = out["prefix"]; p && p.IsScalar()) {
-                    try {
-                        rules.outputPrefix = p.as<std::string>();
-                    } catch (const YAML::Exception&) {}
-                }
-            }
-        } catch (const YAML::Exception&) {}
-    }
+    else
+        tryAssignNestedPrefix(root, "output", "prefix", rules.outputPrefix);
 
     if (auto value = getString(root, "instance_prefix"); value)
         rules.instancePrefix = *value;
     else if (auto value = getString(root, "instancePrefix"); value)
         rules.instancePrefix = *value;
-    else {
-        try {
-            if (auto inst = root["instance"]; inst && inst.IsMap()) {
-                if (auto p = inst["prefix"]; p && p.IsScalar()) {
-                    try {
-                        rules.instancePrefix = p.as<std::string>();
-                    } catch (const YAML::Exception&) {}
-                }
-            }
-        } catch (const YAML::Exception&) {}
-    }
+    else
+        tryAssignNestedPrefix(root, "instance", "prefix", rules.instancePrefix);
 
     // Round 36 lowRISC-style fields. All optional; missing keys leave
     // the field empty/false, which disables the corresponding check.

@@ -5,8 +5,9 @@
 
 #include <optional>
 #include <regex>
-#include <stdexcept>
 #include <set>
+#include <stdexcept>
+#include <vector>
 
 namespace connect {
 

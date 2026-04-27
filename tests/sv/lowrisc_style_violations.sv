@@ -328,6 +328,25 @@ module reset_polarity_bad (
     assign data_o = data_q;
 endmodule
 
+// ─── R1 MAJOR: bracket-indexed active-low reset (GOOD) ───────────
+// Locks in the fix that strips trailing `[...]` before active-low
+// suffix classification.  `rst_n[0]` was previously misclassified
+// as active-high because ends_with("_n") was false on the literal
+// "rst_n[0]" string returned by toString().
+module reset_polarity_bracketed_good (
+    input  logic        clk_i,
+    input  logic [1:0]  rst_n_arr,
+    input  logic [7:0]  data_i,
+    output logic [7:0]  data_o
+);
+    logic [7:0] data_q;
+    always_ff @(posedge clk_i or negedge rst_n_arr[0]) begin
+        if (!rst_n_arr[0]) data_q <= '0;
+        else               data_q <= data_i;
+    end
+    assign data_o = data_q;
+endmodule
+
 // ─── Reset polarity: or syntax (GOOD) ────────────────────────────
 // Canonical lowRISC form uses `or` between posedge clk and negedge rst.
 module reset_polarity_good (

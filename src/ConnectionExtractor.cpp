@@ -1006,7 +1006,20 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
                                     auto is_active_low_named = [](const std::string& s) {
                                         return s.ends_with("_n") || s.ends_with("_ni");
                                     };
-                                    bool activeHigh = looks_like_reset(sigText) && !is_active_low_named(sigText);
+                                    // R1 MAJOR: strip trailing bracket
+                                    // index (`rst_n[i]`, `rst_ni[0]`)
+                                    // before suffix tests.  The previous
+                                    // ends_with("_n") check failed on the
+                                    // bracketed form, so a bracket-indexed
+                                    // active-low reset was misclassified
+                                    // as active-high.
+                                    auto stripIndex = [](std::string s) {
+                                        if (auto b = s.find('['); b != std::string::npos)
+                                            s.resize(b);
+                                        return s;
+                                    };
+                                    const auto bare = stripIndex(sigText);
+                                    bool activeHigh = looks_like_reset(bare) && !is_active_low_named(bare);
                                     if (activeHigh) {
                                         StyleObservation obs;
                                         obs.kind = StyleObservation::Kind::

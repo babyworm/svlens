@@ -249,6 +249,13 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
     CHECK(rp_good.find("comma syntax") == std::string::npos);
     CHECK(rp_good.find("reset-polarity") == std::string::npos);
 
+    // R1 MAJOR: bracket-indexed active-low reset must NOT be flagged
+    // as active-high.  Before the stripIndex fix, `rst_n_arr[0]`
+    // failed the ends_with("_n") test on the literal bracket form
+    // and was misclassified.
+    auto rpb_good = run_top("reset_polarity_bracketed_good");
+    CHECK(rpb_good.find("active-high reset") == std::string::npos);
+
     // Round 39 US-39B: FF d-suffix check.
     // ff_d_suffix_bad has valid_q in always_ff but comb input is
     // named valid_next (not valid_d) -- should emit MissingDSuffix.

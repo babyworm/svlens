@@ -264,3 +264,123 @@ TEST_CASE("ConventionChecker: bad scalar does not skip later valid keys") {
 
     std::remove(yamlPath);
 }
+
+TEST_CASE("ConventionChecker: cyclic anchor does not crash loader") {
+    // Fresh review R1B WEAK #1 (HIGH risk): a malformed YAML with a
+    // self-referencing alias used to bypass the LoadFile try/catch in
+    // pre-CVE-2024-35325 yaml-cpp builds.  The loader now wraps
+    // YAML::LoadFile in try/catch and surfaces a runtime_error if
+    // yaml-cpp throws.  Either outcome (default rules OR a runtime
+    // exception) is acceptable; what is NOT acceptable is a SIGSEGV
+    // / stack overflow.
+    const char* yamlPath = "test_convention_cyclic_anchor.yaml";
+    {
+        std::ofstream ofs(yamlPath);
+        REQUIRE(ofs.good());
+        // Self-referencing alias.  yaml-cpp typically throws here;
+        // the loader catches and rethrows as runtime_error.
+        ofs << "key: &a\n";
+        ofs << "  - *a\n";
+    }
+
+    // Either the loader returns a (possibly default) ConventionRules
+    // OR it throws std::runtime_error.  Both outcomes are safe; the
+    // failure mode this test guards against is a process crash.
+    bool threw = false;
+    ConventionRules rules;
+    try {
+        rules = loadConventionRules(yamlPath);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK((threw || rules.maxLineLength == 0));
+
+    std::remove(yamlPath);
+}
+
+TEST_CASE("ConventionChecker: deeply nested aliases do not stack-overflow") {
+    // Fresh review R1B WEAK #1 (HIGH risk): adversarial YAML with
+    // ~50 levels of nested anchors / sequences could provoke
+    // unbounded recursion in older yaml-cpp builds.  Verify the
+    // loader returns cleanly (either with defaults or a
+    // runtime_error) without crashing.
+    const char* yamlPath = "test_convention_deep_nesting.yaml";
+    {
+        std::ofstream ofs(yamlPath);
+        REQUIRE(ofs.good());
+        // 50 levels of nested sequences as a flow-style scalar.
+        ofs << "max_line_length: ";
+        for (int i = 0; i < 50; ++i) ofs << "[";
+        ofs << "100";
+        for (int i = 0; i < 50; ++i) ofs << "]";
+        ofs << "\n";
+        // A valid key alongside, so we can verify per-field recovery.
+        ofs << "prohibit_hard_tabs: true\n";
+    }
+
+    ConventionRules rules;
+    bool threw = false;
+    try {
+        rules = loadConventionRules(yamlPath);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    // Either path: must not crash.  When the file parses, the deeply
+    // nested sequence cannot be coerced to int so max_line_length
+    // keeps its default (0); the unrelated valid bool either stays
+    // default (load aborted) or applies cleanly (per-field recovery).
+    CHECK((threw || rules.maxLineLength == 0));
+
+    std::remove(yamlPath);
+}
+
+TEST_CASE("ConventionChecker: empty YAML body produces default-initialized rules") {
+    // Fresh review R1B WEAK #1: degenerate input.  An empty `{}`
+    // body must NOT throw; the loader returns ConventionRules with
+    // all defaults.
+    const char* yamlPath = "test_convention_empty.yaml";
+    {
+        std::ofstream ofs(yamlPath);
+        REQUIRE(ofs.good());
+        ofs << "{}\n";
+    }
+
+    ConventionRules rules;
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+
+    // Cross-check against a default-constructed instance.
+    ConventionRules defaults;
+    CHECK(rules.inputPrefix == defaults.inputPrefix);
+    CHECK(rules.outputPrefix == defaults.outputPrefix);
+    CHECK(rules.instancePrefix == defaults.instancePrefix);
+    CHECK(rules.maxLineLength == defaults.maxLineLength);
+    CHECK(rules.prohibitHardTabs == defaults.prohibitHardTabs);
+    CHECK(rules.enforceFileModuleMatch == defaults.enforceFileModuleMatch);
+
+    std::remove(yamlPath);
+}
+
+TEST_CASE("ConventionChecker: unknown keys are silently ignored") {
+    // Fresh review R1B WEAK #1: forward-compatibility check.  An
+    // unknown top-level key (e.g. a future feature added by another
+    // tooling layer) must NOT abort load nor invalidate the valid
+    // keys that follow in the same file.
+    const char* yamlPath = "test_convention_unknown_key.yaml";
+    {
+        std::ofstream ofs(yamlPath);
+        REQUIRE(ofs.good());
+        ofs << "unknown_future_key: \"ignored\"\n";
+        ofs << "max_line_length: 100\n";
+        ofs << "another_unknown: 42\n";
+        ofs << "prohibit_hard_tabs: true\n";
+    }
+
+    ConventionRules rules;
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+
+    // Valid keys must be applied.
+    CHECK(rules.maxLineLength == 100);
+    CHECK(rules.prohibitHardTabs == true);
+
+    std::remove(yamlPath);
+}

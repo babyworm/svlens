@@ -30,14 +30,24 @@ option(SVLENS_KEEP_SLANG_DEBUG "Keep slang's Debug-conditional SLANG_DEBUG macro
 if(NOT SVLENS_KEEP_SLANG_DEBUG)
     get_target_property(_svlens_slang_defs slang::slang INTERFACE_COMPILE_DEFINITIONS)
     if(_svlens_slang_defs)
-        list(REMOVE_ITEM _svlens_slang_defs "$<$<CONFIG:Debug>:SLANG_DEBUG>")
+        # Fresh review R3: regex-based strip of any
+        # `$<$<CONFIG:Debug>:...>` generator expression so additional
+        # Debug-conditional macros slang adds in the future are also
+        # filtered automatically.  The previous literal REMOVE_ITEM
+        # only matched SLANG_DEBUG verbatim.
+        set(_kept_defs)
+        foreach(_def IN LISTS _svlens_slang_defs)
+            if(NOT _def MATCHES "^\\$<\\$<CONFIG:Debug>:.+>$")
+                list(APPEND _kept_defs "${_def}")
+            endif()
+        endforeach()
         set_target_properties(slang::slang PROPERTIES
-            INTERFACE_COMPILE_DEFINITIONS "${_svlens_slang_defs}")
+            INTERFACE_COMPILE_DEFINITIONS "${_kept_defs}")
         message(STATUS
-            "svlens: stripped slang's $<$<CONFIG:Debug>:SLANG_DEBUG> "
-            "interface (slang prebuilt as Release; see CMakeLists.txt "
-            "for details). Set SVLENS_KEEP_SLANG_DEBUG=ON if your "
-            "slang was built Debug.")
+            "svlens: stripped slang's $<$<CONFIG:Debug>:...> "
+            "generator expressions (slang prebuilt as Release; see "
+            "CMakeLists.txt for details). Set SVLENS_KEEP_SLANG_DEBUG=ON "
+            "if your slang was built Debug.")
     endif()
 endif()
 # fmt: prefer slang's bundled copy; fall back to system install

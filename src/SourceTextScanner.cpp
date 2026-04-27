@@ -277,11 +277,4 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation, const s
     }
 }
 
-void SourceTextScanner::scan(const slang::ast::Compilation& compilation, const ConventionRules& rules,
-                             ConnectionGraph& graph_out) {
-    // Legacy overload: passing an empty topModule disables reachability
-    // gating, preserving the original "scan every syntax tree" behavior.
-    scan(compilation, /*topModule=*/std::string{}, rules, graph_out);
-}
-
 } // namespace connect

@@ -55,14 +55,6 @@ public:
     /// themselves reachable.
     static void scan(const slang::ast::Compilation& compilation, const std::string& topModule,
                      const ConventionRules& rules, ConnectionGraph& graph_out);
-
-    /// Legacy "scan everything" overload kept for callers that do not
-    /// have a top module name; equivalent to passing an empty topModule
-    /// which disables reachability gating.  New callers should prefer
-    /// the topModule-aware overload above.
-    static void scan(const slang::ast::Compilation& compilation,
-                     const ConventionRules& rules,
-                     ConnectionGraph& graph_out);
 };
 
 } // namespace connect

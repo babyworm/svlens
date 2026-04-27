@@ -76,7 +76,8 @@ static void scanSourceText(const std::string& filePath,
         // carries meaningful file:line context via the detail string.
         // (We encode the line number in the detail message directly.)
 
-        auto emitObs = [&](StyleObservation::Kind kind, const std::string& detail) {
+        auto emitObs = [&](StyleObservation::Kind kind, const std::string& detail,
+                           uint32_t column) {
             StyleObservation obs;
             obs.kind = kind;
             obs.scopePath = filePath;
@@ -86,6 +87,12 @@ static void scanSourceText(const std::string& filePath,
             // offset; line/column info is published via lineNumber so
             // JSON consumers don't need to parse the detail string.
             obs.lineNumber = static_cast<uint32_t>(lineNum);
+            // Fresh review R1A MAJOR: schema advertises optional
+            // `column`, but until now source-text scanners shipped
+            // observations with column==0 so JsonReport silently
+            // suppressed the field.  Each rule provides the offset
+            // within the line where the violation begins (1-based).
+            obs.columnNumber = column;
             graph.styleObservations.push_back(std::move(obs));
         };
 
@@ -99,17 +106,23 @@ static void scanSourceText(const std::string& filePath,
             if (lineLen > maxLen) {
                 emitObs(StyleObservation::Kind::LineTooLong,
                         fmt::format("{}:{}: line length {} exceeds max {} chars",
-                                    filePath, lineNum, lineLen, rules.maxLineLength));
+                                    filePath, lineNum, lineLen, rules.maxLineLength),
+                        // Column points at the first byte that violates
+                        // the limit (i.e. maxLen + 1 in 1-based terms).
+                        static_cast<uint32_t>(maxLen + 1));
             }
         }
 
         // US-39E.2: hard tab
         bool sawHardTab = false;
         if (checkTab) {
-            if (lineContent.find('\t') != std::string_view::npos) {
+            size_t tabPos = lineContent.find('\t');
+            if (tabPos != std::string_view::npos) {
                 emitObs(StyleObservation::Kind::HardTab,
                         fmt::format("{}:{}: hard tab character found (use spaces)",
-                                    filePath, lineNum));
+                                    filePath, lineNum),
+                        // Column of the first tab character (1-based).
+                        static_cast<uint32_t>(tabPos + 1));
                 sawHardTab = true;
             }
         }
@@ -121,9 +134,18 @@ static void scanSourceText(const std::string& filePath,
         if (checkTrail && !lineContent.empty()) {
             char last = lineContent.back();
             if (last == ' ' || (last == '\t' && !sawHardTab)) {
+                // Walk backward from the line end to find the first
+                // byte of the trailing-whitespace run; column is 1-based.
+                size_t wsStart = lineContent.size();
+                while (wsStart > 0 &&
+                       (lineContent[wsStart - 1] == ' ' ||
+                        lineContent[wsStart - 1] == '\t')) {
+                    --wsStart;
+                }
                 emitObs(StyleObservation::Kind::TrailingWhitespace,
                         fmt::format("{}:{}: trailing whitespace",
-                                    filePath, lineNum));
+                                    filePath, lineNum),
+                        static_cast<uint32_t>(wsStart + 1));
             }
         }
 
@@ -253,6 +275,10 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation, const s
                 // downstream tooling can jump to the offending decl.
                 if (modules.size() > 1)
                     obs.lineNumber = static_cast<uint32_t>(sm.getLineNumber(modules[1].second));
+                // Fresh review R1A MAJOR: file-level rule anchored at
+                // line start; column 1 marks the line so JSON consumers
+                // get a non-zero structured field.
+                obs.columnNumber = 1;
                 graph_out.styleObservations.push_back(std::move(obs));
             }
 
@@ -270,6 +296,9 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation, const s
                         "(lowRISC requires file name == module name)",
                         filePath, base, modName);
                     obs.lineNumber = static_cast<uint32_t>(sm.getLineNumber(modules[0].second));
+                    // Fresh review R1A MAJOR: anchor the line-start
+                    // column so JSON consumers see a non-zero column.
+                    obs.columnNumber = 1;
                     graph_out.styleObservations.push_back(std::move(obs));
                 }
             }

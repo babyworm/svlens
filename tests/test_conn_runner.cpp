@@ -355,6 +355,18 @@ TEST_CASE("ConnRunner: source-text + file-name rules emit when YAML enables them
     // nonzero.
     CHECK(body.find("\"line\": 13") != std::string::npos);
     CHECK(body.find("\"line\": 14") != std::string::npos);
+
+    // Fresh review R1A MAJOR #1: schema advertises optional `column`
+    // for source-text observations, but until the scanner started
+    // populating columnNumber the field was suppressed by JsonReport.
+    // Lock in the contract by asserting that at least one column shows
+    // up in the JSON.  Fixture layout:
+    //   line 13: hard tab is the first character of the line
+    //           -> HardTab column == 1
+    //   line 13: line length 100+ exceeds max=80
+    //           -> LineTooLong column == 81 (maxLineLength + 1)
+    CHECK(body.find("\"column\": 1") != std::string::npos);
+    CHECK(body.find("\"column\": 81") != std::string::npos);
 }
 
 TEST_CASE("ConnRunner: source-text emits FileNameMismatch for mismatched basename",

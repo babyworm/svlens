@@ -26,6 +26,8 @@ until analytical-trust milestones explicitly freeze them.
 - `detail`
 - optional `source`
 - optional `dest`
+- optional `line` (since v0.3.3, integer; emitted when known and non-zero)
+- optional `column` (since v0.3.3, integer; emitted when known and non-zero)
 
 ## `analysis`
 - `overall_score`

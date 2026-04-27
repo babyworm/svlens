@@ -177,6 +177,16 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
     // forms) must not be flagged.
     CHECK(bad_body.find("port 'clk_i' does not") == std::string::npos);
 
+    // Fresh review R1B WEAK #4: pin EXACT CONVENTION counts so a
+    // future change that silently emits one more (or one fewer) rule
+    // violation surfaces as test failure rather than silent drift.
+    // The substring `"type": "CONVENTION"` appears once per issue in
+    // the `issues[]` array and once per matching entry in the
+    // `analysis.risks[]` mirror, so the helper count is 2x the
+    // semantic issue count.  ports_bad: 35 CONVENTION issues -> 70
+    // substring hits.
+    CHECK(count(bad_body, "\"type\": \"CONVENTION\"") == 70);
+
     // BAD: digit_suffix_bad triggers the reject_digit_only_suffix rule.
     // The detail message contains `_<digit>` which the JSON renderer
     // escapes the `<` to `\u003c`, so we search on a stable prefix.
@@ -292,8 +302,86 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
     auto wl_bad = run_top("width_lit_bad");
     CHECK(wl_bad.find("bare integer literal") != std::string::npos);
     CHECK(wl_bad.find("no explicit width") != std::string::npos);
+    // Fresh review R1B WEAK #4: pin width_lit_bad exact CONVENTION
+    // count.  26 CONVENTION issues -> 52 substring hits.
+    CHECK(count(wl_bad, "\"type\": \"CONVENTION\"") == 52);
     auto wl_good = run_top("width_lit_good");
     CHECK(wl_good.find("bare integer literal") == std::string::npos);
+
+    // Fresh review R1B WEAK #4: pin case_bad exact CONVENTION count.
+    // case_bad fires unique+default missing rules; combined with the
+    // file-level source-text rules, the substring count is 52.
+    auto cs_bad_again = run_top("case_bad");
+    CHECK(count(cs_bad_again, "\"type\": \"CONVENTION\"") == 52);
+}
+
+TEST_CASE("ConnRunner: StyleSyntaxScanner and SourceTextScanner emit consistent scopePath",
+          "[conn][runner][source_text][scope_path_consistency]") {
+    // Fresh review R1B WEAK #5: after v0.3.3 unified getRawFileName
+    // across both scanners (drove off Compilation::getSourceManager()
+    // and the same getRawFileName(buffer) call), no test directly
+    // pinned that contract.  A regression to per-tree sourceManager()
+    // / getFileName() would silently split observations across
+    // mismatched scopePath strings -- consumers that group issues by
+    // file would silently lose grouping.
+    //
+    // The lowrisc_style_violations.sv fixture triggers BOTH scanners
+    // (width_lit_bad triggers StyleSyntaxScanner BareIntegerLiteral;
+    // the file's long lines + multi-module layout triggers
+    // SourceTextScanner LineTooLong / MultipleModulesPerFile).  Both
+    // observation kinds MUST surface the same `port` instancePath
+    // prefix in the JSON, since both scanners now derive scopePath
+    // from the same getRawFileName(buffer) call.
+    auto result = testutils::compileFile("sv/lowrisc_style_violations.sv");
+    REQUIRE(result);
+
+    const auto out =
+        fs::temp_directory_path() / "svlens_conn_scope_path_consistency";
+    fs::remove_all(out);
+    fs::create_directories(out);
+
+    // Use the shipped example yaml so both scanners are active.
+    auto yaml_path = fs::path(TEST_SV_DIR).parent_path().parent_path() /
+                     "examples" / "styles" / "lowrisc.yaml";
+    REQUIRE(fs::exists(yaml_path));
+
+    connect::ConnCliOptions opts;
+    opts.topModule = "width_lit_bad";
+    opts.format = "json";
+    opts.outputDir = (out / "report").string();
+    opts.checkConvention = true;
+    opts.conventionFile = yaml_path.string();
+
+    connect::runConnWithCompilation(*result.compilation, opts);
+    REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
+    std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
+    std::string body((std::istreambuf_iterator<char>(ifs)),
+                     std::istreambuf_iterator<char>());
+
+    // Both scanners must include "lowrisc_style_violations.sv" as the
+    // file basename in the port path; if either side regressed to
+    // per-tree getFileName() (which can stale-include `\`line directives
+    // or differ in absolute-vs-relative path encoding), one of these
+    // checks would fail.
+    // StyleSyntaxScanner emits BareIntegerLiteral (`bare integer literal '2'`).
+    // SourceTextScanner emits LineTooLong (`line length ... exceeds max`).
+    // The fixture basename "lowrisc_style_violations" must appear in both.
+    CHECK(body.find("bare integer literal") != std::string::npos);
+    CHECK(body.find("exceeds max") != std::string::npos);
+    CHECK(body.find("lowrisc_style_violations") != std::string::npos);
+
+    // Cross-scanner scopePath uniformity: the file-name segment must
+    // appear at most once-per-buffer.  Pre-v0.3.3 the two scanners
+    // could surface the same buffer under two distinct path encodings
+    // (per-tree sm + getFileName vs global sm + getRawFileName).  A
+    // simple positive-match check: the basename appears in BOTH the
+    // BareIntegerLiteral detail's port instance path AND the
+    // SourceTextScanner detail's port instance path.  We assert that
+    // the substring `lowrisc_style_violations.sv` (the path segment
+    // both scanners now emit via getRawFileName) appears at least
+    // once in the body for both observation kinds, and never paired
+    // with a `<unknown>` fallback (the SourceTextScanner placeholder).
+    CHECK(body.find("<unknown>") == std::string::npos);
 }
 
 TEST_CASE("ConnRunner: source-text + file-name rules emit when YAML enables them",

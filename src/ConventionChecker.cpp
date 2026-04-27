@@ -63,6 +63,23 @@ void tryAssignNestedPrefix(const YAML::Node& root, const char* parent,
     } catch (const YAML::Exception&) {}
 }
 
+// Fresh review R1 + R2 MINOR: ReDoS heuristic regex moved out of the
+// per-call lambda.  The inner static literal either compiles at
+// process start or never; wrapping the construction in try/catch on
+// every call was dead code.  Construction here is guarded once at
+// static-init; consumers see std::nullopt if the literal somehow
+// failed to compile (no real compiler will hit that branch).
+const std::optional<std::regex>& altQuantRegex() {
+    static const std::optional<std::regex> re = []() -> std::optional<std::regex> {
+        try {
+            return std::regex(R"(\([^)]*\|[^)]*[+*][^)]*\)\s*[+*])");
+        } catch (const std::regex_error&) {
+            return std::nullopt;
+        }
+    }();
+    return re;
+}
+
 } // namespace
 
 ConventionRules loadConventionRules(const std::string& yamlPath) {
@@ -204,16 +221,9 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
         // when the inner class does not include the literal sep,
         // and they appear in routine reset/clock patterns; flagging
         // them would break valid configs.
-        try {
-            // group containing a `|` AND a `+`/`*`, followed by
-            // an outer `+`/`*` quantifier on the group itself.
-            static const std::regex altQuant(R"(\([^)]*\|[^)]*[+*][^)]*\)\s*[+*])");
-            if (std::regex_search(p, altQuant))
-                return true;
-        } catch (const std::regex_error&) {
-            // If our own ReDoS detector regex fails to compile we
-            // skip the heuristic; the length cap below still applies.
-        }
+        const auto& altQuant = altQuantRegex();
+        if (altQuant && std::regex_search(p, *altQuant))
+            return true;
         // Three+ consecutive quantifier characters (`+++`, `***`)
         // are never well-formed ECMAScript and serve as a cheap
         // syntactic ReDoS canary independent of the regex engine.

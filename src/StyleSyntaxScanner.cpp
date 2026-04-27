@@ -233,12 +233,20 @@ void StyleSyntaxScanner::scan(const slang::ast::Compilation& compilation,
     auto allowed = collectReachableModules(compilation, topModule);
     StyleScanner scanner(graph_out, allowed);
 
+    // R1 MINOR: drive line/column lookup off the global compilation
+    // SourceManager and surface the raw (pre-`line) file name.
+    // Previously we used the per-tree sourceManager() and getFileName,
+    // which split observations across mismatched scopePath strings
+    // when `line directives or include-headers were involved.
+    const auto* globalSm = compilation.getSourceManager();
+
     for (const auto& tree : compilation.getSyntaxTrees()) {
         if (!tree) continue;
-        scanner.filePath =
-            std::string(tree->sourceManager().getFileName(
-                tree->root().getFirstToken().location()));
-        scanner.sm = &tree->sourceManager();
+        slang::SourceLocation rootLoc = tree->root().getFirstToken().location();
+        scanner.filePath = globalSm
+            ? std::string(globalSm->getRawFileName(rootLoc.buffer()))
+            : std::string{};
+        scanner.sm = globalSm;
         tree->root().visit(scanner);
     }
 }

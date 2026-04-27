@@ -162,11 +162,17 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation, const s
     // in multi-compilation-unit setups).
     std::unordered_set<uint32_t> scannedBuffers;
 
+    // R1 MINOR: drive line-number lookup off the compilation's global
+    // SourceManager so include-header buffers (which the per-tree sm
+    // may not own) still resolve.  Falls back to the per-tree sm if
+    // the global is unavailable -- preserves prior behavior.
+    const auto* globalSm = compilation.getSourceManager();
+
     for (const auto& tree : compilation.getSyntaxTrees()) {
         if (!tree) continue;
 
         const auto& root = tree->root();
-        const auto& sm = tree->sourceManager();
+        const auto& sm = globalSm ? *globalSm : tree->sourceManager();
 
         // Obtain the BufferID for this tree's root token.
         slang::BufferID bufId =

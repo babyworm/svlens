@@ -822,21 +822,25 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
                         if (base.find('.') != std::string::npos)
                             return;
                         std::string leaf = base;
-                        // Match `_q` or `_q<digits>` at end.
+                        // Anchor `_q` at end of leaf (R1 MAJOR): the
+                        // previous rfind("_q") matched mid-string, so a
+                        // comb signal like `data_qual_next` was flagged
+                        // because `_q` inside `_qual` was found and the
+                        // tail digit-check failed.  Now only accept the
+                        // exact patterns `_q$` or `_q[0-9]+$`.
                         bool ok = false;
-                        if (leaf.size() >= 2) {
-                            size_t pos = leaf.rfind("_q");
-                            if (pos != std::string::npos && pos + 2 <= leaf.size()) {
-                                bool tail_ok = true;
-                                for (size_t i = pos + 2; i < leaf.size(); ++i) {
-                                    if (!std::isdigit(static_cast<unsigned char>(leaf[i]))) {
-                                        tail_ok = false; break;
-                                    }
-                                }
-                                if (tail_ok && pos + 2 == leaf.size())
-                                    ok = true;       // ends `_q`
-                                else if (tail_ok)
-                                    ok = (pos + 2 < leaf.size()); // `_q2`, etc.
+                        if (leaf.ends_with("_q")) {
+                            ok = true;
+                        } else if (leaf.size() >= 3) {
+                            // Walk back from end while digits, then
+                            // require the preceding two chars to be `_q`.
+                            size_t i = leaf.size();
+                            while (i > 0 &&
+                                   std::isdigit(static_cast<unsigned char>(leaf[i - 1])))
+                                --i;
+                            if (i < leaf.size() && i >= 2 &&
+                                leaf[i - 2] == '_' && leaf[i - 1] == 'q') {
+                                ok = true;  // matches `_q[0-9]+$`
                             }
                         }
                         // Suppress noise for compiler-generated temps
@@ -861,13 +865,9 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
                         // Only collect when the name ends exactly with `_q`
                         // (single-stage); pipeline stages like `valid_q2`
                         // don't require a `valid_d` counterpart.
-                        if (ok && !leaf.empty()) {
-                            size_t pos = leaf.rfind("_q");
-                            if (pos != std::string::npos &&
-                                pos + 2 == leaf.size()) {
-                                // Ends exactly with `_q` -- base is prefix.
-                                registered_q_bases_.insert(leaf.substr(0, pos));
-                            }
+                        if (ok && leaf.size() >= 2 && leaf.ends_with("_q")) {
+                            // Ends exactly with `_q` -- base is prefix.
+                            registered_q_bases_.insert(leaf.substr(0, leaf.size() - 2));
                         }
                         return;
                     }

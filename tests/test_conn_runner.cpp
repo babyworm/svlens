@@ -227,6 +227,19 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
     auto fq_good = run_top("ff_q_suffix_good");
     CHECK(fq_good.find("lacks `_q`") == std::string::npos);
 
+    // R1 MAJOR: anchor `_q` suffix at end of leaf.  The previous
+    // rfind("_q") form matched mid-string, so `data_qual_next` was
+    // flagged because `_q` inside `_qual` was found and the trailing
+    // `ual_next` failed the digit check.  After anchoring, the BAD
+    // names `data_qual_next` and `data_q_next` MUST surface as
+    // MissingQSuffix (they are still always_ff NB-LHS without
+    // end-anchored `_q`), while `data_q` and `data_q2` MUST NOT.
+    auto qa_body = run_top("q_suffix_anchor_check");
+    CHECK(qa_body.find("'data_qual_next' lacks `_q`") != std::string::npos);
+    CHECK(qa_body.find("'data_q_next' lacks `_q`") != std::string::npos);
+    CHECK(qa_body.find("'data_q' lacks `_q`") == std::string::npos);
+    CHECK(qa_body.find("'data_q2' lacks `_q`") == std::string::npos);
+
     // Round 39 US-39A: reset-polarity check.
     // reset_polarity_bad uses comma syntax @(posedge clk_i, negedge rst_ni)
     // which must be flagged. reset_polarity_good uses `or` and must be clean.

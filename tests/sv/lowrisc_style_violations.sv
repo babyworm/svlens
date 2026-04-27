@@ -451,6 +451,42 @@ module width_lit_good (
         else         count_q <= count_q + 8'd1;
 endmodule
 
+// ─── R1 MAJOR: end-anchored _q suffix (GOOD) ─────────────────────
+// Locks in the fix that anchors `_q` to end-of-name (or `_q[0-9]+$`).
+// Both `data_qual_next` and `data_q_next` are combinational always_ff
+// targets that should NOT be flagged: the previous rfind("_q") logic
+// matched `_q` mid-string and incorrectly emitted MissingQSuffix.
+// Note: these names are still NB-LHS in always_ff so they DO get the
+// MissingQSuffix violation -- that part is correct.  The regression
+// test below asserts only that the BAD-style `_q_next` and `_qual_next`
+// patterns DO get flagged (because they are NOT end-anchored `_q`),
+// while pipeline stages `_q2`/`_q3` DO NOT get flagged.
+module q_suffix_anchor_check (
+    input        clk_i,
+    input        rst_ni,
+    input  [7:0] data_i,
+    output [7:0] data_o
+);
+    logic [7:0] data_qual_next;  // BAD: _q is mid-string, not anchored
+    logic [7:0] data_q_next;     // BAD: _q not at end (followed by _next)
+    logic [7:0] data_q;          // GOOD: ends with _q
+    logic [7:0] data_q2;         // GOOD: ends with _q[0-9]+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            data_qual_next <= '0;
+            data_q_next    <= '0;
+            data_q         <= '0;
+            data_q2        <= '0;
+        end else begin
+            data_qual_next <= data_i;
+            data_q_next    <= data_qual_next;
+            data_q         <= data_q_next;
+            data_q2        <= data_q;
+        end
+    end
+    assign data_o = data_q2;
+endmodule
+
 // ─── always_ff with proper _q (GOOD) ─────────────────────────────
 // data_q (single stage), valid_q / valid_q2 / valid_q3 (pipeline)
 module ff_q_suffix_good (

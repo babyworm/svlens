@@ -348,8 +348,8 @@ TEST_CASE("ConnRunner: source-text + file-name rules emit when YAML enables them
     CHECK(body.find(":13:") != std::string::npos);
     CHECK(body.find(":14:") != std::string::npos);
 
-    // Codex cross-review: verify the structured `line` JSON field is
-    // emitted by JsonReport, not just the line marker inside detail.
+    // Verify the structured `line` JSON field is emitted by
+    // JsonReport, not just the line marker inside detail.
     // SourceTextScanner populates obs.lineNumber, ConventionChecker
     // copies it onto Issue, and JsonReport emits `"line": <n>` when
     // nonzero.
@@ -405,12 +405,11 @@ TEST_CASE("ConnRunner: source-text emits FileNameMismatch for mismatched basenam
 
 TEST_CASE("ConnRunner: source-text reachability suppresses unrelated file",
           "[conn][runner][source_text][reachability][unrelated]") {
-    // Codex cross-review: more direct test for SourceTextScanner
-    // reachability gating.  Compile two files together (the clean top
-    // fixture and the unrelated sibling fixture) and request the
-    // clean top.  The sibling file's violations must NOT appear in
-    // the report because its only module is not reachable from the
-    // requested top.
+    // More direct test for SourceTextScanner reachability gating.
+    // Compile two files together (the clean top fixture and the
+    // unrelated sibling fixture) and request the clean top.  The
+    // sibling file's violations must NOT appear in the report because
+    // its only module is not reachable from the requested top.
     namespace fs = std::filesystem;
     auto session = std::make_unique<connect::CompilationSession>();
     auto top_path = fs::path(TEST_SV_DIR) / "clean_source_text.sv";
@@ -460,9 +459,9 @@ TEST_CASE("ConnRunner: source-text reachability suppresses unrelated file",
 
 TEST_CASE("ConnRunner: source-text scope is file-level (sibling violations included)",
           "[conn][runner][source_text][reachability][sibling_lockin]") {
-    // Codex Round 2 cross-review: SourceTextScanner reachability is
-    // FILE-LEVEL: any reachable module in a buffer admits the whole
-    // buffer.  This is intentional -- physical-line rules like
+    // SourceTextScanner reachability is FILE-LEVEL: any reachable
+    // module in a buffer admits the whole buffer.  This is
+    // intentional -- physical-line rules like
     // LineTooLong cannot be attributed to a single module declaration
     // when a line could span declarations.  Sibling code in the same
     // file is NOT exempt; users must put unrelated code in a separate

@@ -835,12 +835,10 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
                             // Walk back from end while digits, then
                             // require the preceding two chars to be `_q`.
                             size_t i = leaf.size();
-                            while (i > 0 &&
-                                   std::isdigit(static_cast<unsigned char>(leaf[i - 1])))
+                            while (i > 0 && std::isdigit(static_cast<unsigned char>(leaf[i - 1])))
                                 --i;
-                            if (i < leaf.size() && i >= 2 &&
-                                leaf[i - 2] == '_' && leaf[i - 1] == 'q') {
-                                ok = true;  // matches `_q[0-9]+$`
+                            if (i < leaf.size() && i >= 2 && leaf[i - 2] == '_' && leaf[i - 1] == 'q') {
+                                ok = true; // matches `_q[0-9]+$`
                             }
                         }
                         // Suppress noise for compiler-generated temps

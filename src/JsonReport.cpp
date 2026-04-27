@@ -78,9 +78,9 @@ void JsonReportGenerator::generate(const ReportData& data, std::ostream& out) co
         }
 
         out << fmt::format("      \"detail\": \"{}\"", escapeJson(issue.detail));
-        // Codex cross-review: emit explicit line/column when the
-        // upstream observation carries them, so JSON consumers can
-        // jump to source without regex-parsing the detail string.
+        // Emit explicit line/column when the upstream observation
+        // carries them, so JSON consumers can jump to source without
+        // regex-parsing the detail string.
         if (issue.lineNumber != 0)
             out << fmt::format(",\n      \"line\": {}", issue.lineNumber);
         if (issue.columnNumber != 0)

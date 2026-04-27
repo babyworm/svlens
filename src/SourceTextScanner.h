@@ -23,7 +23,7 @@ namespace connect {
 /// declaration counts.  Observations are appended into the provided
 /// ConnectionGraph.
 ///
-/// Scope semantics (Codex Round 2 cross-review):
+/// Scope semantics:
 ///   Source-text rules apply at FILE granularity: when @p topModule is
 ///   set, files containing AT LEAST ONE reachable module are scanned in
 ///   full; sibling modules in the same file are NOT exempt.  This is
@@ -37,10 +37,10 @@ namespace connect {
 ///   matches user expectation that `topModule` selects a unit-of-build.
 class SourceTextScanner {
 public:
-    /// Codex cross-review: scope source-text scanning to files that
-    /// participate in the analysis of @p topModule. Without scoping,
-    /// filelist runs (vendor IP, alternate tops) emitted style INFOs
-    /// for unrelated files, affecting the issue exit code.
+    /// Scope source-text scanning to files that participate in the
+    /// analysis of @p topModule. Without scoping, filelist runs
+    /// (vendor IP, alternate tops) emit style INFOs for unrelated
+    /// files and inflate the issue exit code.
     ///
     /// Walk syntax-tree buffers from @p compilation that contain at
     /// least one module reachable from @p topModule, and append

@@ -9,10 +9,8 @@
 
 namespace connect {
 
-std::unordered_set<std::string> collectReachableModules(
-    const slang::ast::Compilation& compilation,
-    const std::string& topModule)
-{
+std::unordered_set<std::string> collectReachableModules(const slang::ast::Compilation& compilation,
+                                                        const std::string& topModule) {
     using namespace slang::syntax;
 
     std::unordered_set<std::string> reachable;

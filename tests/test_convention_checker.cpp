@@ -112,8 +112,8 @@ TEST_CASE("ConventionChecker: loads convention rules from YAML") {
 }
 
 TEST_CASE("ConventionChecker: malformed scalar values do not crash") {
-    // Codex cross-review: previously only YAML::LoadFile was guarded
-    // by try/catch; subsequent `.as<int>()` / `.as<bool>()` conversions
+    // Previously only YAML::LoadFile was guarded by try/catch;
+    // subsequent `.as<int>()` / `.as<bool>()` conversions
     // could throw YAML::BadConversion on malformed scalars (e.g.
     // `max_line_length: nope`) and abort the process. The extractor
     // now wraps the entire scalar-conversion phase, logs a warning,
@@ -141,9 +141,9 @@ TEST_CASE("ConventionChecker: malformed scalar values do not crash") {
 }
 
 TEST_CASE("ConventionChecker: malformed string field keeps default and does not throw") {
-    // Codex Round 3 cross-review: getString() previously called
-    // .as<std::string>() directly; a YAML sequence like
-    // `clock_pattern: [bad]` would throw YAML::BadConversion out of
+    // getString() previously called .as<std::string>() directly; a
+    // YAML sequence like `clock_pattern: [bad]` would throw
+    // YAML::BadConversion out of
     // loadConventionRules, skipping all subsequent fields.  Now
     // getString() catches conversion errors and returns nullopt so
     // one bad string field only nulls that field.
@@ -171,9 +171,9 @@ TEST_CASE("ConventionChecker: malformed string field keeps default and does not 
 }
 
 TEST_CASE("ConventionChecker: malformed nested prefix field keeps default and does not throw") {
-    // Codex Round 3 cross-review: nested paths like
-    // `instance: { prefix: [bad] }` used raw .as<std::string>() and
-    // could throw out of loadConventionRules.  Now each nested path
+    // Nested paths like `instance: { prefix: [bad] }` used raw
+    // .as<std::string>() and could throw out of loadConventionRules.
+    // Now each nested path
     // is guarded with try/catch so one bad nested scalar only nulls
     // that one field.
     // Note: ConventionRules::instancePrefix defaults to "u_"; a bad
@@ -204,11 +204,11 @@ TEST_CASE("ConventionChecker: malformed nested prefix field keeps default and do
 }
 
 TEST_CASE("ConventionChecker: malformed parent-shape YAML keeps default and does not throw") {
-    // Codex Round 4 cross-review: if a parent node like `input` is a
-    // scalar rather than a map (e.g. `input: scalar_not_a_map`), then
-    // `root["input"]["prefix"]` throws YAML::BadSubscript before the
-    // inner try/catch fires.  The outer try added in R4 must absorb this
-    // so load completes and the field keeps its struct default.
+    // If a parent node like `input` is a scalar rather than a map
+    // (e.g. `input: scalar_not_a_map`), then `root["input"]["prefix"]`
+    // throws YAML::BadSubscript before the inner try/catch fires.  The
+    // outer try must absorb this so load completes and the field keeps
+    // its struct default.
     const char* yamlPath = "test_convention_parent_shape.yaml";
     {
         std::ofstream ofs(yamlPath);
@@ -233,9 +233,9 @@ TEST_CASE("ConventionChecker: malformed parent-shape YAML keeps default and does
 }
 
 TEST_CASE("ConventionChecker: bad scalar does not skip later valid keys") {
-    // Codex Round 2 cross-review: the previous whole-block try/catch
-    // aborted on the first YAML::BadConversion, silently dropping any
-    // subsequent valid keys depending on key order in the user's YAML.
+    // The previous whole-block try/catch aborted on the first
+    // YAML::BadConversion, silently dropping any subsequent valid
+    // keys depending on key order in the user's YAML.
     // After per-field tryAssign, a typo in `max_line_length` no longer
     // disables `prohibit_hard_tabs: true` further down in the file.
     const char* yamlPath = "test_convention_per_field.yaml";

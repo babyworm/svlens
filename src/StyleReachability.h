@@ -19,8 +19,7 @@ namespace connect {
 //
 // An empty @p topModule yields an empty set; callers should treat
 // that as "no gating" (scan everything).
-std::unordered_set<std::string> collectReachableModules(
-    const slang::ast::Compilation& compilation,
-    const std::string& topModule);
+std::unordered_set<std::string> collectReachableModules(const slang::ast::Compilation& compilation,
+                                                        const std::string& topModule);
 
 } // namespace connect

@@ -31,9 +31,9 @@ struct Issue {
     PortInfo port;
     std::optional<Connection> connection;
     std::string detail;
-    // Codex cross-review: surface line/column from upstream
-    // StyleObservation through Issue so JSON consumers don't need
-    // to regex-parse the detail string. Zero means "not available".
+    // Surface line/column from upstream StyleObservation through Issue
+    // so JSON consumers don't need to regex-parse the detail string.
+    // Zero means "not available".
     uint32_t lineNumber = 0;
     uint32_t columnNumber = 0;
 

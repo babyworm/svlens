@@ -1,4 +1,4 @@
-// Codex cross-review: SourceTextScanner reachability fixture.
+// SourceTextScanner reachability fixture.
 // Two modules in one file:
 //   * `unreachable_top` is a candidate top; clean (no source-text
 //     violations).
@@ -6,7 +6,7 @@
 //     contains intentional source-text violations (long line, hard
 //     tab, trailing whitespace).
 //
-// Reachability semantics (Codex Round 2 cross-review):
+// Reachability semantics:
 //   Source-text rules apply at FILE granularity. When this entire file
 //   is unrelated to the requested top (e.g. a different fixture's top
 //   is selected), nothing here is scanned -- that is the cross-FILE

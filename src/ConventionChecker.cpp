@@ -24,12 +24,12 @@ std::optional<std::string> getString(const YAML::Node& node, const char* key) {
     return std::nullopt;
 }
 
-// Codex Round 2 cross-review: per-field YAML extraction. Previously the
-// whole extraction block was wrapped in a single try/catch; a single
-// bad scalar (`max_line_length: nope`) aborted the rest of the parse,
-// silently disabling later valid keys depending on user key order.
-// This helper catches conversion errors per-field so a typo in one
-// field no longer skips later valid ones.
+// Per-field YAML extraction. Previously the whole extraction block was
+// wrapped in a single try/catch; a single bad scalar
+// (`max_line_length: nope`) aborted the rest of the parse, silently
+// disabling later valid keys depending on user key order.  This helper
+// catches conversion errors per-field so a typo in one field no longer
+// skips later valid ones.
 template <typename T> void tryAssign(const YAML::Node& node, const char* key, T& dst, const std::string& yamlPath) {
     if (!node[key])
         return;
@@ -44,12 +44,10 @@ template <typename T> void tryAssign(const YAML::Node& node, const char* key, T&
 }
 
 // Fresh review R2 MAJOR: collapse the triplicated input/output/instance
-// nested-prefix YAML guard blocks into a single helper.  Codex Round 4
-// added the parent-shape guard; Round 36 added the inner conversion
-// catch.  Replicating both per direction made the next paste a fourth
-// time inevitable.
-void tryAssignNestedPrefix(const YAML::Node& root, const char* parent,
-                           const char* child, std::string& dst) {
+// nested-prefix YAML guard blocks into a single helper.  Replicating
+// the parent-shape guard plus inner conversion catch per direction
+// made the next paste a fourth time inevitable.
+void tryAssignNestedPrefix(const YAML::Node& root, const char* parent, const char* child, std::string& dst) {
     try {
         auto p = root[parent];
         if (!p || !p.IsMap())
@@ -101,13 +99,13 @@ ConventionRules loadConventionRules(const std::string& yamlPath) {
 
     ConventionRules rules;
 
-    // Codex Round 2 cross-review: replaced the previous single outer
-    // try/catch with per-field tryAssign helpers. The old behavior
-    // aborted on the first YAML::BadConversion, silently dropping any
-    // later valid keys (e.g. `max_line_length: nope` would disable
-    // `prohibit_hard_tabs: true` if the bool came after the int in
-    // the user's YAML). Now each field independently catches its own
-    // conversion error and the remaining fields still apply.
+    // Replaced the previous single outer try/catch with per-field
+    // tryAssign helpers. The old behavior aborted on the first
+    // YAML::BadConversion, silently dropping any later valid keys
+    // (e.g. `max_line_length: nope` would disable `prohibit_hard_tabs:
+    // true` if the bool came after the int in the user's YAML). Now
+    // each field independently catches its own conversion error and
+    // the remaining fields still apply.
 
     // Round 36+: input_prefix has alternate keys (camelCase, nested).
     // The string-typed primary path uses tryAssign for consistency;
@@ -544,8 +542,8 @@ std::vector<Issue> ConventionChecker::check(const ConnectionGraph& graph) const 
         p.location = obs.location;
         issue.port = std::move(p);
         issue.detail = obs.detail;
-        // Codex cross-review: propagate line/column so JSON consumers
-        // get structured fields instead of having to regex-parse detail.
+        // Propagate line/column so JSON consumers get structured
+        // fields instead of having to regex-parse detail.
         issue.lineNumber = obs.lineNumber;
         issue.columnNumber = obs.columnNumber;
         issues.push_back(std::move(issue));

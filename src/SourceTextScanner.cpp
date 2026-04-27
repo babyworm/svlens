@@ -149,10 +149,10 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation, const s
     if (!needTextScans && !needFileModuleChecks)
         return;
 
-    // Codex cross-review: build the reachable-module set for the
-    // requested top so files with no participating modules (vendor IP,
-    // alternate tops in a filelist) are skipped.  An empty `topModule`
-    // means the legacy "scan everything" behavior; in that case we
+    // Build the reachable-module set for the requested top so files
+    // with no participating modules (vendor IP, alternate tops in a
+    // filelist) are skipped.  An empty `topModule` means the legacy
+    // "scan everything" behavior; in that case we
     // pass `nullptr` to all per-file checks below.
     auto reachable = collectReachableModules(compilation, topModule);
     const bool gateByReachability = !topModule.empty();
@@ -189,13 +189,13 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation, const s
         // both reachability gating and file-naming checks.
         auto modules = collectModuleDeclarations(root);
 
-        // Codex cross-review: skip the entire file if no module in it
-        // participates in the topModule analysis.  Files with zero
-        // module declarations (pure header includes) are also skipped
-        // when reachability gating is on, because they cannot be a
-        // meaningful child of the requested top.
+        // Skip the entire file if no module in it participates in the
+        // topModule analysis.  Files with zero module declarations
+        // (pure header includes) are also skipped when reachability
+        // gating is on, because they cannot be a meaningful child of
+        // the requested top.
         //
-        // Codex Round 2 cross-review: this gate is FILE-LEVEL by design.
+        // This gate is FILE-LEVEL by design.
         // Once any module in the buffer is reachable from `topModule`,
         // the WHOLE buffer is admitted -- including sibling modules
         // that are not themselves reachable.  Physical-line rules
@@ -233,9 +233,9 @@ void SourceTextScanner::scan(const slang::ast::Compilation& compilation, const s
         if (needFileModuleChecks) {
 
             if (rules.prohibitMultipleModulesPerFile && modules.size() > 1) {
-                // Codex cross-review: only emit when at least one
-                // reachable module lives in the file (gate already
-                // ensured this above when reachability is on).
+                // Only emit when at least one reachable module lives in
+                // the file (gate already ensured this above when
+                // reachability is on).
                 std::string nameList;
                 for (size_t i = 0; i < modules.size(); ++i) {
                     if (i) nameList += ", ";

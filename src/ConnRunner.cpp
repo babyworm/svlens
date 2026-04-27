@@ -178,19 +178,18 @@ int connect::runConnWithCompilation(slang::ast::Compilation& compilation,
     // (or defaults used when no file is given) so the per-rule enable
     // flags are respected.
     //
-    // Codex cross-review: wrap loadConventionRules + scan in try/catch
-    // so a malformed convention YAML (or a scan-time exception) only
-    // disables source-text rules instead of crashing conn mode before
-    // report generation.
+    // Wrap loadConventionRules + scan in try/catch so a malformed
+    // convention YAML (or a scan-time exception) only disables
+    // source-text rules instead of crashing conn mode before report
+    // generation.
     if (opts.checkConvention) {
         try {
             auto textRules = opts.conventionFile.empty() ? connect::ConventionRules{}
                                                          : connect::loadConventionRules(opts.conventionFile);
-            // Codex cross-review: scope source-text scanning to files
-            // that participate in the requested top so a filelist with
-            // unrelated vendor IP / alternate tops does not produce
-            // INFOs (and inflate the issue exit code) for files outside
-            // the analysis.
+            // Scope source-text scanning to files that participate in
+            // the requested top so a filelist with unrelated vendor IP
+            // / alternate tops does not produce INFOs (and inflate the
+            // issue exit code) for files outside the analysis.
             connect::SourceTextScanner::scan(compilation, opts.topModule, textRules, graph);
         } catch (const std::exception& e) {
             fmt::print(stderr, "Warning: source-text convention scan skipped: {}\n", e.what());

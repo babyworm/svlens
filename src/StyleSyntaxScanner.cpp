@@ -243,9 +243,7 @@ void StyleSyntaxScanner::scan(const slang::ast::Compilation& compilation,
     for (const auto& tree : compilation.getSyntaxTrees()) {
         if (!tree) continue;
         slang::SourceLocation rootLoc = tree->root().getFirstToken().location();
-        scanner.filePath = globalSm
-            ? std::string(globalSm->getRawFileName(rootLoc.buffer()))
-            : std::string{};
+        scanner.filePath = globalSm ? std::string(globalSm->getRawFileName(rootLoc.buffer())) : std::string{};
         scanner.sm = globalSm;
         tree->root().visit(scanner);
     }

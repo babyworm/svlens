@@ -90,6 +90,18 @@ reject_digit_only_suffix: true
 parameter_case_pattern: "^[A-Z][a-zA-Z0-9]*$"
 typedef_suffix_pattern: "_(t|e)$"
 
+# ----------------------------------------------------------------------
+# Source-text rules (US-39E) - line-level checks against the raw bytes
+# of the source file.  All opt-in; remove / set to 0 / set to false to
+# disable the corresponding rule.
+max_line_length: 100        # lowRISC §11.1: 100-column limit
+prohibit_hard_tabs: true    # lowRISC §11.2: spaces only, no tabs
+prohibit_trailing_whitespace: true  # lowRISC §11.3: no trailing WS
+
+# File-naming rules (US-39F) - file-system-level checks.
+prohibit_multiple_modules_per_file: true  # lowRISC §3.1
+enforce_file_module_match: true           # lowRISC §3.2: basename == module
+
 # ─── Coverage gaps (NOT yet enforced) ──────────────────────────────
 # Round 38/39 closed most of the AST/source-text rules.  The list
 # below tracks lowRISC sections that the current ConventionChecker

@@ -141,7 +141,14 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
         return n;
     };
 
-    // GOOD modules: zero CONVENTION INFO each.
+    // GOOD modules: zero AST-side CONVENTION INFO each.  The shipped
+    // example yaml now wires source-text + file-naming rules (Fresh
+    // review R1A MAJOR #2), so the file-level violations of
+    // lowrisc_style_violations.sv (long lines, multiple modules,
+    // basename mismatch) DO surface even on GOOD-module tops because
+    // those rules apply at file granularity.  Assert no AST-side rule
+    // fires on a GOOD top by checking the rule-specific detail markers
+    // are absent.
     for (const auto& top : {std::string("ports_good"),
                             std::string("ports_simple_good"),
                             std::string("clocks_good"),
@@ -149,10 +156,14 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
                             std::string("instances_good")}) {
         auto body = run_top(top);
         INFO("top=" << top);
-        // No "CONVENTION" type issue should appear in the GOOD list.
-        // Note: the JSON renderer wraps Issue::Type::CONVENTION as
-        // string "CONVENTION".
-        CHECK(count(body, "\"type\": \"CONVENTION\"") == 0);
+        // AST-side rule detail substrings; none must appear for GOOD tops.
+        CHECK(body.find("does not follow naming convention") == std::string::npos);
+        CHECK(body.find("is not lowercase") == std::string::npos);
+        CHECK(body.find("active-low suffix") == std::string::npos);
+        CHECK(body.find("legacy `always` block") == std::string::npos);
+        CHECK(body.find("anonymous enum") == std::string::npos);
+        CHECK(body.find("bare integer literal") == std::string::npos);
+        CHECK(body.find("wildcard port connection") == std::string::npos);
     }
 
     // BAD: ports_bad triggers many rule violations.
@@ -367,6 +378,51 @@ TEST_CASE("ConnRunner: source-text + file-name rules emit when YAML enables them
     //           -> LineTooLong column == 81 (maxLineLength + 1)
     CHECK(body.find("\"column\": 1") != std::string::npos);
     CHECK(body.find("\"column\": 81") != std::string::npos);
+}
+
+TEST_CASE("ConnRunner: shipped lowrisc.yaml example wires source-text rules end-to-end",
+          "[conn][runner][source_text][lowrisc_example]") {
+    // Fresh review R1A MAJOR #2: ConventionChecker has read
+    // max_line_length / prohibit_hard_tabs /
+    // prohibit_trailing_whitespace / prohibit_multiple_modules_per_file
+    // / enforce_file_module_match since v0.3.2, but the canonical
+    // example yaml shipped without any of these keys.  Users copying
+    // examples/styles/lowrisc.yaml got silent under-enforcement.
+    // This regression test loads the example yaml file directly (not a
+    // synthesized strict.yaml) and verifies the source-text rules
+    // actually fire on the canonical violation fixture.
+    auto result =
+        testutils::compileFile("sv/lowrisc_source_text_violations.sv");
+    REQUIRE(result);
+
+    const auto out =
+        fs::temp_directory_path() / "svlens_conn_lowrisc_example_source_text";
+    fs::remove_all(out);
+    fs::create_directories(out);
+
+    auto yaml_path = fs::path(TEST_SV_DIR).parent_path().parent_path() /
+                     "examples" / "styles" / "lowrisc.yaml";
+    REQUIRE(fs::exists(yaml_path));
+
+    connect::ConnCliOptions opts;
+    opts.topModule = "source_text_primary";
+    opts.format = "json";
+    opts.outputDir = (out / "report").string();
+    opts.checkConvention = true;
+    opts.conventionFile = yaml_path.string();
+
+    connect::runConnWithCompilation(*result.compilation, opts);
+    REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
+    std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
+    std::string body((std::istreambuf_iterator<char>(ifs)),
+                     std::istreambuf_iterator<char>());
+
+    // Each opt-in source-text / file-naming rule from the shipped
+    // example MUST fire on the canonical violation fixture.
+    CHECK(body.find("hard tab character") != std::string::npos);
+    CHECK(body.find("trailing whitespace") != std::string::npos);
+    CHECK(body.find("exceeds max") != std::string::npos);
+    CHECK(body.find("modules declared in one file") != std::string::npos);
 }
 
 TEST_CASE("ConnRunner: source-text emits FileNameMismatch for mismatched basename",

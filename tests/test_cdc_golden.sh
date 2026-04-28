@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 BINARY="$1"
 if [ ! -x "$BINARY" ]; then
@@ -7,9 +7,8 @@ if [ ! -x "$BINARY" ]; then
     exit 1
 fi
 
-OUTDIR="/tmp/sv-cdc-golden-test"
-rm -rf "$OUTDIR"
-mkdir -p "$OUTDIR"
+OUTDIR="$(mktemp -d "${TMPDIR:-/tmp}/sv-cdc-golden-test.XXXXXX")"
+trap 'rm -rf "$OUTDIR"' EXIT
 
 echo "=== CDC Golden Integration Test ==="
 
@@ -29,7 +28,7 @@ check_fixture() {
     expected_crossings="$(grep -o '"expected_crossings":[[:space:]]*[0-9]\+' "$golden" | grep -o '[0-9]\+')"
 
     # Optional SDC companion: tests/cdc/basic/<name>.sdc is passed via --sdc
-    # when present.
+    # when present.  Pre-initialize so -u never sees an unbound array.
     local -a sdc_args=()
     if [ -f "$sdc" ]; then
         sdc_args=(--sdc "$sdc")
@@ -53,7 +52,9 @@ check_fixture() {
     fi
 
     set +e
-    "$BINARY" cdc --top "$top" "$sv" "${sdc_args[@]}" "${extra_flags[@]}" \
+    "$BINARY" cdc --top "$top" "$sv" \
+        ${sdc_args[@]+"${sdc_args[@]}"} \
+        ${extra_flags[@]+"${extra_flags[@]}"} \
         --format json -o "$out" >/dev/null 2>&1
     local exit_code=$?
     set -e

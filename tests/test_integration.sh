@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 BINARY="${1:-./build/svlens}"
 if [ ! -x "$BINARY" ]; then
     echo "ERROR: $BINARY not found or not executable"

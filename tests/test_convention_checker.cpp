@@ -2,12 +2,29 @@
 #include "ConventionChecker.h"
 #include "TestUtils.h"
 
+#include <atomic>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
+#include <unistd.h>
 
 using namespace connect;
 using slang::ast::ArgumentDirection;
 using testutils::makePort;
+
+namespace {
+namespace fs = std::filesystem;
+fs::path uniqueTempDir(const std::string& tag) {
+    static std::atomic<unsigned> counter{0};
+    const auto pid = static_cast<unsigned>(::getpid());
+    const auto seq = ++counter;
+    auto dir = fs::temp_directory_path() /
+               ("svlens_" + tag + "_" + std::to_string(pid) + "_" + std::to_string(seq));
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    return dir;
+}
+} // namespace
 
 TEST_CASE("ConventionChecker: correctly named ports produce no issues") {
     ConnectionGraph graph;
@@ -93,7 +110,7 @@ TEST_CASE("ConventionChecker: custom rules work") {
 }
 
 TEST_CASE("ConventionChecker: loads convention rules from YAML") {
-    const char* yamlPath = "test_convention_rules.yaml";
+    auto yamlPath = uniqueTempDir("conv_rules") / "test_convention_rules.yaml";
     {
         std::ofstream ofs(yamlPath);
         REQUIRE(ofs.good());
@@ -103,12 +120,11 @@ TEST_CASE("ConventionChecker: loads convention rules from YAML") {
         ofs << "  prefix: inst_\n";
     }
 
-    auto rules = loadConventionRules(yamlPath);
+    auto rules = loadConventionRules(yamlPath.string());
     CHECK(rules.inputPrefix == "in_");
     CHECK(rules.outputPrefix == "out_");
     CHECK(rules.instancePrefix == "inst_");
 
-    std::remove(yamlPath);
 }
 
 TEST_CASE("ConventionChecker: malformed scalar values do not crash") {
@@ -118,7 +134,7 @@ TEST_CASE("ConventionChecker: malformed scalar values do not crash") {
     // `max_line_length: nope`) and abort the process. The extractor
     // now wraps the entire scalar-conversion phase, logs a warning,
     // and returns whatever has been successfully parsed so far.
-    const char* yamlPath = "test_convention_bad_scalar.yaml";
+    auto yamlPath = uniqueTempDir("conv_bad_scalar") / "test_convention_bad_scalar.yaml";
     {
         std::ofstream ofs(yamlPath);
         REQUIRE(ofs.good());
@@ -129,7 +145,7 @@ TEST_CASE("ConventionChecker: malformed scalar values do not crash") {
 
     // Must not throw / crash.
     ConventionRules rules;
-    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath.string()));
 
     // Whatever parsed before the bad scalar should survive; the bad
     // scalars themselves keep their default values.
@@ -137,7 +153,6 @@ TEST_CASE("ConventionChecker: malformed scalar values do not crash") {
     CHECK(rules.maxLineLength == 0);        // default
     CHECK(rules.prohibitHardTabs == false); // default
 
-    std::remove(yamlPath);
 }
 
 TEST_CASE("ConventionChecker: malformed string field keeps default and does not throw") {
@@ -147,7 +162,7 @@ TEST_CASE("ConventionChecker: malformed string field keeps default and does not 
     // loadConventionRules, skipping all subsequent fields.  Now
     // getString() catches conversion errors and returns nullopt so
     // one bad string field only nulls that field.
-    const char* yamlPath = "test_convention_bad_string.yaml";
+    auto yamlPath = uniqueTempDir("conv_bad_string") / "test_convention_bad_string.yaml";
     {
         std::ofstream ofs(yamlPath);
         REQUIRE(ofs.good());
@@ -161,13 +176,12 @@ TEST_CASE("ConventionChecker: malformed string field keeps default and does not 
     }
 
     ConventionRules rules;
-    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath.string()));
 
     CHECK(rules.inputPrefix == "in_");
     CHECK(rules.clockPattern.empty());   // default — bad conversion kept default
     CHECK(rules.outputPrefix == "out_"); // valid string after bad one must apply
 
-    std::remove(yamlPath);
 }
 
 TEST_CASE("ConventionChecker: malformed nested prefix field keeps default and does not throw") {
@@ -178,7 +192,7 @@ TEST_CASE("ConventionChecker: malformed nested prefix field keeps default and do
     // that one field.
     // Note: ConventionRules::instancePrefix defaults to "u_"; a bad
     // conversion leaves that default in place rather than throwing.
-    const char* yamlPath = "test_convention_bad_nested.yaml";
+    auto yamlPath = uniqueTempDir("conv_bad_nested") / "test_convention_bad_nested.yaml";
     {
         std::ofstream ofs(yamlPath);
         REQUIRE(ofs.good());
@@ -192,7 +206,7 @@ TEST_CASE("ConventionChecker: malformed nested prefix field keeps default and do
 
     ConventionRules rules;
     // Must not throw despite bad nested scalar.
-    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath.string()));
 
     CHECK(rules.inputPrefix == "in_");
     // Bad conversion: instancePrefix keeps its struct default ("u_"), not overwritten.
@@ -200,7 +214,6 @@ TEST_CASE("ConventionChecker: malformed nested prefix field keeps default and do
     CHECK(rules.instancePrefix == defaultRules.instancePrefix);
     CHECK(rules.outputPrefix == "out_"); // field after bad nested must apply
 
-    std::remove(yamlPath);
 }
 
 TEST_CASE("ConventionChecker: malformed parent-shape YAML keeps default and does not throw") {
@@ -209,7 +222,7 @@ TEST_CASE("ConventionChecker: malformed parent-shape YAML keeps default and does
     // throws YAML::BadSubscript before the inner try/catch fires.  The
     // outer try must absorb this so load completes and the field keeps
     // its struct default.
-    const char* yamlPath = "test_convention_parent_shape.yaml";
+    auto yamlPath = uniqueTempDir("conv_parent_shape") / "test_convention_parent_shape.yaml";
     {
         std::ofstream ofs(yamlPath);
         REQUIRE(ofs.good());
@@ -220,7 +233,7 @@ TEST_CASE("ConventionChecker: malformed parent-shape YAML keeps default and does
     }
 
     ConventionRules rules;
-    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath.string()));
 
     // All nested-prefix fields keep struct defaults (no throw, no crash).
     ConventionRules defaultRules;
@@ -229,7 +242,6 @@ TEST_CASE("ConventionChecker: malformed parent-shape YAML keeps default and does
     // The valid flat key after the bad parents must still apply.
     CHECK(rules.outputPrefix == "out_");
 
-    std::remove(yamlPath);
 }
 
 TEST_CASE("ConventionChecker: bad scalar does not skip later valid keys") {
@@ -238,7 +250,7 @@ TEST_CASE("ConventionChecker: bad scalar does not skip later valid keys") {
     // keys depending on key order in the user's YAML.
     // After per-field tryAssign, a typo in `max_line_length` no longer
     // disables `prohibit_hard_tabs: true` further down in the file.
-    const char* yamlPath = "test_convention_per_field.yaml";
+    auto yamlPath = uniqueTempDir("conv_per_field") / "test_convention_per_field.yaml";
     {
         std::ofstream ofs(yamlPath);
         REQUIRE(ofs.good());
@@ -253,7 +265,7 @@ TEST_CASE("ConventionChecker: bad scalar does not skip later valid keys") {
     }
 
     ConventionRules rules;
-    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath.string()));
 
     // The bad int keeps its default.
     CHECK(rules.maxLineLength == 0);
@@ -262,7 +274,6 @@ TEST_CASE("ConventionChecker: bad scalar does not skip later valid keys") {
     CHECK(rules.prohibitTrailingWhitespace == true);
     CHECK(rules.enforceFileModuleMatch == true);
 
-    std::remove(yamlPath);
 }
 
 TEST_CASE("ConventionChecker: cyclic anchor does not crash loader") {
@@ -273,7 +284,7 @@ TEST_CASE("ConventionChecker: cyclic anchor does not crash loader") {
     // yaml-cpp throws.  Either outcome (default rules OR a runtime
     // exception) is acceptable; what is NOT acceptable is a SIGSEGV
     // / stack overflow.
-    const char* yamlPath = "test_convention_cyclic_anchor.yaml";
+    auto yamlPath = uniqueTempDir("conv_cyclic") / "test_convention_cyclic_anchor.yaml";
     {
         std::ofstream ofs(yamlPath);
         REQUIRE(ofs.good());
@@ -289,13 +300,12 @@ TEST_CASE("ConventionChecker: cyclic anchor does not crash loader") {
     bool threw = false;
     ConventionRules rules;
     try {
-        rules = loadConventionRules(yamlPath);
+        rules = loadConventionRules(yamlPath.string());
     } catch (const std::runtime_error&) {
         threw = true;
     }
     CHECK((threw || rules.maxLineLength == 0));
 
-    std::remove(yamlPath);
 }
 
 TEST_CASE("ConventionChecker: deeply nested aliases do not stack-overflow") {
@@ -304,7 +314,7 @@ TEST_CASE("ConventionChecker: deeply nested aliases do not stack-overflow") {
     // unbounded recursion in older yaml-cpp builds.  Verify the
     // loader returns cleanly (either with defaults or a
     // runtime_error) without crashing.
-    const char* yamlPath = "test_convention_deep_nesting.yaml";
+    auto yamlPath = uniqueTempDir("conv_deep_nesting") / "test_convention_deep_nesting.yaml";
     {
         std::ofstream ofs(yamlPath);
         REQUIRE(ofs.good());
@@ -323,7 +333,7 @@ TEST_CASE("ConventionChecker: deeply nested aliases do not stack-overflow") {
     ConventionRules rules;
     bool threw = false;
     try {
-        rules = loadConventionRules(yamlPath);
+        rules = loadConventionRules(yamlPath.string());
     } catch (const std::runtime_error&) {
         threw = true;
     }
@@ -333,14 +343,13 @@ TEST_CASE("ConventionChecker: deeply nested aliases do not stack-overflow") {
     // default (load aborted) or applies cleanly (per-field recovery).
     CHECK((threw || rules.maxLineLength == 0));
 
-    std::remove(yamlPath);
 }
 
 TEST_CASE("ConventionChecker: empty YAML body produces default-initialized rules") {
     // Fresh review R1B WEAK #1: degenerate input.  An empty `{}`
     // body must NOT throw; the loader returns ConventionRules with
     // all defaults.
-    const char* yamlPath = "test_convention_empty.yaml";
+    auto yamlPath = uniqueTempDir("conv_empty") / "test_convention_empty.yaml";
     {
         std::ofstream ofs(yamlPath);
         REQUIRE(ofs.good());
@@ -348,7 +357,7 @@ TEST_CASE("ConventionChecker: empty YAML body produces default-initialized rules
     }
 
     ConventionRules rules;
-    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath.string()));
 
     // Cross-check against a default-constructed instance.
     ConventionRules defaults;
@@ -359,7 +368,6 @@ TEST_CASE("ConventionChecker: empty YAML body produces default-initialized rules
     CHECK(rules.prohibitHardTabs == defaults.prohibitHardTabs);
     CHECK(rules.enforceFileModuleMatch == defaults.enforceFileModuleMatch);
 
-    std::remove(yamlPath);
 }
 
 TEST_CASE("ConventionChecker: unknown keys are silently ignored") {
@@ -367,7 +375,7 @@ TEST_CASE("ConventionChecker: unknown keys are silently ignored") {
     // unknown top-level key (e.g. a future feature added by another
     // tooling layer) must NOT abort load nor invalidate the valid
     // keys that follow in the same file.
-    const char* yamlPath = "test_convention_unknown_key.yaml";
+    auto yamlPath = uniqueTempDir("conv_unknown_key") / "test_convention_unknown_key.yaml";
     {
         std::ofstream ofs(yamlPath);
         REQUIRE(ofs.good());
@@ -378,11 +386,10 @@ TEST_CASE("ConventionChecker: unknown keys are silently ignored") {
     }
 
     ConventionRules rules;
-    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath));
+    REQUIRE_NOTHROW(rules = loadConventionRules(yamlPath.string()));
 
     // Valid keys must be applied.
     CHECK(rules.maxLineLength == 100);
     CHECK(rules.prohibitHardTabs == true);
 
-    std::remove(yamlPath);
 }

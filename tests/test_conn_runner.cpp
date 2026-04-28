@@ -3,20 +3,38 @@
 #include "ConnRunner.h"
 #include "TestUtils.h"
 
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
+
+namespace {
+/// Returns a unique temp directory for each call.  Uses the process PID and a
+/// monotonic counter so parallel `ctest -j8` runs and out-of-tree builds never
+/// collide on the same path.
+fs::path uniqueTempDir(const std::string& tag) {
+    static std::atomic<unsigned> counter{0};
+    const auto pid = static_cast<unsigned>(::getpid());
+    const auto seq = ++counter;
+    auto dir = fs::temp_directory_path() /
+               ("svlens_" + tag + "_" + std::to_string(pid) + "_" + std::to_string(seq));
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    return dir;
+}
+} // namespace
 
 TEST_CASE("ConnRunner: clean design exits clean and writes report", "[conn][runner]") {
     auto result = testutils::compileFile("sv/clean_design.sv");
     REQUIRE(result);
 
-    const auto out = fs::temp_directory_path() / "svlens_conn_runner_clean";
+    const auto out = uniqueTempDir("conn_runner_clean");
     fs::remove_all(out);
 
     connect::ConnCliOptions opts;
@@ -33,7 +51,7 @@ TEST_CASE("ConnRunner: issue design returns non-zero", "[conn][runner]") {
     auto result = testutils::compileFile("sv/mixed_issues.sv");
     REQUIRE(result);
 
-    const auto out = fs::temp_directory_path() / "svlens_conn_runner_issues";
+    const auto out = uniqueTempDir("conn_runner_issues");
     fs::remove_all(out);
 
     connect::ConnCliOptions opts;
@@ -57,7 +75,7 @@ TEST_CASE("ConnRunner: modport-width paired fixtures stay deterministic",
     auto pos = testutils::compileFile("sv/conn_modport_width_pos.sv");
     REQUIRE(pos);
     const auto out_pos =
-        fs::temp_directory_path() / "svlens_conn_modport_width_pos";
+        uniqueTempDir("conn_modport_width_pos");
     fs::remove_all(out_pos);
     connect::ConnCliOptions opts_pos;
     opts_pos.topModule = "conn_modport_width_pos";
@@ -76,7 +94,7 @@ TEST_CASE("ConnRunner: modport-width paired fixtures stay deterministic",
     auto neg = testutils::compileFile("sv/conn_modport_width_neg.sv");
     REQUIRE(neg);
     const auto out_neg =
-        fs::temp_directory_path() / "svlens_conn_modport_width_neg";
+        uniqueTempDir("conn_modport_width_neg");
     fs::remove_all(out_neg);
     connect::ConnCliOptions opts_neg;
     opts_neg.topModule = "conn_modport_width_neg";
@@ -101,7 +119,7 @@ TEST_CASE("ConnRunner: lowRISC-style YAML produces expected INFO violations",
     REQUIRE(result);
 
     const auto out =
-        fs::temp_directory_path() / "svlens_conn_lowrisc_style";
+        uniqueTempDir("conn_lowrisc_style");
     fs::remove_all(out);
 
     // Use absolute path resolved from TEST_SV_DIR so the test is
@@ -335,7 +353,7 @@ TEST_CASE("ConnRunner: StyleSyntaxScanner and SourceTextScanner emit consistent 
     auto result = testutils::compileFile("sv/lowrisc_style_violations.sv");
     REQUIRE(result);
 
-    const auto out = fs::temp_directory_path() / "svlens_conn_scope_path_consistency";
+    const auto out = uniqueTempDir("conn_scope_path_consistency");
     fs::remove_all(out);
     fs::create_directories(out);
 
@@ -392,7 +410,7 @@ TEST_CASE("ConnRunner: source-text + file-name rules emit when YAML enables them
     REQUIRE(result);
 
     const auto out =
-        fs::temp_directory_path() / "svlens_conn_source_text";
+        uniqueTempDir("conn_source_text");
     fs::remove_all(out);
     fs::create_directories(out);
 
@@ -479,7 +497,7 @@ TEST_CASE("ConnRunner: shipped lowrisc.yaml example wires source-text rules end-
     auto result = testutils::compileFile("sv/lowrisc_source_text_violations.sv");
     REQUIRE(result);
 
-    const auto out = fs::temp_directory_path() / "svlens_conn_lowrisc_example_source_text";
+    const auto out = uniqueTempDir("conn_lowrisc_example_source_text");
     fs::remove_all(out);
     fs::create_directories(out);
 
@@ -515,7 +533,7 @@ TEST_CASE("ConnRunner: source-text emits FileNameMismatch for mismatched basenam
     auto result = testutils::compileFile("sv/lowrisc_filename_mismatch.sv");
     REQUIRE(result);
 
-    const auto out = fs::temp_directory_path() / "svlens_conn_filename_mismatch";
+    const auto out = uniqueTempDir("conn_filename_mismatch");
     fs::remove_all(out);
     fs::create_directories(out);
 
@@ -568,7 +586,7 @@ TEST_CASE("ConnRunner: source-text reachability suppresses unrelated file",
     std::vector<std::string> args = {"test", top_path.string(), sib_path.string()};
     REQUIRE(session->compile(args));
 
-    const auto out = fs::temp_directory_path() / "svlens_conn_source_text_unrelated";
+    const auto out = uniqueTempDir("conn_source_text_unrelated");
     fs::remove_all(out);
     fs::create_directories(out);
 
@@ -625,7 +643,7 @@ TEST_CASE("ConnRunner: source-text scope is file-level (sibling violations inclu
     auto result = testutils::compileFile("sv/lowrisc_unreachable_sibling.sv");
     REQUIRE(result);
 
-    const auto out = fs::temp_directory_path() / "svlens_conn_source_text_sibling";
+    const auto out = uniqueTempDir("conn_source_text_sibling");
     fs::remove_all(out);
     fs::create_directories(out);
 
@@ -672,7 +690,7 @@ static std::string runSourceTextScanOn(const std::filesystem::path& svPath, cons
     std::vector<std::string> args = {"test", svPath.string()};
     REQUIRE(session->compile(args));
 
-    const auto out = fs::temp_directory_path() / ("svlens_conn_" + topName + "_encoding");
+    const auto out = uniqueTempDir("conn_" + topName + "_encoding");
     fs::remove_all(out);
     fs::create_directories(out);
 
@@ -705,7 +723,7 @@ TEST_CASE("SourceTextScanner: BOM-prefixed file does not skew column counting",
     // as it does not crash and still yields a usable column when a
     // violation fires later in the file.
     namespace fs = std::filesystem;
-    auto out = fs::temp_directory_path() / "svlens_bom_fixture";
+    auto out = uniqueTempDir("bom_fixture");
     fs::remove_all(out);
     fs::create_directories(out);
     auto sv = out / "bom_top.sv";
@@ -751,7 +769,7 @@ TEST_CASE("SourceTextScanner: CR-LF endings emit TrailingWhitespace once per lin
     //      TrailingWhitespace exactly once -- not duplicated by the
     //      CR.
     namespace fs = std::filesystem;
-    auto out = fs::temp_directory_path() / "svlens_crlf_fixture";
+    auto out = uniqueTempDir("crlf_fixture");
     fs::remove_all(out);
     fs::create_directories(out);
     auto sv = out / "crlf_top.sv";
@@ -811,7 +829,7 @@ TEST_CASE("SourceTextScanner: file without final newline scans cleanly",
     // observations or scan past the end.  Pin: a long final line
     // without a trailing `\n` still surfaces LineTooLong.
     namespace fs = std::filesystem;
-    auto out = fs::temp_directory_path() / "svlens_no_eol_fixture";
+    auto out = uniqueTempDir("no_eol_fixture");
     fs::remove_all(out);
     fs::create_directories(out);
     auto sv = out / "no_eol_top.sv";
@@ -854,7 +872,7 @@ TEST_CASE("SourceTextScanner: extremely long line surfaces LineTooLong with reas
     // (Prevents future O(n^2) regressions in the per-line scan loop
     // and confirms LineTooLong column reporting from Commit 1.)
     namespace fs = std::filesystem;
-    auto out = fs::temp_directory_path() / "svlens_long_line_fixture";
+    auto out = uniqueTempDir("long_line_fixture");
     fs::remove_all(out);
     fs::create_directories(out);
     auto sv = out / "long_line_top.sv";
@@ -907,7 +925,7 @@ TEST_CASE("ConnRunner: clean source-text fixture emits zero text observations", 
     auto result = testutils::compileFile("sv/clean_source_text.sv");
     REQUIRE(result);
 
-    const auto out = fs::temp_directory_path() / "svlens_conn_source_text_clean";
+    const auto out = uniqueTempDir("conn_source_text_clean");
     fs::remove_all(out);
     fs::create_directories(out);
 

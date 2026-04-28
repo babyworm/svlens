@@ -76,8 +76,7 @@ static void scanSourceText(const std::string& filePath,
         // carries meaningful file:line context via the detail string.
         // (We encode the line number in the detail message directly.)
 
-        auto emitObs = [&](StyleObservation::Kind kind, const std::string& detail,
-                           uint32_t column) {
+        auto emitObs = [&](StyleObservation::Kind kind, const std::string& detail, uint32_t column) {
             StyleObservation obs;
             obs.kind = kind;
             obs.scopePath = filePath;
@@ -105,8 +104,8 @@ static void scanSourceText(const std::string& filePath,
             size_t maxLen = static_cast<size_t>(std::max(0, rules.maxLineLength));
             if (lineLen > maxLen) {
                 emitObs(StyleObservation::Kind::LineTooLong,
-                        fmt::format("{}:{}: line length {} exceeds max {} chars",
-                                    filePath, lineNum, lineLen, rules.maxLineLength),
+                        fmt::format("{}:{}: line length {} exceeds max {} chars", filePath, lineNum, lineLen,
+                                    rules.maxLineLength),
                         // Column points at the first byte that violates
                         // the limit (i.e. maxLen + 1 in 1-based terms).
                         static_cast<uint32_t>(maxLen + 1));
@@ -119,8 +118,7 @@ static void scanSourceText(const std::string& filePath,
             size_t tabPos = lineContent.find('\t');
             if (tabPos != std::string_view::npos) {
                 emitObs(StyleObservation::Kind::HardTab,
-                        fmt::format("{}:{}: hard tab character found (use spaces)",
-                                    filePath, lineNum),
+                        fmt::format("{}:{}: hard tab character found (use spaces)", filePath, lineNum),
                         // Column of the first tab character (1-based).
                         static_cast<uint32_t>(tabPos + 1));
                 sawHardTab = true;
@@ -137,14 +135,11 @@ static void scanSourceText(const std::string& filePath,
                 // Walk backward from the line end to find the first
                 // byte of the trailing-whitespace run; column is 1-based.
                 size_t wsStart = lineContent.size();
-                while (wsStart > 0 &&
-                       (lineContent[wsStart - 1] == ' ' ||
-                        lineContent[wsStart - 1] == '\t')) {
+                while (wsStart > 0 && (lineContent[wsStart - 1] == ' ' || lineContent[wsStart - 1] == '\t')) {
                     --wsStart;
                 }
                 emitObs(StyleObservation::Kind::TrailingWhitespace,
-                        fmt::format("{}:{}: trailing whitespace",
-                                    filePath, lineNum),
+                        fmt::format("{}:{}: trailing whitespace", filePath, lineNum),
                         static_cast<uint32_t>(wsStart + 1));
             }
         }

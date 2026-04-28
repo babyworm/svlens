@@ -310,9 +310,11 @@ TEST_CASE("ConventionChecker: deeply nested aliases do not stack-overflow") {
         REQUIRE(ofs.good());
         // 50 levels of nested sequences as a flow-style scalar.
         ofs << "max_line_length: ";
-        for (int i = 0; i < 50; ++i) ofs << "[";
+        for (int i = 0; i < 50; ++i)
+            ofs << "[";
         ofs << "100";
-        for (int i = 0; i < 50; ++i) ofs << "]";
+        for (int i = 0; i < 50; ++i)
+            ofs << "]";
         ofs << "\n";
         // A valid key alongside, so we can verify per-field recovery.
         ofs << "prohibit_hard_tabs: true\n";

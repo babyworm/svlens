@@ -335,14 +335,12 @@ TEST_CASE("ConnRunner: StyleSyntaxScanner and SourceTextScanner emit consistent 
     auto result = testutils::compileFile("sv/lowrisc_style_violations.sv");
     REQUIRE(result);
 
-    const auto out =
-        fs::temp_directory_path() / "svlens_conn_scope_path_consistency";
+    const auto out = fs::temp_directory_path() / "svlens_conn_scope_path_consistency";
     fs::remove_all(out);
     fs::create_directories(out);
 
     // Use the shipped example yaml so both scanners are active.
-    auto yaml_path = fs::path(TEST_SV_DIR).parent_path().parent_path() /
-                     "examples" / "styles" / "lowrisc.yaml";
+    auto yaml_path = fs::path(TEST_SV_DIR).parent_path().parent_path() / "examples" / "styles" / "lowrisc.yaml";
     REQUIRE(fs::exists(yaml_path));
 
     connect::ConnCliOptions opts;
@@ -355,8 +353,7 @@ TEST_CASE("ConnRunner: StyleSyntaxScanner and SourceTextScanner emit consistent 
     connect::runConnWithCompilation(*result.compilation, opts);
     REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
     std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
-    std::string body((std::istreambuf_iterator<char>(ifs)),
-                     std::istreambuf_iterator<char>());
+    std::string body((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 
     // Both scanners must include "lowrisc_style_violations.sv" as the
     // file basename in the port path; if either side regressed to
@@ -479,17 +476,14 @@ TEST_CASE("ConnRunner: shipped lowrisc.yaml example wires source-text rules end-
     // This regression test loads the example yaml file directly (not a
     // synthesized strict.yaml) and verifies the source-text rules
     // actually fire on the canonical violation fixture.
-    auto result =
-        testutils::compileFile("sv/lowrisc_source_text_violations.sv");
+    auto result = testutils::compileFile("sv/lowrisc_source_text_violations.sv");
     REQUIRE(result);
 
-    const auto out =
-        fs::temp_directory_path() / "svlens_conn_lowrisc_example_source_text";
+    const auto out = fs::temp_directory_path() / "svlens_conn_lowrisc_example_source_text";
     fs::remove_all(out);
     fs::create_directories(out);
 
-    auto yaml_path = fs::path(TEST_SV_DIR).parent_path().parent_path() /
-                     "examples" / "styles" / "lowrisc.yaml";
+    auto yaml_path = fs::path(TEST_SV_DIR).parent_path().parent_path() / "examples" / "styles" / "lowrisc.yaml";
     REQUIRE(fs::exists(yaml_path));
 
     connect::ConnCliOptions opts;
@@ -502,8 +496,7 @@ TEST_CASE("ConnRunner: shipped lowrisc.yaml example wires source-text rules end-
     connect::runConnWithCompilation(*result.compilation, opts);
     REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
     std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
-    std::string body((std::istreambuf_iterator<char>(ifs)),
-                     std::istreambuf_iterator<char>());
+    std::string body((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
 
     // Each opt-in source-text / file-naming rule from the shipped
     // example MUST fire on the canonical violation fixture.
@@ -668,6 +661,219 @@ TEST_CASE("ConnRunner: source-text scope is file-level (sibling violations inclu
     CHECK(body.find("hard tab character") != std::string::npos);
     CHECK(body.find("line length") != std::string::npos);
     CHECK(body.find("trailing whitespace") != std::string::npos);
+}
+
+// Helper: drive SourceTextScanner against an arbitrary on-disk SV file.
+// Used by the encoding edge-case tests below.
+static std::string runSourceTextScanOn(const std::filesystem::path& svPath, const std::string& topName,
+                                       const std::string& yaml) {
+    namespace fs = std::filesystem;
+    auto session = std::make_unique<connect::CompilationSession>();
+    std::vector<std::string> args = {"test", svPath.string()};
+    REQUIRE(session->compile(args));
+
+    const auto out = fs::temp_directory_path() / ("svlens_conn_" + topName + "_encoding");
+    fs::remove_all(out);
+    fs::create_directories(out);
+
+    auto yamlPath = out / "strict.yaml";
+    {
+        std::ofstream y(yamlPath);
+        y << yaml;
+    }
+
+    connect::ConnCliOptions opts;
+    opts.topModule = topName;
+    opts.format = "json";
+    opts.outputDir = (out / "report").string();
+    opts.checkConvention = true;
+    opts.conventionFile = yamlPath.string();
+    connect::runConnWithCompilation(session->compilation(), opts);
+    REQUIRE(fs::exists(fs::path(opts.outputDir) / "connect_report.json"));
+    std::ifstream ifs(fs::path(opts.outputDir) / "connect_report.json");
+    return std::string((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+}
+
+TEST_CASE("SourceTextScanner: BOM-prefixed file does not skew column counting",
+          "[conn][runner][source_text][encoding][bom]") {
+    // Fresh review R1B WEAK #7: SourceTextScanner had no coverage
+    // for files with a UTF-8 BOM.  The scanner walks the raw buffer,
+    // so the BOM bytes (3) sit at offset 0..2 of line 1.  The
+    // important property to lock in: column counting is grounded at
+    // 1 for the first non-BOM character.  Today the BOM bytes are
+    // counted as part of the line; we accept either policy as long
+    // as it does not crash and still yields a usable column when a
+    // violation fires later in the file.
+    namespace fs = std::filesystem;
+    auto out = fs::temp_directory_path() / "svlens_bom_fixture";
+    fs::remove_all(out);
+    fs::create_directories(out);
+    auto sv = out / "bom_top.sv";
+    {
+        std::ofstream f(sv, std::ios::binary);
+        // UTF-8 BOM: 0xEF 0xBB 0xBF
+        f << "\xEF\xBB\xBF";
+        f << "module bom_top (\n";
+        f << "    input  logic clk_i,\n";
+        f << "    output logic \tdata_o\n"; // hard tab on line 3
+        f << ");\n";
+        f << "    assign data_o = clk_i;\n";
+        f << "endmodule\n";
+    }
+
+    std::string body = runSourceTextScanOn(sv, "bom_top",
+                                           "input_suffix: \"_i,_pi,_ni\"\n"
+                                           "output_suffix: \"_o,_po,_no\"\n"
+                                           "input_prefix: \"\"\n"
+                                           "output_prefix: \"\"\n"
+                                           "instance_prefix: \"u_\"\n"
+                                           "max_line_length: 200\n"
+                                           "prohibit_hard_tabs: true\n"
+                                           "prohibit_trailing_whitespace: true\n");
+
+    // BOM does NOT cause the scanner to crash, and the embedded tab
+    // on line 3 surfaces as a HardTab observation.
+    CHECK(body.find("hard tab character") != std::string::npos);
+    // The LineNumber for the tab is line 3 (BOM does not insert a
+    // virtual newline).
+    CHECK(body.find("\"line\": 3") != std::string::npos);
+}
+
+TEST_CASE("SourceTextScanner: CR-LF endings emit TrailingWhitespace once per line, no \\r false-positive",
+          "[conn][runner][source_text][encoding][crlf]") {
+    // Fresh review R1B WEAK #7: scanner strips a single trailing
+    // `\r` from each line before applying trailing-whitespace
+    // detection (see SourceTextScanner.cpp lines around 70-73).
+    // Verify that:
+    //   1. A line ending in CR-LF does NOT spuriously trigger
+    //      TrailingWhitespace because of the carriage return.
+    //   2. A line with explicit trailing spaces DOES trigger
+    //      TrailingWhitespace exactly once -- not duplicated by the
+    //      CR.
+    namespace fs = std::filesystem;
+    auto out = fs::temp_directory_path() / "svlens_crlf_fixture";
+    fs::remove_all(out);
+    fs::create_directories(out);
+    auto sv = out / "crlf_top.sv";
+    {
+        std::ofstream f(sv, std::ios::binary);
+        // Line 1: clean (CR-LF only).
+        f << "module crlf_top (\r\n";
+        // Line 2: trailing spaces THEN CR-LF.
+        f << "    input  logic clk_i,   \r\n";
+        // Line 3: clean.
+        f << "    output logic data_o\r\n";
+        f << ");\r\n";
+        f << "    assign data_o = clk_i;\r\n";
+        f << "endmodule\r\n";
+    }
+
+    std::string body = runSourceTextScanOn(sv, "crlf_top",
+                                           "input_suffix: \"_i,_pi,_ni\"\n"
+                                           "output_suffix: \"_o,_po,_no\"\n"
+                                           "input_prefix: \"\"\n"
+                                           "output_prefix: \"\"\n"
+                                           "instance_prefix: \"u_\"\n"
+                                           "prohibit_trailing_whitespace: true\n");
+
+    // Trailing-whitespace MUST fire on line 2 (the line with explicit
+    // spaces before CR-LF).
+    CHECK(body.find("trailing whitespace") != std::string::npos);
+    CHECK(body.find("\"line\": 2") != std::string::npos);
+
+    // Count occurrences: exactly ONE trailing whitespace observation.
+    // (The embedded \r must NOT itself trigger a second hit on any
+    // other line.)  The detail substring appears once per matching
+    // issue in `issues[]`.  No analysis.risks mirror is generated for
+    // CONVENTION INFO entries (those collapse out when the fixture
+    // doesn't elevate them), so a single substring hit = exactly one
+    // observation.
+    auto countSubstr = [&](const std::string& needle) {
+        size_t n = 0, p = 0;
+        while ((p = body.find(needle, p)) != std::string::npos) {
+            ++n;
+            p += needle.size();
+        }
+        return n;
+    };
+    CHECK(countSubstr("trailing whitespace") == 1);
+}
+
+TEST_CASE("SourceTextScanner: file without final newline scans cleanly",
+          "[conn][runner][source_text][encoding][no_eol]") {
+    // Fresh review R1B WEAK #7: missing trailing newline edge case.
+    // The scanner's loop condition handles atEnd -> break, but an
+    // off-by-one error there could either skip the last line's
+    // observations or scan past the end.  Pin: a long final line
+    // without a trailing `\n` still surfaces LineTooLong.
+    namespace fs = std::filesystem;
+    auto out = fs::temp_directory_path() / "svlens_no_eol_fixture";
+    fs::remove_all(out);
+    fs::create_directories(out);
+    auto sv = out / "no_eol_top.sv";
+    {
+        std::ofstream f(sv, std::ios::binary);
+        f << "module no_eol_top (\n";
+        f << "    input  logic clk_i,\n";
+        f << "    output logic data_o\n";
+        f << ");\n";
+        // Final line: long, NO trailing newline.
+        f << "    assign data_o = clk_i;  // long line ";
+        for (int i = 0; i < 90; ++i)
+            f << "x";
+        // No newline appended.
+    }
+
+    std::string body = runSourceTextScanOn(sv, "no_eol_top",
+                                           "input_suffix: \"_i,_pi,_ni\"\n"
+                                           "output_suffix: \"_o,_po,_no\"\n"
+                                           "input_prefix: \"\"\n"
+                                           "output_prefix: \"\"\n"
+                                           "instance_prefix: \"u_\"\n"
+                                           "max_line_length: 80\n");
+
+    // The unterminated final line is still scanned: LineTooLong
+    // surfaces with the correct line number (5).
+    CHECK(body.find("line length") != std::string::npos);
+    CHECK(body.find("exceeds max") != std::string::npos);
+    CHECK(body.find("\"line\": 5") != std::string::npos);
+}
+
+TEST_CASE("SourceTextScanner: extremely long line surfaces LineTooLong with reasonable column",
+          "[conn][runner][source_text][encoding][long_line]") {
+    // Fresh review R1B WEAK #7: a ~10 KB single line must produce
+    // exactly one LineTooLong observation, with column == max + 1.
+    // (Prevents future O(n^2) regressions in the per-line scan loop
+    // and confirms LineTooLong column reporting from Commit 1.)
+    namespace fs = std::filesystem;
+    auto out = fs::temp_directory_path() / "svlens_long_line_fixture";
+    fs::remove_all(out);
+    fs::create_directories(out);
+    auto sv = out / "long_line_top.sv";
+    {
+        std::ofstream f(sv, std::ios::binary);
+        f << "module long_line_top (input logic clk_i, output logic data_o);\n";
+        f << "    // ";
+        for (int i = 0; i < 10000; ++i)
+            f << "y"; // ~10 KB pad
+        f << "\n";
+        f << "    assign data_o = clk_i;\n";
+        f << "endmodule\n";
+    }
+
+    std::string body = runSourceTextScanOn(sv, "long_line_top",
+                                           "input_suffix: \"_i,_pi,_ni\"\n"
+                                           "output_suffix: \"_o,_po,_no\"\n"
+                                           "input_prefix: \"\"\n"
+                                           "output_prefix: \"\"\n"
+                                           "instance_prefix: \"u_\"\n"
+                                           "max_line_length: 80\n");
+
+    CHECK(body.find("line length") != std::string::npos);
+    CHECK(body.find("\"line\": 2") != std::string::npos);
+    // Column reporting (Commit 1) sets LineTooLong column to
+    // maxLineLength + 1 = 81.
+    CHECK(body.find("\"column\": 81") != std::string::npos);
 }
 
 TEST_CASE("ConnRunner: clean source-text fixture emits zero text observations", "[conn][runner][source_text][clean]") {

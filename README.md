@@ -97,7 +97,7 @@ svlens help all
 - JSON report schemas: [`docs/schema/`](docs/schema/)
 - large-SoC waiver / baseline rollout: [`docs/waiver-baselines.md`](docs/waiver-baselines.md)
 - release / packaging flow: [`docs/release.md`](docs/release.md)
-- current release notes: [`docs/releases/v0.3.5.md`](docs/releases/v0.3.5.md)
+- current release notes: [`docs/releases/v0.3.6.md`](docs/releases/v0.3.6.md)
 - contributing guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - feature roadmap: [`docs/design/feature-roadmap.md`](docs/design/feature-roadmap.md)
 

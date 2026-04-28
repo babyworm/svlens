@@ -34,3 +34,5 @@ Frontend: `src/CompilationSession.cpp`, `src/CommonCli.cpp`
 - Catch2 for unit tests, shell scripts for integration tests
 - Test fixtures in `tests/sv/` and `tests/cdc/basic/`
 - JSON report schemas in `docs/schema/`
+
+@AGENTS.md

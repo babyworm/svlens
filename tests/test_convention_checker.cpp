@@ -18,8 +18,7 @@ fs::path uniqueTempDir(const std::string& tag) {
     static std::atomic<unsigned> counter{0};
     const auto pid = static_cast<unsigned>(::getpid());
     const auto seq = ++counter;
-    auto dir = fs::temp_directory_path() /
-               ("svlens_" + tag + "_" + std::to_string(pid) + "_" + std::to_string(seq));
+    auto dir = fs::temp_directory_path() / ("svlens_" + tag + "_" + std::to_string(pid) + "_" + std::to_string(seq));
     fs::remove_all(dir);
     fs::create_directories(dir);
     return dir;

@@ -797,6 +797,10 @@ TEST_CASE("SourceTextScanner: CR-LF endings emit TrailingWhitespace once per lin
         return n;
     };
     CHECK(countSubstr("trailing whitespace") == 1);
+
+    // Zero hard-tab observations: the \r in CR-LF must not be
+    // misclassified as a hard tab.
+    CHECK(countSubstr("hard tab") == 0);
 }
 
 TEST_CASE("SourceTextScanner: file without final newline scans cleanly",
@@ -817,11 +821,16 @@ TEST_CASE("SourceTextScanner: file without final newline scans cleanly",
         f << "    input  logic clk_i,\n";
         f << "    output logic data_o\n";
         f << ");\n";
-        // Final line: long, NO trailing newline.
+        // Line 5: long, terminated with a newline so it is a complete line.
         f << "    assign data_o = clk_i;  // long line ";
         for (int i = 0; i < 90; ++i)
             f << "x";
-        // No newline appended.
+        f << "\n";
+        // Line 6: endmodule — the syntactically required closer.
+        // NO trailing newline: this is the "no end-of-line" property
+        // being tested (the file ends without a final \n).
+        f << "endmodule";
+        // No newline appended — file ends here without a final newline.
     }
 
     std::string body = runSourceTextScanOn(sv, "no_eol_top",
@@ -832,8 +841,7 @@ TEST_CASE("SourceTextScanner: file without final newline scans cleanly",
                                            "instance_prefix: \"u_\"\n"
                                            "max_line_length: 80\n");
 
-    // The unterminated final line is still scanned: LineTooLong
-    // surfaces with the correct line number (5).
+    // The long line (line 5) must surface LineTooLong.
     CHECK(body.find("line length") != std::string::npos);
     CHECK(body.find("exceeds max") != std::string::npos);
     CHECK(body.find("\"line\": 5") != std::string::npos);
@@ -874,6 +882,20 @@ TEST_CASE("SourceTextScanner: extremely long line surfaces LineTooLong with reas
     // Column reporting (Commit 1) sets LineTooLong column to
     // maxLineLength + 1 = 81.
     CHECK(body.find("\"column\": 81") != std::string::npos);
+
+    // Exactly one LineTooLong observation — a regression that
+    // double-emits the violation would produce countSubstr > 1.
+    {
+        auto countSubstr = [&](const std::string& needle) {
+            size_t n = 0, p = 0;
+            while ((p = body.find(needle, p)) != std::string::npos) {
+                ++n;
+                p += needle.size();
+            }
+            return n;
+        };
+        CHECK(countSubstr("exceeds max") == 1);
+    }
 }
 
 TEST_CASE("ConnRunner: clean source-text fixture emits zero text observations", "[conn][runner][source_text][clean]") {

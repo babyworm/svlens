@@ -1,4 +1,4 @@
-opentitan_tag: "Earlgrey-PROD.M6"
+opentitan_tag: "earlgrey_silver_release_v5"
 opentitan_repo: "https://github.com/lowRISC/opentitan.git"
 
 targets:

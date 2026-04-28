@@ -17,16 +17,37 @@ FILELIST_DIR = SCRIPT_DIR / "filelists"
 CONFIG_FILE = SCRIPT_DIR / "targets.yaml"
 
 
+def parse_core_yaml(core_path: Path) -> dict:
+    """Parse a FuseSoC .core file, stripping the CAPI=2: header line."""
+    with open(core_path) as f:
+        lines = f.readlines()
+    # Strip CAPI header (not valid YAML)
+    if lines and lines[0].startswith("CAPI"):
+        lines = lines[1:]
+    data = yaml.safe_load("".join(lines))
+    return data if isinstance(data, dict) else {}
+
+
 def find_core_files(ot_root: Path) -> dict:
-    """Build map of VLNV core_name -> core_file_path."""
+    """Build map of VLNV core_name -> core_file_path.
+
+    Stores both the full versioned name (lowrisc:ip:uart:0.1) and the
+    base name without version (lowrisc:ip:uart) for flexible lookup.
+    """
     core_map = {}
     for core_path in ot_root.rglob("*.core"):
         try:
-            with open(core_path) as f:
-                data = yaml.safe_load(f)
-            if not data or "name" not in data:
+            data = parse_core_yaml(core_path)
+            if "name" not in data:
                 continue
-            core_map[data["name"]] = core_path
+            full_name = data["name"]  # e.g., "lowrisc:ip:uart:0.1"
+            core_map[full_name] = core_path
+            # Also register without version for flexible lookup
+            parts = full_name.split(":")
+            if len(parts) == 4:
+                base_name = ":".join(parts[:3])  # "lowrisc:ip:uart"
+                if base_name not in core_map:
+                    core_map[base_name] = core_path
         except Exception:
             continue
     return core_map
@@ -34,8 +55,7 @@ def find_core_files(ot_root: Path) -> dict:
 
 def extract_sv_files(core_path: Path) -> list:
     """Extract .sv/.svh/.v/.vh file paths from a .core file."""
-    with open(core_path) as f:
-        data = yaml.safe_load(f)
+    data = parse_core_yaml(core_path)
     if not data:
         return []
 
@@ -44,7 +64,9 @@ def extract_sv_files(core_path: Path) -> list:
     for fs_name, fs_data in filesets.items():
         if not isinstance(fs_data, dict):
             continue
-        for entry in fs_data.get("files", []):
+        # Only include RTL filesets (skip lint waivers, docs, etc.)
+        file_type = fs_data.get("file_type", "")
+        for entry in (fs_data.get("files") or []):
             if isinstance(entry, dict):
                 fname = list(entry.keys())[0]
             else:
@@ -66,10 +88,15 @@ def resolve_deps(core_name: str, core_map: dict, visited: set = None) -> list:
 
     core_path = core_map.get(core_name)
     if not core_path:
+        # Try prefix match: "lowrisc:prim:all" might be stored as "lowrisc:prim:all:0.1"
+        for k, v in core_map.items():
+            if k.startswith(core_name + ":") or k == core_name:
+                core_path = v
+                break
+    if not core_path:
         return []
 
-    with open(core_path) as f:
-        data = yaml.safe_load(f)
+    data = parse_core_yaml(core_path)
     if not data:
         return []
 
@@ -80,7 +107,7 @@ def resolve_deps(core_name: str, core_map: dict, visited: set = None) -> list:
     for fs_name, fs_data in filesets.items():
         if not isinstance(fs_data, dict):
             continue
-        for dep in fs_data.get("depend", []):
+        for dep in (fs_data.get("depend") or []):
             all_files.extend(resolve_deps(dep, core_map, visited))
 
     # Then add this core's own files
@@ -133,7 +160,7 @@ def main():
     print(f"OpenTitan root: {OT_DIR}")
     print("Scanning .core files...")
     core_map = find_core_files(OT_DIR)
-    print(f"Found {len(core_map)} .core files")
+    print(f"Found {len(core_map)} core entries ({sum(1 for p in OT_DIR.rglob('*.core'))} .core files)")
 
     for target in config["targets"]:
         try:

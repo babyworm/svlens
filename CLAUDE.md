@@ -6,7 +6,7 @@ SystemVerilog structural analysis toolkit built on slang v10+.
 
 ```bash
 make build    # Release build
-make test     # Run full test suite (496+ tests)
+make test     # Run full test suite (570+ tests)
 make debug    # Debug build
 ```
 

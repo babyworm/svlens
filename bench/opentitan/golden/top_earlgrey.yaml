@@ -91,6 +91,20 @@ sva_references:
       - "$countones(top_earlgrey.u_usbdev.usbdev_avfifo.fifo_wptr_gray_q ^"
       - "@(posedge top_earlgrey.u_usbdev.usbdev_avfifo.clk_wr_i)"
     evidence: prim_fifo_async.sv:280-284
+  - source: top_earlgrey.u_usbdev.usbdev_avfifo.fifo_wptr_gray_q
+    dest: top_earlgrey.u_usbdev.usbdev_avfifo.sync_wptr.u_sync_1.q_o
+    assertion_suffix: _fifo_no_step
+    contains:
+      - "!(top_earlgrey.u_usbdev.usbdev_avfifo.wvalid_i && top_earlgrey.u_usbdev.usbdev_avfifo.wready_o) |=> $stable(top_earlgrey.u_usbdev.usbdev_avfifo.fifo_wptr_gray_q)"
+      - "@(posedge top_earlgrey.u_usbdev.usbdev_avfifo.clk_wr_i)"
+    evidence: prim_fifo_async.sv:52,65-71,170
+  - source: top_earlgrey.u_usbdev.usbdev_avfifo.fifo_rptr_gray_q
+    dest: top_earlgrey.u_usbdev.usbdev_avfifo.sync_rptr.u_sync_1.q_o
+    assertion_suffix: _fifo_no_step
+    contains:
+      - "!(top_earlgrey.u_usbdev.usbdev_avfifo.rvalid_o && top_earlgrey.u_usbdev.usbdev_avfifo.rready_i) |=> $stable(top_earlgrey.u_usbdev.usbdev_avfifo.fifo_rptr_gray_q)"
+      - "@(posedge top_earlgrey.u_usbdev.usbdev_avfifo.clk_rd_i)"
+    evidence: prim_fifo_async.sv:85,98-104,171
   - source: top_earlgrey.u_spi_host0.u_cmd_cdc.u_sync_reqack.u_prim_sync_reqack.src_req_q
     dest: top_earlgrey.u_spi_host0.u_cmd_cdc.u_sync_reqack.u_prim_sync_reqack.req_sync.u_sync_1.q_o
     assertion_suffix: _ack_requires_req

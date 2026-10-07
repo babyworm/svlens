@@ -111,7 +111,9 @@ unambiguous 2FF/3FF chain emits a sampled stage-transfer `assert property`,
 with an optional `sva_assertion_id` in JSON when the SVA file is written.
 A `prim_fifo_async` Gray pointer with verified source FF, width, clock, reset,
 and destination shape emits the primitive's one-bit transition property.
-When both properties exist, `sva_assertion_ids` links both labels. Verified
+When its relevant one-bit ready/valid and clock/reset ports are also connected,
+it emits a source-clock no-step-without-transfer pointer assertion. When
+multiple properties exist, `sva_assertion_ids` links their labels. Verified
 `prim_sync_reqack` request paths can emit the primitive's destination
 ACK-requires-REQ contract after the destination reset alias is checked. A
 fully connected `prim_sync_reqack_data` instance with checked port widths,
@@ -127,7 +129,8 @@ with the RTL. They do not simulate or prove those properties.
 
 **Why**: generic handshake and FIFO protocol properties need temporal
 assumptions before they can be emitted safely. The narrow Gray assertion
-checks only pointer encoding; stage transfer does not prove metastability
+checks only pointer encoding; the no-step assertion checks pointer gating,
+not FIFO full/empty logic. Stage transfer does not prove metastability
 resolution. The ACK and data-hold properties check caller contracts, not
 liveness or protocol safety.
 

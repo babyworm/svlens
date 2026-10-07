@@ -164,7 +164,7 @@ unresolved; a selected bit does not establish timing or mode safety.
   styles apply).
 - optional `sva_assertion_ids` -- emitted when more than one assertion is
   written for the crossing; ordered stage-transfer, FIFO Gray encoding,
-  req/ack ACK contract, then req/ack-data hold contract when applicable.
+  FIFO no-step, req/ack ACK contract, then req/ack-data hold contract when applicable.
   Every label appears in the SVA file.
 
 The FIFO Gray property is emitted only for a uniquely identified
@@ -172,9 +172,18 @@ The FIFO Gray property is emitted only for a uniquely identified
 `sync_wptr`/`sync_rptr` destination, width >= 2, known source clock, and
 matching asynchronous active-low reset. It mirrors the primitive's one-bit
 Gray-pointer transition assertion. It does not prove synchronizer safety,
-metastability resolution, or protocol-level data stability. Other FIFO
-records remain documentation-only unless an independent stage assertion
-qualifies.
+metastability resolution, or protocol-level data stability.
+
+The `_fifo_no_step` assertion additionally requires a qualified Gray-pointer
+crossing and relevant `prim_fifo_async` clock, reset, valid, and ready ports
+that are connected, integral, one bit wide, and directionally correct.
+At the write/read source clock it checks that no accepted transfer implies
+the corresponding Gray pointer is unchanged at the next sample. An
+unconnected ready/valid port suppresses only that side's no-step assertion.
+The generated signal paths come from the pointer FF's declaration scope,
+including generated arrays. This checks pointer gating, not FIFO full/empty
+logic, data stability, throughput, or CDC safety. Other FIFO records remain
+documentation-only unless a separately qualified assertion applies.
 
 The `prim_sync_reqack` ACK-needs-REQ property is emitted only for a recognized
 `src_req_q` FF crossing into the primitive's first `req_sync` stage, with

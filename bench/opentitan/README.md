@@ -92,8 +92,9 @@ body. The evaluator requires a fresh JSON/SVA pair, a one-to-one match between
 all emitted assert labels and JSON IDs, and identical crossing classifications
 between primary and SVA runs. AES pins the unbuffered destination-to-source
 data-hold contract; the SoC pins a 2FF transfer, the same crossing's secondary
-FIFO Gray assertion, a req/ack contract, and a source-to-destination data-hold
-contract. None is a CDC safety verdict.
+FIFO Gray assertion, write/read FIFO no-step assertions, a req/ack contract,
+and a source-to-destination data-hold contract (6/6 references). All 399 SoC
+assert labels must link to JSON. None is a CDC safety verdict.
 
 ## Quick Start
 

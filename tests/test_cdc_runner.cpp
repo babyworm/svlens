@@ -722,10 +722,99 @@ TEST_CASE("CdcRunner: FIFO Gray assertion ID links SVA and JSON", "[cdc][runner]
     REQUIRE(jsonFile.good());
     const std::string json((std::istreambuf_iterator<char>(jsonFile)), std::istreambuf_iterator<char>());
     CHECK(sva.find("_fifo_gray: assert property") != std::string::npos);
+    CHECK(sva.find("_fifo_no_step: assert property") == std::string::npos);
     CHECK(json.find("_fifo_gray\"") != std::string::npos);
     CHECK(json.find("fifo_wptr_gray_q") != std::string::npos);
     std::string error;
     const bool elaborated = cdcSvaElaborates("registered_fifo_gray.sv", "fifo_gray_top", opts.svaOutputFile, error);
+    INFO(error);
+    CHECK(elaborated);
+}
+
+TEST_CASE("CdcRunner: qualified FIFO transfer gates link SVA and JSON", "[cdc][runner][emit_sva][fifo]") {
+    connect::CompilationSession session;
+    std::vector<std::string> args = {"test", "--top", "fifo_transfer_sva_top", cdcFixture("fifo_transfer_sva.sv")};
+    REQUIRE(session.compile(args));
+
+    const auto out = fs::temp_directory_path() / ("svlens_fifo_transfer_sva_" + std::to_string(::getpid()));
+    fs::remove_all(out);
+    cdccli::CdcCliOptions opts;
+    opts.topModule = "fifo_transfer_sva_top";
+    opts.outputDir = out.string();
+    opts.format = "json";
+    opts.svaOutputFile = (out / "cdc_assertions.sva").string();
+    (void)cdccli::runCdcWithCompilation(session.compilation(), opts);
+
+    std::ifstream svaFile(opts.svaOutputFile);
+    REQUIRE(svaFile.good());
+    const std::string sva((std::istreambuf_iterator<char>(svaFile)), std::istreambuf_iterator<char>());
+    std::ifstream jsonFile(out / "cdc_report.json");
+    REQUIRE(jsonFile.good());
+    const std::string json((std::istreambuf_iterator<char>(jsonFile)), std::istreambuf_iterator<char>());
+    CHECK(sva.find("!(fifo_transfer_sva_top.u_fifo.wvalid_i && fifo_transfer_sva_top.u_fifo.wready_o) |=> "
+                   "$stable(fifo_transfer_sva_top.u_fifo.fifo_wptr_gray_q)") != std::string::npos);
+    CHECK(sva.find("!(fifo_transfer_sva_top.u_fifo.rvalid_o && fifo_transfer_sva_top.u_fifo.rready_i) |=> "
+                   "$stable(fifo_transfer_sva_top.u_fifo.fifo_rptr_gray_q)") != std::string::npos);
+    CHECK(json.find("_fifo_no_step\"") != std::string::npos);
+    std::string error;
+    const bool elaborated =
+        cdcSvaElaborates("fifo_transfer_sva.sv", "fifo_transfer_sva_top", opts.svaOutputFile, error);
+    INFO(error);
+    CHECK(elaborated);
+}
+
+TEST_CASE("CdcRunner: generated FIFO transfer SVA uses declaration scope", "[cdc][runner][emit_sva][fifo]") {
+    connect::CompilationSession session;
+    std::vector<std::string> args = {"test", "--top", "fifo_transfer_generated_top",
+                                     cdcFixture("fifo_transfer_sva.sv")};
+    REQUIRE(session.compile(args));
+
+    const auto out = fs::temp_directory_path() / ("svlens_fifo_generated_sva_" + std::to_string(::getpid()));
+    fs::remove_all(out);
+    cdccli::CdcCliOptions opts;
+    opts.topModule = "fifo_transfer_generated_top";
+    opts.outputDir = out.string();
+    opts.format = "json";
+    opts.svaOutputFile = (out / "cdc_assertions.sva").string();
+    (void)cdccli::runCdcWithCompilation(session.compilation(), opts);
+
+    std::ifstream svaFile(opts.svaOutputFile);
+    REQUIRE(svaFile.good());
+    const std::string sva((std::istreambuf_iterator<char>(svaFile)), std::istreambuf_iterator<char>());
+    CHECK(sva.find("fifo_transfer_generated_top.gen_lanes[0].u_fifo.wvalid_i") != std::string::npos);
+    CHECK(sva.find("fifo_transfer_generated_top.gen_lanes[0].u_fifo.rvalid_o") != std::string::npos);
+    CHECK(sva.find("genblk0.u_fifo.wvalid_i") == std::string::npos);
+    CHECK(sva.find("genblk0.u_fifo.rvalid_o") == std::string::npos);
+    std::string error;
+    const bool elaborated =
+        cdcSvaElaborates("fifo_transfer_sva.sv", "fifo_transfer_generated_top", opts.svaOutputFile, error);
+    INFO(error);
+    CHECK(elaborated);
+}
+
+TEST_CASE("CdcRunner: unconnected FIFO ready port suppresses only write transfer SVA",
+          "[cdc][runner][emit_sva][fifo]") {
+    connect::CompilationSession session;
+    std::vector<std::string> args = {"test", "--top", "fifo_transfer_partial_top", cdcFixture("fifo_transfer_sva.sv")};
+    REQUIRE(session.compile(args));
+
+    const auto out = fs::temp_directory_path() / ("svlens_fifo_partial_sva_" + std::to_string(::getpid()));
+    fs::remove_all(out);
+    cdccli::CdcCliOptions opts;
+    opts.topModule = "fifo_transfer_partial_top";
+    opts.outputDir = out.string();
+    opts.format = "json";
+    opts.svaOutputFile = (out / "cdc_assertions.sva").string();
+    (void)cdccli::runCdcWithCompilation(session.compilation(), opts);
+
+    std::ifstream svaFile(opts.svaOutputFile);
+    REQUIRE(svaFile.good());
+    const std::string sva((std::istreambuf_iterator<char>(svaFile)), std::istreambuf_iterator<char>());
+    CHECK(sva.find("u_fifo.wvalid_i &&") == std::string::npos);
+    CHECK(sva.find("u_fifo.rvalid_o &&") != std::string::npos);
+    std::string error;
+    const bool elaborated =
+        cdcSvaElaborates("fifo_transfer_sva.sv", "fifo_transfer_partial_top", opts.svaOutputFile, error);
     INFO(error);
     CHECK(elaborated);
 }

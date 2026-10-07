@@ -193,6 +193,11 @@ struct ReqAckDataContract {
     uint32_t width = 0;
 };
 
+struct FifoTransferContract {
+    std::string instance_path;
+    bool write_pointer = true;
+};
+
 struct CrossingReport {
     std::string id;             // e.g., "VIOLATION-001"
     ViolationCategory category = ViolationCategory::Info;
@@ -215,6 +220,7 @@ struct CrossingReport {
     std::string waive_reason;                               // reserved for explicit waiver provenance
     std::vector<std::string> capture_conditions;            // destination FF control signals, if collected
     std::optional<ReqAckDataContract> reqack_data_contract; // checked primitive port/parameter signature
+    std::optional<FifoTransferContract> fifo_transfer_contract; // checked ready/valid port signature
 };
 
 // ─── Clock Database: owns all clock-related objects ───

@@ -2,9 +2,9 @@
 
 The source-only run used pinned OpenTitan `earlgrey_silver_release_v5`
 (`ed044fc9760bdf9fc075d0015ba1db07fa075355`) and a dirty svlens worktree
-based on `78153372b76233d59e987e05d5e5ec703c26bae5`. The analyzed binary
-SHA-256 was `15ad65a4570c2d7a79e3d5813c5ae3d6e05903841f27d12ccee10160f5d2ccce`.
-The audited report was generated on 2026-10-07 18:48 UTC (2026-10-08 in Korea).
+based on `fc6c83fb5cd1f56d937957e77f35d6093bacf387`. The analyzed binary
+SHA-256 was `1f704d75b91dfaedcf1c0f6496b0442f5fbb95f888e96e05803d2e76dd41c260`.
+The audited report was generated on 2026-10-07 18:57 UTC (2026-10-08 in Korea).
 Counts are analyzer output, not a whole-design precision or recall estimate.
 
 | Target | Connections (direct / approximate) | Bit-flow gaps | Required paths | Absent paths | CDC (violation / caution / info) |
@@ -94,7 +94,10 @@ The five CDC signal references and 1/1 category probe are unchanged. The
 supplemental SoC period projection still populates 157/243 timing bases and
 matches 4/4 root periods; it does not prove capture timing. Separate SVA runs
 retain the primary crossing classifications: AES's data-hold reference passes
-1/1 with 2/2 JSON/assertion labels, and the SoC's 2FF/FIFO/req-ack/data-hold
-references pass 4/4 with 320/320 labels. SVA elaboration is not simulation or
+1/1 with 2/2 JSON/assertion labels, and the SoC's 2FF/FIFO Gray, write/read
+no-step, req-ack, and data-hold references pass 6/6 with 399/399 labels.
+Generated-array FIFO properties use the pointer FF's declaration scope;
+the full SoC SVA elaborates with zero errors and the same 12 upstream RTL
+warnings as the no-SVA baseline. SVA elaboration is not simulation or
 a protocol-safety proof. Raw benchmark artifacts remain under ignored
 `bench/opentitan/results/` and are uploaded by the scheduled/on-demand CI job.

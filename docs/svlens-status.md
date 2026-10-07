@@ -102,12 +102,12 @@ The full local regression on 2026-10-08 passed:
 - `cmake --build build -j8`
 - `ctest --test-dir build --output-on-failure -j8`
 - `ctest --test-dir build-ubsan --output-on-failure -j4`
-- **735 / 735 tests passing** in both builds
+- **738 / 738 tests passing** in both builds
 
 The shared inline-SV test helper now owns the slang driver for the full AST
 lifetime. This removes a dangling-source dependency that could corrupt
 hierarchical names and make CDC regressions depend on allocator behavior.
-The full ASan regression also passes **735 / 735** when svlens is linked to a
+The full ASan regression also passes **738 / 738** when svlens is linked to a
 separately built slang v10 at the same pinned commit with
 `SLANG_USE_MIMALLOC=OFF`. The default installed slang exports mimalloc and the
 same ASan test binary crashes inside `mi_free_block_delayed_mt` on standalone
@@ -119,8 +119,8 @@ the default dependency install remains unchanged.
 The OpenTitan benchmark parser/evaluator suite passes 35/35 Python tests and
 Ruff checks. Pinned AES and full-SoC SVA elaborate with their RTL (0 errors;
 the SoC's 12 implicit-conversion warnings also occur without SVA). The
-benchmark gates AES's data-hold reference (1/1), four SoC 2FF/FIFO/req-ack
-references (4/4), all 320 SoC assertion labels against JSON IDs (320/320),
+benchmark gates AES's data-hold reference (1/1), six SoC 2FF/FIFO/req-ack
+references (6/6), all 399 SoC assertion labels against JSON IDs (399/399),
 and unchanged CDC classifications. These are structural emission and
 elaboration checks, not protocol proofs.
 
@@ -287,13 +287,15 @@ Dependency bootstrap:
 - `--emit-sva` produces covers for eligible unsynchronized crossings and
   stage-transfer assertions for unambiguous 2FF/3FF chains. A verified
   `prim_fifo_async` Gray pointer can add a source-clock one-bit transition
-  assertion, linked alongside a stage assertion in JSON when both exist.
+  assertion. If its side-specific one-bit ready/valid ports are connected,
+  it can also add a no-step-without-transfer pointer assertion. JSON links
+  these alongside a stage assertion when applicable.
   A verified `prim_sync_reqack` request path can add the destination
   ACK-requires-REQ contract assertion. A fully connected, parameter-checked
   `prim_sync_reqack_data` with `DataReg=0` can add its direction-specific
   source-clock data-hold assertion, linked to the CAUTION crossing in JSON.
-  Generic handshake data-stability/liveness and FIFO protocol assertions
-  remain unimplemented. FF, reset, and
+  Generic handshake liveness, FIFO full/empty correctness, and coherent data
+  transfer assertions remain unimplemented. FF, reset, and
   clock paths in generated SVA now use AST declaration scopes; fixture tests
   compile the SVA module with its RTL, including a generate-array case.
 - Metrics handles several procedural forms and approximate function calls;

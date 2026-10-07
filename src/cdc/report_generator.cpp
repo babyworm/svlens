@@ -32,6 +32,15 @@ struct SvaFifoGrayAssertion {
     std::string signal;
 };
 
+struct SvaFifoTransferAssertion {
+    std::string label;
+    std::string clock;
+    std::string reset;
+    std::string pointer;
+    std::string valid;
+    std::string ready;
+};
+
 struct SvaReqAckAssertion {
     std::string label;
     std::string clock;
@@ -229,6 +238,8 @@ static std::optional<SvaSyncAssertion> svaSyncAssertion(const AnalysisResult& re
                                                         const std::string& safe_id);
 static std::optional<SvaFifoGrayAssertion>
 svaFifoGrayAssertion(const AnalysisResult& result, const CrossingReport& crossing, const std::string& safe_id);
+static std::optional<SvaFifoTransferAssertion>
+svaFifoTransferAssertion(const AnalysisResult& result, const CrossingReport& crossing, const std::string& safe_id);
 static std::optional<SvaReqAckAssertion> svaReqAckAssertion(const AnalysisResult& result,
                                                             const CrossingReport& crossing, const std::string& safe_id);
 static std::optional<SvaReqAckDataAssertion> svaReqAckDataAssertion(const CrossingReport& crossing,
@@ -733,6 +744,8 @@ void ReportGenerator::writeJSON(std::ostream& out) const {
                 assertionIds.push_back(assertion->label);
             if (auto assertion = svaFifoGrayAssertion(result_, c, svaIds[i]))
                 assertionIds.push_back(assertion->label);
+            if (auto assertion = svaFifoTransferAssertion(result_, c, svaIds[i]))
+                assertionIds.push_back(assertion->label);
             if (auto assertion = svaReqAckAssertion(result_, c, svaIds[i]))
                 assertionIds.push_back(assertion->label);
             if (auto assertion = svaReqAckDataAssertion(c, svaIds[i]))
@@ -1050,6 +1063,34 @@ svaFifoGrayAssertion(const AnalysisResult& result, const CrossingReport& crossin
     return assertion;
 }
 
+static std::optional<SvaFifoTransferAssertion>
+svaFifoTransferAssertion(const AnalysisResult& result, const CrossingReport& crossing, const std::string& safe_id) {
+    if (!crossing.fifo_transfer_contract)
+        return std::nullopt;
+    const auto gray = svaFifoGrayAssertion(result, crossing, safe_id);
+    if (!gray)
+        return std::nullopt;
+    const auto& contract = *crossing.fifo_transfer_contract;
+    const auto expectedPointer =
+        contract.instance_path + (contract.write_pointer ? ".fifo_wptr_gray_q" : ".fifo_rptr_gray_q");
+    if (contract.instance_path.empty() || crossing.source_signal != expectedPointer)
+        return std::nullopt;
+
+    SvaFifoTransferAssertion assertion;
+    assertion.label = "cdc_" + safe_id + "_fifo_no_step";
+    assertion.clock = gray->clock;
+    assertion.reset = gray->reset;
+    assertion.pointer = gray->signal;
+    const auto emittedDot = gray->signal.rfind('.');
+    if (emittedDot == std::string::npos)
+        return std::nullopt;
+    const auto emittedPrefix = gray->signal.substr(0, emittedDot);
+    if (!svaExpressionSafe(emittedPrefix + (contract.write_pointer ? ".wvalid_i" : ".rvalid_o"), assertion.valid) ||
+        !svaExpressionSafe(emittedPrefix + (contract.write_pointer ? ".wready_o" : ".rready_i"), assertion.ready))
+        return std::nullopt;
+    return assertion;
+}
+
 static std::optional<SvaReqAckAssertion>
 svaReqAckAssertion(const AnalysisResult& result, const CrossingReport& crossing, const std::string& safe_id) {
     if ((crossing.category != ViolationCategory::Info && crossing.category != ViolationCategory::Caution) ||
@@ -1150,6 +1191,7 @@ bool ReportGenerator::generateSVA(const std::filesystem::path& output_path,
     out << "// Crossings:  " << result_.crossings.size() << "\n";
     out << "// Note: 2FF/3FF assertions check sampled stage transfer only.\n";
     out << "//       prim_fifo_async Gray assertions check pointer encoding only.\n";
+    out << "//       prim_fifo_async transfer assertions check pointer hold without a transfer.\n";
     out << "//       prim_sync_reqack ACK assertions check an integration contract.\n";
     out << "//       prim_sync_reqack_data hold assertions check caller data stability.\n";
     out << "//       They do not prove metastability resolution or CDC safety.\n";
@@ -1224,6 +1266,7 @@ bool ReportGenerator::generateSVA(const std::filesystem::path& output_path,
         } else {
             const auto stageAssertion = svaSyncAssertion(result_, c, id_safe);
             const auto fifoAssertion = svaFifoGrayAssertion(result_, c, id_safe);
+            const auto fifoTransferAssertion = svaFifoTransferAssertion(result_, c, id_safe);
             const auto reqAckAssertion = svaReqAckAssertion(result_, c, id_safe);
             const auto dataHoldAssertion = svaReqAckDataAssertion(c, id_safe);
             if (stageAssertion) {
@@ -1249,6 +1292,16 @@ bool ReportGenerator::generateSVA(const std::filesystem::path& output_path,
                 out << "        $countones(" << fifoAssertion->signal << " ^ $past(" << fifoAssertion->signal
                     << ")) <= 1;\nendproperty\n";
                 out << fifoAssertion->label << ": assert property (p_" << fifoAssertion->label << ");\n";
+            }
+            if (fifoTransferAssertion) {
+                out << "// Checks pointer hold without an accepted FIFO transfer; not a CDC safety proof.\n";
+                out << "property p_" << fifoTransferAssertion->label << ";\n";
+                out << "    @(posedge " << fifoTransferAssertion->clock << ") disable iff ((!"
+                    << fifoTransferAssertion->reset << ") !== '0)\n";
+                out << "        !(" << fifoTransferAssertion->valid << " && " << fifoTransferAssertion->ready
+                    << ") |=> $stable(" << fifoTransferAssertion->pointer << ");\nendproperty\n";
+                out << fifoTransferAssertion->label << ": assert property (p_" << fifoTransferAssertion->label
+                    << ");\n";
             }
             if (reqAckAssertion) {
                 out << "// Mirrors prim_sync_reqack SyncReqAckAckNeedsReq; not a liveness or CDC safety proof.\n";
@@ -1276,7 +1329,7 @@ bool ReportGenerator::generateSVA(const std::filesystem::path& output_path,
                 out << "endproperty\n";
                 out << dataHoldAssertion->label << ": assert property (p_" << dataHoldAssertion->label << ");\n";
             }
-            if (!stageAssertion && !fifoAssertion && !reqAckAssertion && !dataHoldAssertion) {
+            if (!stageAssertion && !fifoAssertion && !fifoTransferAssertion && !reqAckAssertion && !dataHoldAssertion) {
                 if (c.sync_type != SyncType::None) {
                     if (c.category == ViolationCategory::Info)
                         out << "// Verified " << sync_type

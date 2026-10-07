@@ -174,6 +174,56 @@ void appendNamedReqackReviews(const slang::ast::Scope& scope, const std::string&
     }
 }
 
+void annotateFifoTransferContracts(const slang::ast::Scope& scope, const std::string& parentPath,
+                                   std::vector<sv_cdccheck::CrossingReport>& crossings) {
+    for (const auto& member : scope.members()) {
+        if (member.kind == slang::ast::SymbolKind::Instance) {
+            const auto& child = member.as<slang::ast::InstanceSymbol>();
+            const std::string path = parentPath + "." + std::string(child.name);
+            if (child.getDefinition().name == "prim_fifo_async") {
+                std::unordered_set<std::string> connectedPorts;
+                for (const auto* connection : child.getPortConnections()) {
+                    if (!connection)
+                        continue;
+                    const auto* expression = connection->getExpression();
+                    if (expression && expression->kind != slang::ast::ExpressionKind::EmptyArgument)
+                        connectedPorts.insert(std::string(connection->port.name));
+                }
+                auto hasPort = [&](std::string_view name, slang::ast::ArgumentDirection direction) {
+                    const auto* symbol = child.body.findPort(name);
+                    if (!symbol || symbol->kind != slang::ast::SymbolKind::Port ||
+                        !connectedPorts.contains(std::string(name)))
+                        return false;
+                    const auto& port = symbol->as<slang::ast::PortSymbol>();
+                    return port.direction == direction && port.getType().isIntegral() &&
+                           port.getType().getBitWidth() == 1;
+                };
+                using Direction = slang::ast::ArgumentDirection;
+                const bool writePort = hasPort("clk_wr_i", Direction::In) && hasPort("rst_wr_ni", Direction::In) &&
+                                       hasPort("wvalid_i", Direction::In) && hasPort("wready_o", Direction::Out);
+                const bool readPort = hasPort("clk_rd_i", Direction::In) && hasPort("rst_rd_ni", Direction::In) &&
+                                      hasPort("rvalid_o", Direction::Out) && hasPort("rready_i", Direction::In);
+                for (auto& crossing : crossings) {
+                    if (writePort && crossing.source_signal == path + ".fifo_wptr_gray_q")
+                        crossing.fifo_transfer_contract = sv_cdccheck::FifoTransferContract{path, true};
+                    else if (readPort && crossing.source_signal == path + ".fifo_rptr_gray_q")
+                        crossing.fifo_transfer_contract = sv_cdccheck::FifoTransferContract{path, false};
+                }
+            }
+            annotateFifoTransferContracts(child.body, path, crossings);
+        } else if (member.kind == slang::ast::SymbolKind::GenerateBlock) {
+            const auto& block = member.as<slang::ast::GenerateBlockSymbol>();
+            if (!block.isUninstantiated)
+                annotateFifoTransferContracts(block, parentPath + "." + block.getExternalName(), crossings);
+        } else if (member.kind == slang::ast::SymbolKind::GenerateBlockArray) {
+            const auto& array = member.as<slang::ast::GenerateBlockArraySymbol>();
+            for (const auto* entry : array.entries)
+                if (entry && !entry->isUninstantiated)
+                    annotateFifoTransferContracts(*entry, parentPath + "." + entry->getExternalName(), crossings);
+        }
+    }
+}
+
 // Load a CDC YAML config: top-level `sync_cells: [...]` and
 // `glitch_free_mux_cells: [...]` lists. Missing keys are tolerated.
 // Errors are reported once and otherwise ignored so a bad config does
@@ -334,8 +384,10 @@ sv_cdccheck::AnalysisResult analyzeCdcCompilation(slang::ast::Compilation& compi
     // and port signature merit CAUTION, not a claim of safe synchronization.
     int reqackSequence = 0;
     for (const auto* top : compilation.getRoot().topInstances) {
-        if (top && top->name == opts.topModule)
+        if (top && top->name == opts.topModule) {
             appendNamedReqackReviews(top->body, std::string(top->name), clockDb, crossings, reqackSequence);
+            annotateFifoTransferContracts(top->body, std::string(top->name), crossings);
+        }
     }
 
     sv_cdccheck::WaiverManager waiverMgr;

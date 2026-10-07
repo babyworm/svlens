@@ -75,6 +75,13 @@ else()
     set(FMT_TARGET slang::fmt)
 endif()
 
+# slang v10 public headers call fmt::format through an indirect include. The
+# Xcode 26.6 runner with fmt 12.1 no longer exposes that declaration via
+# fmt/core.h, so include the already-required format header for consumers.
+if(APPLE)
+    add_compile_options(-include fmt/format.h)
+endif()
+
 option(SVLENS_FETCH_DEPS "Allow CMake to fetch missing third-party dependencies" ON)
 option(SVLENS_ENABLE_COVERAGE "Enable gcov/llvm-cov coverage instrumentation" OFF)
 option(SVLENS_ENABLE_FUZZ "Build libFuzzer-based fuzz harnesses (requires Clang)" OFF)

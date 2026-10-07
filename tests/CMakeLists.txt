@@ -100,6 +100,7 @@ add_test(NAME install_smoke
             $<TARGET_FILE:svlens>
             ${CMAKE_BINARY_DIR}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(install_smoke PROPERTIES RUN_SERIAL TRUE)
 
 add_test(NAME help_contract
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_help_contract.sh
@@ -147,7 +148,8 @@ add_test(NAME report_convert
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 add_test(NAME python_api
-    COMMAND python3 -B -m unittest discover -s ${CMAKE_SOURCE_DIR}/python/tests
+    COMMAND ${CMAKE_COMMAND} -E env "SVLENS_BINARY=$<TARGET_FILE:svlens>"
+            python3 -B -m unittest discover -s ${CMAKE_SOURCE_DIR}/python/tests
             -p test_api.py
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 

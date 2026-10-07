@@ -1,3 +1,4 @@
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -8,7 +9,7 @@ import svlens
 
 
 class ApiTests(unittest.TestCase):
-    binary = ROOT / "build" / "svlens"
+    binary = Path(os.environ.get("SVLENS_BINARY", ROOT / "build" / "svlens"))
 
     def test_conn_returns_findings_even_when_exit_is_nonzero(self):
         report = svlens.conn(

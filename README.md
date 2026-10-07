@@ -412,6 +412,10 @@ ctest --test-dir build --output-on-failure
 For a full AddressSanitizer run, build slang in a separate prefix with
 `--no-mimalloc`; see the [installation guide](docs/install.md#addresssanitizer-validation).
 
+With Verilator installed, `make test-sva-sim` optionally runs generated 2FF,
+FIFO no-step, and SRC-to-DST data-hold assertions against both valid RTL and
+intentional violations. This is fixture execution, not full-SoC simulation.
+
 ### Install
 
 ```bash

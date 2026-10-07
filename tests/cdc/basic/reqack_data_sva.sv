@@ -42,3 +42,16 @@ module reqack_data_sva_top(input logic clk_a, clk_b, rst_a_n, rst_b_n,
         .src_req_i(req_i), .src_ack_o(ack_partial), .dst_req_o(req_partial), .dst_ack_i(ack_i),
         .data_i(data_ab), .data_o());
 endmodule
+
+module reqack_data_forward_sva_top(input logic clk_a, clk_b, rst_a_n, rst_b_n,
+                                   input logic req_i, ack_i,
+                                   input logic [3:0] data_ab,
+                                   output logic [3:0] out_ab);
+    logic src_ack, dst_req;
+    prim_sync_reqack_data #(.Width(4)) u_forward(
+        .clk_src_i(clk_a), .rst_src_ni(rst_a_n),
+        .clk_dst_i(clk_b), .rst_dst_ni(rst_b_n),
+        .src_req_i(req_i), .src_ack_o(src_ack),
+        .dst_req_o(dst_req), .dst_ack_i(ack_i),
+        .data_i(data_ab), .data_o(out_ab));
+endmodule

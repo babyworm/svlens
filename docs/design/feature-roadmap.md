@@ -128,6 +128,9 @@ instances) instead of relying on unqualified domain names.
 Pinned OpenTitan AES and full-SoC probes compare classifications before/after
 SVA emission, link every emitted assert label to JSON, and elaborate the SVA
 with the RTL. They do not simulate or prove those properties.
+An optional local Verilator fixture run checks pass/fail execution of 2FF,
+FIFO no-step, and SRC-to-DST data-hold properties; it does not exercise the
+full SoC or the DST-to-SRC `[*2]` hold property.
 
 **Why**: generic handshake and FIFO protocol properties need temporal
 assumptions before they can be emitted safely. The narrow Gray assertion

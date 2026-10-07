@@ -27,6 +27,10 @@ module prim_fifo_async(input logic clk_wr_i, clk_rd_i, rst_wr_ni, rst_rd_ni,
         end else if (wvalid_i && wready_o) begin
             fifo_wptr_q <= fifo_wptr_q + 3'd1;
             fifo_wptr_gray_q <= ((fifo_wptr_q + 3'd1) >> 1) ^ (fifo_wptr_q + 3'd1);
+`ifdef SVLENS_FIFO_SVA_MUTATE
+        end else begin
+            fifo_wptr_gray_q <= fifo_wptr_gray_q ^ 3'b001;
+`endif
         end
     end
     always_ff @(posedge clk_rd_i or negedge rst_rd_ni) begin

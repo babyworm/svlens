@@ -10,6 +10,11 @@ The runner is `tests/test_cdc_golden.sh` (invoked by ctest as the
 `integration_cdc_golden` test). It compares the actual svlens output
 against the golden values byte-equivalent and fails on any deviation.
 
+The optional `make test-sva-sim` target requires Verilator and executes
+generated SVA with three valid and three deliberately mutated RTL fixtures.
+It catches assertions that parse but never fire; it does not simulate the
+OpenTitan SoC or every SVA template.
+
 ## Pairing principle
 
 Every detection rule that fires on at least one fixture has both:

@@ -123,6 +123,12 @@ benchmark gates AES's data-hold reference (1/1), six SoC 2FF/FIFO/req-ack
 references (6/6), all 399 SoC assertion labels against JSON IDs (399/399),
 and unchanged CDC classifications. These are structural emission and
 elaboration checks, not protocol proofs.
+An optional `make test-sva-sim` run with local Verilator 5.046 executes
+generated 2FF, FIFO no-step, and SRC-to-DST req/ack-data properties: three
+valid fixture runs pass and three intentional mutations trigger their named
+assertions. The DST-to-SRC hold property uses `[*2]`, which that Verilator
+version does not support; it remains Slang-elaborated but not dynamically
+checked here. The pinned SoC SVA is also elaborated, not simulated.
 
 The former 464-test figure predates metrics and is no longer representative.
 

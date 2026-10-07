@@ -101,10 +101,15 @@ jobs:
             cmake \
             git \
             python3 \
+            python3-yaml \
             ccache \
             gcovr \
             catch2 \
             libyaml-cpp-dev
+
+      - name: Test OpenTitan benchmark harness
+        run: |
+          python3 -m unittest discover -s bench/opentitan -p 'test_*.py'
 
       - name: Cache slang install
         uses: actions/cache@v5

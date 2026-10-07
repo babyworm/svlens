@@ -90,6 +90,29 @@ This checks bounded named-net path presence, not vector bit correspondence or
 whole-SoC recall. It does not adjudicate sliced/converted buses,
 conditional/procedural paths, modports, or IPs outside the chosen scopes.
 
+### Follow-up: one-stage continuous aliases
+
+A clean-tree rerun at 2026-10-07 19:58 UTC used svlens commit
+`68b76c6c15ecf417428af6e0fd3cb1872b376766` and the same analyzer binary
+SHA-256 shown above. The source oracle now includes one direct continuous
+alias only when its simple-logic width matches both sibling ports, the source
+port is its sole output driver, and no other assignment writes the alias.
+Three additional RTL-backed paths appear as `direct`:
+
+| Scope | Source → destination | RTL evidence |
+|---|---|---|
+| AES shadow register | `committed_reg.q[11:0]` → `wr_en_data_arb.q[11:0]` | `prim_subreg_shadow.sv:55–61,136–154` |
+| USB device | `usbdev_rxfifo.rvalid_o` → `intr_hw_pkt_received.event_intr_i` | `usbdev.sv:225–244,744–747` |
+| Ibex core | `id_stage_i.alu_operand_a_ex_o[31:0]` → `cs_registers_i.csr_wdata_i[31:0]` | `ibex_core.sv:534,911,947` |
+
+The extended frame passes 358/358 direct paths, zero approximate-only paths,
+and zero missing paths. Its pinned expected-pair SHA-256 is
+`489f2ee89a2927b87654a85211290e57718a643de2ebcb77eba12248341026f3`.
+The previous 355/355 table describes the earlier run; analyzer findings are
+unchanged. The new probe still excludes multi-stage, computed, conditional,
+and procedural glue as well as interface/modport ports; it is not a whole-SoC
+recall estimate.
+
 The five CDC signal references and 1/1 category probe are unchanged. The
 supplemental SoC period projection still populates 157/243 timing bases and
 matches 4/4 root periods; it does not prove capture timing. Separate SVA runs

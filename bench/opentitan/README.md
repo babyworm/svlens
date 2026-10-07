@@ -50,14 +50,16 @@ whole-design precision or recall estimate. A changed population requires
 fresh manual adjudication rather than silently reusing old verdicts.
 
 An independent source-derived recall probe walks Slang's elaborated AST for
-seven SoC IP scopes and enumerates only single-bit `logic` sibling-instance
-port pairs sharing one named net with exactly one output driver. The current
-frame contains 242 expected pairs; all 242 appear as `direct` rows. The probe
+seven SoC IP scopes and enumerates single-bit or whole-width, one-dimensional
+`logic` sibling-instance port pairs (up to 4,096 bits) sharing one named net with exactly one
+output driver and matching widths. The current frame contains 355 expected
+pairs; all 355 appear as `direct` rows. The probe
 rebuilds its expectations from pinned RTL on each benchmark run, writes the
 full pair manifest to `results/top_earlgrey/source_recall.json`, and fails if
 a path is missing, downgraded to `approximate`, or the expected-pair frame hash
-changes without re-adjudication. It does not cover buses,
-procedural glue, interface ports, or unselected SoC scopes, so 242/242 is not
+changes without re-adjudication. It checks whole-vector path presence, not
+bit-lane correspondence, and excludes sliced/converted buses, procedural
+glue, interface ports, and unselected SoC scopes. Thus 355/355 is not
 whole-design recall. The benchmark requires the `slang` CLI on `PATH` or the
 `SVLENS_SLANG` environment variable pointing to its executable.
 

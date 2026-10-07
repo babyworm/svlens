@@ -587,9 +587,10 @@ def generate_report(evals: list) -> str:
     source_audits = [ev for ev in evals if ev.get("source_recall")]
     if source_audits:
         lines += ["", "## Source-Derived Direct Wiring Recall", "",
-                  "A separate Slang AST walk enumerates unique-output, single-bit named-net",
-                  "connections between sibling instance ports in the listed SoC IP scopes.",
-                  "This is bounded pattern recall, not whole-design recall.", "",
+                  "A separate Slang AST walk enumerates unique-output scalar and",
+                  "whole-width one-dimensional logic-vector named-net connections (up to 4,096 bits)",
+                  "between sibling ports in the listed SoC IP scopes. This checks",
+                  "path presence, not vector bit correspondence or whole-design recall.", "",
                   "| Target | Scope | Expected | Direct | Approximate only | Missing |",
                   "|--------|-------|---------:|-------:|-----------------:|--------:|"]
         for ev in source_audits:

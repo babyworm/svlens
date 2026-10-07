@@ -1,16 +1,32 @@
 import unittest
 
-from source_recall import compare_report, expected_scalar_edges
+from source_recall import compare_report, expected_simple_edges, simple_logic_width
 
 
-def port(name, direction, symbol):
-    expr = {"kind": "NamedValue", "type": "logic", "symbol": symbol}
+def port(name, direction, symbol, type_name="logic", net_type=None):
+    expr = {"kind": "NamedValue", "type": net_type or type_name, "symbol": symbol}
     if direction == "Out":
         expr = {"kind": "Assignment", "left": expr}
-    return {"port": {"name": name, "type": "logic", "direction": direction}, "expr": expr}
+    return {"port": {"name": name, "type": type_name, "direction": direction}, "expr": expr}
 
 
 class SourceRecallTests(unittest.TestCase):
+    def test_whole_vector_wires_use_report_width_spelling_and_reject_conversions(self):
+        self.assertIsNone(simple_logic_width("logic[1:0][3:0]"))
+        self.assertIsNone(simple_logic_width("logic[4096:0]"))
+        scope = {"kind": "Instance", "body": {"members": [
+            {"kind": "Instance", "name": "u_source",
+             "connections": [port("data_o", "Out", "bus", "logic[0:7]")]},
+            {"kind": "Instance", "name": "u_sink",
+             "connections": [port("data_i", "In", "bus", "logic[7:0]")]},
+            {"kind": "Instance", "name": "u_narrow",
+             "connections": [port("data_i", "In", "bus", "logic[3:0]", "logic[7:0]")]},
+            {"kind": "Instance", "name": "u_struct",
+             "connections": [port("data_i", "In", "bus", "pkg::payload_t")]},
+        ]}}
+        self.assertEqual(expected_simple_edges(scope, "top"),
+                         [("top.u_source.data_o[7:0]", "top.u_sink.data_i[7:0]")])
+
     def test_unique_scalar_sibling_wires_and_generated_scopes(self):
         def pair(source_name, dest_name, symbol):
             return [{"kind": "Instance", "name": source_name,
@@ -28,7 +44,7 @@ class SourceRecallTests(unittest.TestCase):
             {"kind": "Instance", "name": "u_second_driver",
              "connections": [port("q_o", "Out", "shared")]},
         ]}}
-        expected = expected_scalar_edges(scope, "top")
+        expected = expected_simple_edges(scope, "top")
         self.assertEqual(expected, [
             ("top.gen_lanes[2].u_gen_source.q_o", "top.gen_lanes[2].u_gen_sink.d_i"),
             ("top.u_source.q_o", "top.u_sink.d_i"),

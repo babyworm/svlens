@@ -1,8 +1,9 @@
-"""Bounded RTL-source oracle for scalar sibling-port connection recall."""
+"""Bounded RTL-source oracle for simple integral sibling-port connections."""
 
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -10,9 +11,22 @@ from collections import defaultdict
 from pathlib import Path
 
 
-def expected_scalar_edges(scope: dict, path: str) -> list[tuple[str, str]]:
-    """Find unique-output, direct scalar port pairs sharing one elaborated net."""
+def simple_logic_width(type_name: str | None) -> int | None:
+    if type_name == "logic":
+        return 1
+    match = re.fullmatch(r"logic\[(\d+):(\d+)\]", type_name or "")
+    if not match:
+        return None
+    width = abs(int(match[1]) - int(match[2])) + 1
+    return width if width <= 4096 else None
+
+
+def expected_simple_edges(scope: dict, path: str) -> list[tuple[str, str]]:
+    """Find unique-output scalar or whole-vector pairs sharing one net."""
     expected = set()
+
+    def port_path(scope_path: str, instance: str, port: str, width: int) -> str:
+        return f"{scope_path}.{instance}.{port}" + (f"[{width - 1}:0]" if width > 1 else "")
 
     def visit(node: dict, scope_path: str) -> None:
         body = node.get("body")
@@ -27,21 +41,22 @@ def expected_scalar_edges(scope: dict, path: str) -> list[tuple[str, str]]:
                 port = connection.get("port") or {}
                 expr = connection.get("expr") or {}
                 direction = port.get("direction")
-                if port.get("type") != "logic" or direction not in ("In", "Out"):
+                width = simple_logic_width(port.get("type"))
+                if width is None or direction not in ("In", "Out"):
                     continue
                 if direction == "Out" and expr.get("kind") == "Assignment":
                     expr = expr.get("left") or {}
-                if expr.get("kind") != "NamedValue" or expr.get("type") != "logic":
+                if expr.get("kind") != "NamedValue" or simple_logic_width(expr.get("type")) != width:
                     continue
-                by_symbol[expr["symbol"]][direction].append((child["name"], port["name"]))
+                by_symbol[expr["symbol"]][direction].append((child["name"], port["name"], width))
         for ports in by_symbol.values():
             if len(ports["Out"]) != 1:
                 continue
-            source_instance, source_port = ports["Out"][0]
-            for dest_instance, dest_port in ports["In"]:
-                if source_instance != dest_instance:
-                    expected.add((f"{scope_path}.{source_instance}.{source_port}",
-                                  f"{scope_path}.{dest_instance}.{dest_port}"))
+            source_instance, source_port, source_width = ports["Out"][0]
+            for dest_instance, dest_port, dest_width in ports["In"]:
+                if source_instance != dest_instance and source_width == dest_width:
+                    expected.add((port_path(scope_path, source_instance, source_port, source_width),
+                                  port_path(scope_path, dest_instance, dest_port, dest_width)))
 
         for child in members:
             if not isinstance(child, dict):
@@ -107,7 +122,7 @@ def audit_source_recall(report: dict, filelist: Path, top: str, scopes: list[str
             ast = json.loads(ast_path.read_text())
             if ast.get("kind") != "Instance" or ast.get("name") != scope.rsplit(".", 1)[-1]:
                 raise ValueError(f"source-recall scope {scope} was not found")
-            by_scope[scope] = expected_scalar_edges(ast, scope)
+            by_scope[scope] = expected_simple_edges(ast, scope)
     result = compare_report(report, by_scope)
     if not result["expected"]:
         raise ValueError("source-recall oracle found no eligible paths")

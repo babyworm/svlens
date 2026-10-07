@@ -1,0 +1,114 @@
+"""Bounded RTL-source oracle for scalar sibling-port connection recall."""
+
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+from collections import defaultdict
+from pathlib import Path
+
+
+def expected_scalar_edges(scope: dict, path: str) -> list[tuple[str, str]]:
+    """Find unique-output, direct scalar port pairs sharing one elaborated net."""
+    expected = set()
+
+    def visit(node: dict, scope_path: str) -> None:
+        body = node.get("body")
+        members = body.get("members", []) if isinstance(body, dict) else node.get("members", [])
+        if not isinstance(members, list):
+            return
+        by_symbol = defaultdict(lambda: {"Out": [], "In": []})
+        for child in members:
+            if not isinstance(child, dict) or child.get("kind") != "Instance":
+                continue
+            for connection in child.get("connections", []):
+                port = connection.get("port") or {}
+                expr = connection.get("expr") or {}
+                direction = port.get("direction")
+                if port.get("type") != "logic" or direction not in ("In", "Out"):
+                    continue
+                if direction == "Out" and expr.get("kind") == "Assignment":
+                    expr = expr.get("left") or {}
+                if expr.get("kind") != "NamedValue" or expr.get("type") != "logic":
+                    continue
+                by_symbol[expr["symbol"]][direction].append((child["name"], port["name"]))
+        for ports in by_symbol.values():
+            if len(ports["Out"]) != 1:
+                continue
+            source_instance, source_port = ports["Out"][0]
+            for dest_instance, dest_port in ports["In"]:
+                if source_instance != dest_instance:
+                    expected.add((f"{scope_path}.{source_instance}.{source_port}",
+                                  f"{scope_path}.{dest_instance}.{dest_port}"))
+
+        for child in members:
+            if not isinstance(child, dict):
+                continue
+            kind = child.get("kind")
+            if kind == "Instance" and child.get("name"):
+                visit(child, f"{scope_path}.{child['name']}")
+            elif kind == "GenerateBlock":
+                suffix = f".{child['name']}" if child.get("name") else ""
+                visit(child, scope_path + suffix)
+            elif kind == "GenerateBlockArray" and child.get("name"):
+                for block in child.get("members", []):
+                    index = block.get("constructIndex") if isinstance(block, dict) else None
+                    if isinstance(index, int) and block.get("kind") == "GenerateBlock":
+                        visit(block, f"{scope_path}.{child['name']}[{index}]")
+
+    visit(scope, path)
+    return sorted(expected)
+
+
+def compare_report(report: dict, by_scope: dict[str, list[tuple[str, str]]]) -> dict:
+    direct = {(row["source"], row["dest"]) for row in report.get("connections", [])
+              if row.get("kind") == "direct"}
+    approximate = {(row["source"], row["dest"]) for row in report.get("connections", [])
+                   if row.get("kind") == "approximate"}
+    expected = sorted({pair for pairs in by_scope.values() for pair in pairs})
+    approximate_only = [pair for pair in expected if pair not in direct and pair in approximate]
+    missing = [pair for pair in expected if pair not in direct and pair not in approximate]
+    scope_results = {}
+    for scope, pairs in by_scope.items():
+        unique = set(pairs)
+        direct_count = len(unique & direct)
+        approximate_count = len((unique - direct) & approximate)
+        scope_results[scope] = {"expected": len(unique), "found_direct": direct_count,
+                                "approximate_only": approximate_count,
+                                "missing": len(unique) - direct_count - approximate_count}
+    fingerprint = hashlib.sha256("\n".join(" -> ".join(pair) for pair in expected).encode()).hexdigest()
+    return {"scope_results": scope_results,
+            "expected": len(expected), "found_direct": len(expected) - len(approximate_only) - len(missing),
+            "approximate_only": approximate_only, "missing": missing,
+            "expected_pairs": [{"source": source, "dest": dest} for source, dest in expected],
+            "expected_sha256": fingerprint}
+
+
+def audit_source_recall(report: dict, filelist: Path, top: str, scopes: list[str],
+                        slang_binary: str | None = None) -> dict:
+    binary = slang_binary or os.environ.get("SVLENS_SLANG") or shutil.which("slang")
+    if not binary:
+        raise FileNotFoundError("slang CLI not found; set SVLENS_SLANG")
+    if not scopes or len(set(scopes)) != len(scopes):
+        raise ValueError("source-recall scopes must be nonempty and distinct")
+    by_scope = {}
+    with tempfile.TemporaryDirectory(prefix="svlens-source-recall-") as directory:
+        for index, scope in enumerate(scopes):
+            ast_path = Path(directory) / f"scope-{index}.json"
+            command = [binary, "--single-unit", "-F", str(filelist.resolve()), "--top", top,
+                       "--ast-json-scope", scope, "--ast-json", str(ast_path)]
+            completed = subprocess.run(command, cwd=filelist.parent, capture_output=True,
+                                       text=True, timeout=120, check=False)
+            if completed.returncode or not ast_path.is_file():
+                raise RuntimeError(f"slang could not elaborate source-recall scope {scope}: "
+                                   f"{completed.stderr[-800:]}")
+            ast = json.loads(ast_path.read_text())
+            if ast.get("kind") != "Instance" or ast.get("name") != scope.rsplit(".", 1)[-1]:
+                raise ValueError(f"source-recall scope {scope} was not found")
+            by_scope[scope] = expected_scalar_edges(ast, scope)
+    result = compare_report(report, by_scope)
+    if not result["expected"]:
+        raise ValueError("source-recall oracle found no eligible paths")
+    return result

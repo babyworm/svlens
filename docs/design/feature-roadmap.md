@@ -186,6 +186,10 @@ A pinned 20-row OpenTitan SoC connection sample has 20 source-backed
 confirmations, including an independently checked buffer bit index. It is a narrow audit with
 correlated generated-register rows, not a whole-design precision/recall value
 or a substitute for an AXI/modport SoC corpus.
+An independent AST probe enumerates 242 simple single-bit sibling-port paths
+across seven pinned SoC IP scopes and checks all 242 in the conn report. This
+bounds recall for direct named-net wiring only; interfaces, buses, procedural
+glue, and other scopes still need their own source-derived frames.
 
 **Why**: branch-sensitive mux/decoder glue, legal interface-array composition,
 deep forwarding, and nontrivial bit-range dataflow still need precise signal-level

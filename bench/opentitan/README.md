@@ -49,6 +49,18 @@ all 30 lower concatenation operands. It is a deliberately small, correlated samp
 whole-design precision or recall estimate. A changed population requires
 fresh manual adjudication rather than silently reusing old verdicts.
 
+An independent source-derived recall probe walks Slang's elaborated AST for
+seven SoC IP scopes and enumerates only single-bit `logic` sibling-instance
+port pairs sharing one named net with exactly one output driver. The current
+frame contains 242 expected pairs; all 242 appear as `direct` rows. The probe
+rebuilds its expectations from pinned RTL on each benchmark run, writes the
+full pair manifest to `results/top_earlgrey/source_recall.json`, and fails if
+a path is missing, downgraded to `approximate`, or the expected-pair frame hash
+changes without re-adjudication. It does not cover buses,
+procedural glue, interface ports, or unselected SoC scopes, so 242/242 is not
+whole-design recall. The benchmark requires the `slang` CLI on `PATH` or the
+`SVLENS_SLANG` environment variable pointing to its executable.
+
 `reference_crossings[*]` checks exact FF endpoints and top-clock root labels.
 An optional `category` pins the classification on the same rooted path; this
 does not certify CDC protocol correctness.
@@ -114,6 +126,7 @@ artifact and elaborates the emitted AES and SoC SVA alongside the pinned RTL.
 ## Requirements
 
 - svlens built (`make build`)
+- `slang` CLI on `PATH` (or `SVLENS_SLANG` set to its executable)
 - Python 3.10+ with PyYAML (`pip install pyyaml`)
 - Git
 - ~2GB disk for OpenTitan clone

@@ -38,7 +38,7 @@ jobs:
         run: python3 -B -m unittest discover -s bench/opentitan -p 'test_*.py'
 
       - name: Run OpenTitan benchmark
-        run: make bench CMAKE_PREFIX_PATH="$HOME/.local"
+        run: SVLENS_SLANG="$HOME/.local/bin/slang" make bench CMAKE_PREFIX_PATH="$HOME/.local"
 
       - name: Elaborate AES and SoC assertions with pinned RTL
         run: |

@@ -33,3 +33,12 @@ targets:
     period_sdc: "constraints/top_earlgrey_periods.sdc"
     sva_probe: true
     sample_annotations: "golden/top_earlgrey_connection_sample.yaml"
+    source_recall_scopes:
+      - top_earlgrey.u_aes
+      - top_earlgrey.u_spi_device
+      - top_earlgrey.u_hmac
+      - top_earlgrey.u_spi_host0
+      - top_earlgrey.u_usbdev
+      - top_earlgrey.u_rv_core_ibex
+      - top_earlgrey.u_pwrmgr_aon
+    source_recall_expected_sha256: "2d32dfec47d64ec075a03aa3a3314e876d8ddce73f80f541e6c3b0a56e8d2b1f"

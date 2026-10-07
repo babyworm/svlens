@@ -116,7 +116,7 @@ DOT/JSON report tests. The opt-in prefix flow is documented in
 a full-test CI job (external CI execution has not yet been observed here);
 the default dependency install remains unchanged.
 
-The OpenTitan benchmark parser/evaluator suite passes 32/32 Python tests and
+The OpenTitan benchmark parser/evaluator suite passes 34/34 Python tests and
 Ruff checks. Pinned AES and full-SoC SVA elaborate with their RTL (0 errors;
 the SoC's 12 implicit-conversion warnings also occur without SVA). The
 benchmark gates AES's data-hold reference (1/1), four SoC 2FF/FIFO/req-ack
@@ -354,7 +354,11 @@ Dependency bootstrap:
   lockstep buffer bit index was independently checked by summing 30 operand
   widths. The evaluator gates annotation freshness and contradictions;
   the sample is too small and correlated to estimate whole-SoC precision or
-  recall. The [2026-09-26 snapshot](benchmarks/opentitan-2026-09-26.md) preserves the
+  recall. A separate elaborated-AST oracle finds 242/242 direct single-bit
+  sibling-port paths across seven selected SoC IP scopes, with an explicit
+  expected-pair manifest and pinned frame hash. It excludes buses, procedural glue, interfaces, and
+  other scopes; whole-design recall remains unmeasured. The
+  [2026-09-26 snapshot](benchmarks/opentitan-2026-09-26.md) preserves the
   earlier baseline before direct clock-alias propagation.
 
 See [`README.md`](../README.md) for current user-facing limits and

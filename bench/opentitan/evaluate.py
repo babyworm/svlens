@@ -16,11 +16,13 @@ except ImportError:
     sys.exit(1)
 
 from sample_connections import evaluate_annotations, select_sample
+from source_recall import audit_source_recall
 
 SCRIPT_DIR = Path(__file__).parent
 RESULTS_DIR = SCRIPT_DIR / "results"
 GOLDEN_DIR = SCRIPT_DIR / "golden"
 CONFIG_FILE = SCRIPT_DIR / "targets.yaml"
+FILELIST_DIR = SCRIPT_DIR / "filelists"
 
 
 def load_metrics(name: str) -> dict:
@@ -582,6 +584,24 @@ def generate_report(evals: list) -> str:
                          f"{audit['overall']['confirmed']} | {audit['overall']['contradicted']} | "
                          f"{audit['overall']['unresolved']} |")
             lines += ["", f"Population SHA-256: `{audit['population_sha256']}`."]
+    source_audits = [ev for ev in evals if ev.get("source_recall")]
+    if source_audits:
+        lines += ["", "## Source-Derived Direct Wiring Recall", "",
+                  "A separate Slang AST walk enumerates unique-output, single-bit named-net",
+                  "connections between sibling instance ports in the listed SoC IP scopes.",
+                  "This is bounded pattern recall, not whole-design recall.", "",
+                  "| Target | Scope | Expected | Direct | Approximate only | Missing |",
+                  "|--------|-------|---------:|-------:|-----------------:|--------:|"]
+        for ev in source_audits:
+            result = ev["source_recall"]
+            for scope, counts in result["scope_results"].items():
+                lines.append(f"| {ev['name']} | `{scope}` | {counts['expected']} | "
+                             f"{counts['found_direct']} | {counts['approximate_only']} | "
+                             f"{counts['missing']} |")
+            lines.append(f"| {ev['name']} | **total** | {result['expected']} | "
+                         f"{result['found_direct']} | {len(result['approximate_only'])} | "
+                         f"{len(result['missing'])} |")
+            lines += ["", f"Expected-pair SHA-256: `{result['expected_sha256']}`."]
     lines += ["", "---", ""]
     return "\n".join(lines)
 
@@ -598,6 +618,8 @@ def main():
         golden = load_golden(name)
         if target.get("sva_probe") and not golden.get("sva_references"):
             raise SystemExit(f"{name} SVA probe requires at least one sva_reference")
+        if target.get("source_recall_scopes") and not target.get("source_recall_expected_sha256"):
+            raise SystemExit(f"{name} source-recall probe requires an expected frame hash")
         base_cdc = (load_json_report(name, "cdc", "cdc_report.json")
                     if metrics.get("cdc_status") == "reported" else {})
         timed_cdc = (load_json_report(name, "cdc_periods", "cdc_report.json")
@@ -613,6 +635,11 @@ def main():
             annotations = yaml.safe_load((SCRIPT_DIR / target["sample_annotations"]).read_text()) or {}
             sample = select_sample(conn_report, annotations.get("seed"), annotations.get("per_stratum"))
             conn_sample = evaluate_annotations(sample, annotations)
+        source_recall = None
+        if target.get("source_recall_scopes") and conn_report:
+            source_recall = audit_source_recall(conn_report, FILELIST_DIR / f"{name}.f",
+                                                target["top_module"], target["source_recall_scopes"])
+            (RESULTS_DIR / name / "source_recall.json").write_text(json.dumps(source_recall, indent=2) + "\n")
         evals.append({
             "name": name,
             "metrics": metrics,
@@ -627,6 +654,8 @@ def main():
             if target.get("sva_probe") else None,
             "conn": evaluate_conn(conn_report, golden),
             "conn_sample": conn_sample,
+            "source_recall": source_recall,
+            "source_recall_expected_sha256": target.get("source_recall_expected_sha256"),
         })
     report = generate_report(evals)
     out = RESULTS_DIR / "bench_report.md"
@@ -646,6 +675,17 @@ def main():
                       if ev["sva_probe"] and ev["metrics"].get("cdc_sva_status") != "reported")
     if incomplete:
         raise SystemExit("Benchmark reports missing or timed out: " + ", ".join(incomplete))
+    changed_source_frames = [ev["name"] for ev in evals if ev["source_recall"] and
+                             ev["source_recall"]["expected_sha256"] !=
+                             ev["source_recall_expected_sha256"]]
+    if changed_source_frames:
+        raise SystemExit("Source-derived recall frame changed; re-adjudicate RTL paths: " +
+                         ", ".join(changed_source_frames))
+    missing_source_recall = [ev["name"] for ev in evals if ev["source_recall"] and
+                             (ev["source_recall"]["missing"] or ev["source_recall"]["approximate_only"])]
+    if missing_source_recall:
+        raise SystemExit("Source-derived direct wiring paths missing or downgraded: " +
+                         ", ".join(missing_source_recall))
     contradicted_samples = [ev["name"] for ev in evals if ev["conn_sample"] and
                             ev["conn_sample"]["overall"]["contradicted"]]
     if contradicted_samples:

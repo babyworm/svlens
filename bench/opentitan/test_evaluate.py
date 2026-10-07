@@ -64,6 +64,29 @@ class EvaluateTests(unittest.TestCase):
                 (golden / "sample.yaml").write_text(benchmark_evaluate.yaml.safe_dump(annotations))
                 with self.assertRaisesRegex(ValueError, "stale"):
                     benchmark_evaluate.main()
+                annotations["population_sha256"] = sample["population_sha256"]
+                labels[0]["verdict"] = "confirmed"
+                (golden / "sample.yaml").write_text(benchmark_evaluate.yaml.safe_dump(annotations))
+                (root / "targets.yaml").write_text(
+                    "targets:\n  - name: soc\n    level: L4\n    top_module: soc\n"
+                    "    sample_annotations: golden/sample.yaml\n"
+                    "    source_recall_scopes: [soc.u_child]\n"
+                    "    source_recall_expected_sha256: hash\n")
+                oracle = {"scope_results": {"soc.u_child": {"expected": 1, "found_direct": 0,
+                                                              "approximate_only": 0, "missing": 1}},
+                          "expected": 1, "found_direct": 0, "approximate_only": [],
+                          "missing": [("a", "b")], "expected_sha256": "hash"}
+                with (mock.patch.object(benchmark_evaluate, "audit_source_recall", return_value=oracle),
+                      self.assertRaisesRegex(SystemExit, "Source-derived direct wiring paths missing")):
+                    benchmark_evaluate.main()
+                oracle["found_direct"] = 1
+                oracle["missing"] = []
+                oracle["scope_results"]["soc.u_child"] = {
+                    "expected": 1, "found_direct": 1, "approximate_only": 0, "missing": 0}
+                oracle["expected_sha256"] = "changed"
+                with (mock.patch.object(benchmark_evaluate, "audit_source_recall", return_value=oracle),
+                      self.assertRaisesRegex(SystemExit, "recall frame changed")):
+                    benchmark_evaluate.main()
 
     def test_sva_probe_checks_secondary_fifo_label_and_full_label_bijection(self):
         crossing = {"source": "top.fifo.fifo_wptr_gray_q", "dest": "top.fifo.sync_wptr.u_sync_1.q_o",

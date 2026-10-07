@@ -2,9 +2,9 @@
 
 The source-only run used pinned OpenTitan `earlgrey_silver_release_v5`
 (`ed044fc9760bdf9fc075d0015ba1db07fa075355`) and a dirty svlens worktree
-based on `328a2bf74fa5e10a8bdbf5a8f0af22de6a815a23`. The analyzed binary
+based on `cb0ad5e179330da126510bb185d02e262f4c03c0`. The analyzed binary
 SHA-256 was `15ad65a4570c2d7a79e3d5813c5ae3d6e05903841f27d12ccee10160f5d2ccce`.
-The audited report was generated on 2026-10-07 18:33 UTC (2026-10-08 in Korea).
+The audited report was generated on 2026-10-07 18:43 UTC (2026-10-08 in Korea).
 Counts are analyzer output, not a whole-design precision or recall estimate.
 
 | Target | Connections (direct / approximate) | Bit-flow gaps | Required paths | Absent paths | CDC (violation / caution / info) |
@@ -61,6 +61,34 @@ port influence via CSR readback and SET/CLEAR (`ibex_cs_registers.sv:435–449,
 it. This audit measures 20 selected report rows only; generated structures
 are correlated and no non-reported paths were
 sampled. It must not be extrapolated to whole-design precision or recall.
+
+## Source-derived direct-wiring recall probe
+
+A second, independent frame walks the pinned elaborated Slang AST rather than
+sampling report rows. It includes only one-bit `logic` ports on sibling
+instances connected to the same named signal with exactly one output driver.
+The seven configured SoC IP scopes produce 242 distinct expected paths:
+
+| Scope | Expected | Reported direct |
+|---|---:|---:|
+| AES | 11 | 11 |
+| SPI device | 41 | 41 |
+| HMAC | 9 | 9 |
+| SPI host 0 | 22 | 22 |
+| USB device | 51 | 51 |
+| Ibex core wrapper | 89 | 89 |
+| Power manager | 19 | 19 |
+| Total | 242 | 242 |
+
+No expected pair was missing or only approximate. The expected-pair SHA-256 is
+`2d32dfec47d64ec075a03aa3a3314e876d8ddce73f80f541e6c3b0a56e8d2b1f`;
+the complete regenerated pair manifest is saved in the benchmark artifact at
+`results/top_earlgrey/source_recall.json`. The benchmark gates both that frame
+hash and all 242 direct paths, so a shrinking oracle requires re-adjudication.
+This is a bounded completeness
+check for simple named-net port wiring, not whole-SoC recall. It does not
+adjudicate buses, conditional/procedural paths, modports, or IPs outside the
+chosen scopes.
 
 The five CDC signal references and 1/1 category probe are unchanged. The
 supplemental SoC period projection still populates 157/243 timing bases and

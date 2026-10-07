@@ -18,9 +18,53 @@ from evaluate import (
     missing_reference_paths,
     missing_reset_unresolved_references,
 )
+from sample_connections import select_sample
 
 
 class EvaluateTests(unittest.TestCase):
+    def test_connection_sample_audit_rejects_stale_or_contradicted_labels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            results = root / "results" / "soc"
+            (results / "conn").mkdir(parents=True)
+            (results / "cdc").mkdir()
+            golden = root / "golden"
+            golden.mkdir()
+            (root / "targets.yaml").write_text(
+                "targets:\n  - name: soc\n    level: L4\n"
+                "    sample_annotations: golden/sample.yaml\n")
+            (results / "metrics.json").write_text(json.dumps({
+                "name": "soc", "level": "L4", "conn_status": "reported", "cdc_status": "reported",
+            }))
+            rows = [{"source": str(index), "dest": "sink", "kind": kind,
+                     **({"source_bits": {"low": 0, "high": 0},
+                         "dest_bits": {"low": 0, "high": 0}} if ranged else {})}
+                    for index, (kind, ranged) in enumerate(
+                        (("direct", False), ("direct", True),
+                         ("approximate", False), ("approximate", True)))]
+            report = {"summary": {"connections_analyzed": 4},
+                      "analysis": {"total_ports": 0}, "connections": rows}
+            (results / "conn" / "connect_report.json").write_text(json.dumps(report))
+            (results / "cdc" / "cdc_report.json").write_text('{"crossings": []}')
+            sample = select_sample(report, "seed", 1)
+            labels = [{"id": row["id"], "verdict": "confirmed", "evidence": "rtl.sv:1"}
+                      for row in sample["samples"]]
+            labels[0]["verdict"] = "contradicted"
+            annotations = {"seed": "seed", "per_stratum": 1,
+                           "population_sha256": sample["population_sha256"], "labels": labels}
+            with (mock.patch.object(benchmark_evaluate, "SCRIPT_DIR", root),
+                  mock.patch.object(benchmark_evaluate, "CONFIG_FILE", root / "targets.yaml"),
+                  mock.patch.object(benchmark_evaluate, "GOLDEN_DIR", golden),
+                  mock.patch.object(benchmark_evaluate, "RESULTS_DIR", root / "results"),
+                  redirect_stdout(io.StringIO())):
+                (golden / "sample.yaml").write_text(benchmark_evaluate.yaml.safe_dump(annotations))
+                with self.assertRaisesRegex(SystemExit, "contradicted rows"):
+                    benchmark_evaluate.main()
+                annotations["population_sha256"] = "stale"
+                (golden / "sample.yaml").write_text(benchmark_evaluate.yaml.safe_dump(annotations))
+                with self.assertRaisesRegex(ValueError, "stale"):
+                    benchmark_evaluate.main()
+
     def test_sva_probe_checks_secondary_fifo_label_and_full_label_bijection(self):
         crossing = {"source": "top.fifo.fifo_wptr_gray_q", "dest": "top.fifo.sync_wptr.u_sync_1.q_o",
                     "rule": "Ac_cdc01", "sync_type": "two_ff", "category": "CAUTION"}

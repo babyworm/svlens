@@ -182,6 +182,10 @@ multi-channel modports, nested whole-interface forwarding, two-element
 parameterized interface arrays (including genvar-indexed lanes), and isolated
 generated lanes. These are small RTL probes, not an accuracy measurement on
 an AXI SoC.
+A pinned 20-row OpenTitan SoC connection sample has 20 source-backed
+confirmations, including an independently checked buffer bit index. It is a narrow audit with
+correlated generated-register rows, not a whole-design precision/recall value
+or a substitute for an AXI/modport SoC corpus.
 
 **Why**: branch-sensitive mux/decoder glue, legal interface-array composition,
 deep forwarding, and nontrivial bit-range dataflow still need precise signal-level

@@ -31,6 +31,24 @@ probes is not a whole-design precision estimate.
 In a golden YAML, `known_connections[*]` requires matching `source` and `dest`.
 Optional `kind`, `source_bits`, and `dest_bits` tighten the match;
 `exclusive: true` also rejects conflicting rows for that port pair.
+`sample_connections.py` selects five SHA-256-ranked rows per direct/approximate
+and ranged/unranged stratum from the SoC report. The committed
+`golden/top_earlgrey_connection_sample.yaml` records source-backed verdicts;
+`evaluate.py` rejects a changed connection population, missing labels, or a
+contradicted sampled row. Regenerate the selection for inspection with:
+
+```bash
+python3 sample_connections.py results/top_earlgrey/conn/connect_report.json
+python3 sample_connections.py results/top_earlgrey/conn/connect_report.json \
+  --annotations golden/top_earlgrey_connection_sample.yaml
+```
+
+The first 20-row audit has 20 confirmed and zero contradicted or unresolved.
+The lockstep buffer bit 513 was separately checked by summing the widths of
+all 30 lower concatenation operands. It is a deliberately small, correlated sample—not a
+whole-design precision or recall estimate. A changed population requires
+fresh manual adjudication rather than silently reusing old verdicts.
+
 `reference_crossings[*]` checks exact FF endpoints and top-clock root labels.
 An optional `category` pins the classification on the same rooted path; this
 does not certify CDC protocol correctness.
@@ -111,8 +129,9 @@ Missing selected dependencies or sources fail filelist generation. A target
 without a fresh JSON report is marked `no_report` and excluded from measured
 counts; `evaluate.py` fails if any target is incomplete, a required labeled
 connection or CDC crossing is absent, a CDC reference has mismatched root
-labels, or an SVA reference or JSON label is missing. Labeled-path presence is not a
-precision/recall estimate.
+labels, or an SVA reference or JSON label is missing. The SoC sample audit
+additionally fails on stale or contradicted labels. Labeled-path presence is
+not a precision/recall estimate.
 
 For `top_earlgrey`, the runner also creates a separate `cdc_periods` report
 using [`constraints/top_earlgrey_periods.sdc`](constraints/top_earlgrey_periods.sdc).

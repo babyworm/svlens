@@ -1,0 +1,66 @@
+seed: svlens-accuracy-v1
+per_stratum: 5
+population_sha256: baedbadcc682a5bc4c116c24a9dcc3ad7d30d63147dcfcc27bfea91af5c16b8d
+labels:
+  - id: 000fbc0a685357f0
+    verdict: confirmed
+    evidence: prim_generic_flop_2sync.sv:23-39
+  - id: 002a591e2c24e6ae
+    verdict: confirmed
+    evidence: uart.sv:48-55,85-94
+  - id: 003b643825fd27a2
+    verdict: confirmed
+    evidence: top_earlgrey.sv:826-830,1904-1907
+  - id: 0065d22b9d6109f7
+    verdict: confirmed
+    evidence: sysrst_ctrl_combo.sv:198-205,312-319
+  - id: 00728bc155a2ce46
+    verdict: confirmed
+    evidence: prim_generic_flop_2sync.sv:23-39
+  - id: 003a71bd6be9b10e
+    verdict: confirmed
+    evidence: alert_handler_reg_top.sv:93-97,6392-6400,11002
+  - id: 003e45fa8d8b6f08
+    verdict: confirmed
+    evidence: uart_reg_top.sv:93-97,811-819,1553
+  - id: 0045f9c987a2cce5
+    verdict: confirmed
+    evidence: otbn_rf_bignum.sv:53-66,103-105
+  - id: 00480aac7b5b7853
+    verdict: confirmed
+    evidence: rv_plic_reg_top.sv:93-97,9497-9505,21696
+  - id: 005007bf6e9566ff
+    verdict: confirmed
+    evidence: ibex_top.sv:525-617, ibex_pkg.sv:15-20
+    note: The 30 concatenation operands right of data_we_o total 513 bits, including the 128-bit crash_dump_t
+  - id: 00191a50cb77698a
+    verdict: confirmed
+    evidence: prim_subreg.sv:30-58, alert_handler_reg_top.sv:9710-9720
+  - id: 001925ee5baa4073
+    verdict: confirmed
+    evidence: prim_subreg.sv:30-58, rv_plic_reg_top.sv:2941-2951
+  - id: 0020789ae0cfe1c4
+    verdict: confirmed
+    evidence: ibex_cs_registers.sv:278,435-449,729-745,1222-1229,1250-1262
+    note: The counter may affect the combinational CSR SET/CLEAR write-data port even when mcycle write-enable is low
+  - id: 003e80a7a9551a45
+    verdict: confirmed
+    evidence: prim_alert_receiver.sv:61-78
+  - id: 004eb55db3e9b70c
+    verdict: confirmed
+    evidence: prim_subreg.sv:30-58, pinmux_reg_top.sv
+  - id: 00029290f413b192
+    verdict: confirmed
+    evidence: rv_plic_reg_top.sv:95-101,23286
+  - id: 000c35acbe232e15
+    verdict: confirmed
+    evidence: alert_handler_reg_top.sv:95-101,12150
+  - id: 00119dd3194daa19
+    verdict: confirmed
+    evidence: adc_ctrl_reg_top.sv:93-101,3630
+  - id: 00168ad8dd976162
+    verdict: confirmed
+    evidence: pinmux_reg_top.sv:95-101,25234
+  - id: 00211a1157afb67d
+    verdict: confirmed
+    evidence: rv_timer_reg_top.sv:93-101,481

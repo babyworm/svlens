@@ -2,9 +2,9 @@
 
 The source-only run used pinned OpenTitan `earlgrey_silver_release_v5`
 (`ed044fc9760bdf9fc075d0015ba1db07fa075355`) and a dirty svlens worktree
-based on `5e30010958fab89b9bfdd648b57504ef361064c1`. The analyzed binary
+based on `328a2bf74fa5e10a8bdbf5a8f0af22de6a815a23`. The analyzed binary
 SHA-256 was `15ad65a4570c2d7a79e3d5813c5ae3d6e05903841f27d12ccee10160f5d2ccce`.
-The report was generated on 2026-10-07 18:17 UTC (2026-10-08 in Korea).
+The audited report was generated on 2026-10-07 18:33 UTC (2026-10-08 in Korea).
 Counts are analyzer output, not a whole-design precision or recall estimate.
 
 | Target | Connections (direct / approximate) | Bit-flow gaps | Required paths | Absent paths | CDC (violation / caution / info) |
@@ -31,6 +31,36 @@ check indexed `+:` / `-:` selection, ascending declarations, modport member
 overlap, and that a runtime base remains range-free approximate may-flow.
 These selected paths do not validate all new SoC rows or establish SoC-wide
 accuracy.
+
+## Connection sample audit
+
+[`sample_connections.py`](../../bench/opentitan/sample_connections.py) selects
+the five lowest SHA-256-ranked connection rows in each direct/approximate ×
+ranged/unranged stratum using seed `svlens-accuracy-v1`. Sorting canonical
+rows makes the selection independent of report order; duplicate rows retain
+their multiplicity. The pinned population hash is
+`baedbadcc682a5bc4c116c24a9dcc3ad7d30d63147dcfcc27bfea91af5c16b8d`.
+RTL-backed verdicts are in
+[`top_earlgrey_connection_sample.yaml`](../../bench/opentitan/golden/top_earlgrey_connection_sample.yaml).
+
+| Stratum | Population | Sampled | Confirmed | Contradicted | Unresolved |
+|---|---:|---:|---:|---:|---:|
+| Direct, no bit range | 2,538 | 5 | 5 | 0 | 0 |
+| Direct, ranged | 6,154 | 5 | 5 | 0 | 0 |
+| Approximate, no bit range | 6,255 | 5 | 5 | 0 | 0 |
+| Approximate, ranged | 4,455 | 5 | 5 | 0 | 0 |
+| Total | 19,402 | 20 | 20 | 0 | 0 |
+
+The Ibex `data_we_o` row reaches generated lockstep buffer bit 513.
+`ibex_top.sv:525–617` places it immediately above 30 lower concatenation
+operands; their widths sum to 513 bits, including the 128-bit `crash_dump_t`
+defined in `ibex_pkg.sv:15–20`. The apparent
+counter-to-mcycle approximate path was confirmed as a possible combinational
+port influence via CSR readback and SET/CLEAR (`ibex_cs_registers.sv:435–449,
+729–745,1222–1262`), not as a claim that the mcycle FF necessarily captures
+it. This audit measures 20 selected report rows only; generated structures
+are correlated and no non-reported paths were
+sampled. It must not be extrapolated to whole-design precision or recall.
 
 The five CDC signal references and 1/1 category probe are unchanged. The
 supplemental SoC period projection still populates 157/243 timing bases and

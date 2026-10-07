@@ -15,6 +15,8 @@ except ImportError:
     print("ERROR: PyYAML required. Install: pip install pyyaml", file=sys.stderr)
     sys.exit(1)
 
+from sample_connections import evaluate_annotations, select_sample
+
 SCRIPT_DIR = Path(__file__).parent
 RESULTS_DIR = SCRIPT_DIR / "results"
 GOLDEN_DIR = SCRIPT_DIR / "golden"
@@ -563,6 +565,23 @@ def generate_report(evals: list) -> str:
             counts = ["N/A" if ev["conn"]["bit_flow_gap_reasons"] is None
                       else str(ev["conn"]["bit_flow_gap_reasons"].get(reason, 0)) for ev in evals]
             lines.append("| " + reason + " | " + " | ".join(counts) + " |")
+    audited = [ev for ev in evals if ev.get("conn_sample")]
+    if audited:
+        lines += ["", "## Connection Sample Audit", "",
+                  "Deterministic SHA-256 sampling takes five rows from each kind/range stratum.",
+                  "Source-backed labels are confirmed, contradicted, or unresolved; this small,",
+                  "correlated sample is not a whole-SoC precision or recall estimate.", "",
+                  "| Target | Stratum | Population | Confirmed | Contradicted | Unresolved |",
+                  "|--------|---------|-----------:|----------:|-------------:|-----------:|"]
+        for ev in audited:
+            audit = ev["conn_sample"]
+            for stratum, counts in audit["by_stratum"].items():
+                lines.append(f"| {ev['name']} | {stratum} | {audit['population'][stratum]} | "
+                             f"{counts['confirmed']} | {counts['contradicted']} | {counts['unresolved']} |")
+            lines.append(f"| {ev['name']} | **total** | {sum(audit['population'].values())} | "
+                         f"{audit['overall']['confirmed']} | {audit['overall']['contradicted']} | "
+                         f"{audit['overall']['unresolved']} |")
+            lines += ["", f"Population SHA-256: `{audit['population_sha256']}`."]
     lines += ["", "---", ""]
     return "\n".join(lines)
 
@@ -587,6 +606,13 @@ def main():
                    if metrics.get("cdc_sva_status") == "reported" else {})
         sva_path = RESULTS_DIR / name / "cdc_sva" / "cdc_assertions.sva"
         sva_text = sva_path.read_text() if sva_cdc and sva_path.is_file() else ""
+        conn_report = (load_json_report(name, "conn", "connect_report.json")
+                       if metrics.get("conn_status") == "reported" else {})
+        conn_sample = None
+        if target.get("sample_annotations") and conn_report:
+            annotations = yaml.safe_load((SCRIPT_DIR / target["sample_annotations"]).read_text()) or {}
+            sample = select_sample(conn_report, annotations.get("seed"), annotations.get("per_stratum"))
+            conn_sample = evaluate_annotations(sample, annotations)
         evals.append({
             "name": name,
             "metrics": metrics,
@@ -599,9 +625,8 @@ def main():
             "cdc_sva": evaluate_sva_probe(base_cdc, sva_cdc, sva_text,
                                            golden.get("sva_references", []))
             if target.get("sva_probe") else None,
-            "conn": evaluate_conn(
-                load_json_report(name, "conn", "connect_report.json")
-                if metrics.get("conn_status") == "reported" else {}, golden),
+            "conn": evaluate_conn(conn_report, golden),
+            "conn_sample": conn_sample,
         })
     report = generate_report(evals)
     out = RESULTS_DIR / "bench_report.md"
@@ -621,6 +646,11 @@ def main():
                       if ev["sva_probe"] and ev["metrics"].get("cdc_sva_status") != "reported")
     if incomplete:
         raise SystemExit("Benchmark reports missing or timed out: " + ", ".join(incomplete))
+    contradicted_samples = [ev["name"] for ev in evals if ev["conn_sample"] and
+                            ev["conn_sample"]["overall"]["contradicted"]]
+    if contradicted_samples:
+        raise SystemExit("Connection sample audit found contradicted rows: " +
+                         ", ".join(contradicted_samples))
     stale_sdcs = [ev["name"] for ev in evals if ev["period_sdc"] and
                   (not (SCRIPT_DIR / ev["period_sdc"]).is_file() or
                    ev["metrics"].get("cdc_periods_sdc_sha256") != hashlib.sha256(

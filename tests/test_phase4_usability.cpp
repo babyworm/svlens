@@ -194,7 +194,7 @@ waivers:
 }
 
 TEST_CASE("Phase4: waiver file loading", "[phase4][waiver]") {
-    auto path = fs::temp_directory_path() / "test_waiver.yaml";
+    auto path = fs::temp_directory_path() / ("svlens_phase4_waiver_" + std::to_string(::getpid()) + ".yaml");
     {
         std::ofstream f(path);
         f << "waivers:\n"

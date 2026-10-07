@@ -28,15 +28,16 @@ interface axi_lite_if #(parameter int AddrWidth = 20, DataWidth = 32);
 endinterface
 
 module axi_lite_manager(axi_lite_if.manager bus);
+    localparam axi_lite_types::prot_t DefaultProt = '0;
     assign bus.awaddr = '0;
-    assign bus.awprot = '0;
+    assign bus.awprot = DefaultProt;
     assign bus.awvalid = 1'b1;
     assign bus.wdata = '0;
     assign bus.wstrb = '1;
     assign bus.wvalid = 1'b1;
     assign bus.bready = 1'b1;
     assign bus.araddr = '0;
-    assign bus.arprot = '0;
+    assign bus.arprot = DefaultProt;
     assign bus.arvalid = 1'b1;
     assign bus.rready = 1'b1;
 endmodule

@@ -282,7 +282,7 @@ TEST_CASE("GAP: Waiver template generates entries for violations", "[gap][report
     c.sync_type = SyncType::TwoFF;
     result.crossings.push_back(c);
 
-    auto waiver_path = fs::temp_directory_path() / "test_waiver.yaml";
+    auto waiver_path = fs::temp_directory_path() / ("svlens_gap_waiver_" + std::to_string(::getpid()) + ".yaml");
     ReportGenerator report(result);
     report.generateWaiverTemplate(waiver_path);
 

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace testutils::cdc {
@@ -20,7 +21,7 @@ inline InlineCompileResult compileInlineSV(const std::string& svCode,
                                            const std::string& prefix = "cdc_test") {
     static int counter = 0;
     auto path = std::filesystem::temp_directory_path() /
-                (prefix + "_" + std::to_string(counter++) + ".sv");
+                (prefix + "_" + std::to_string(::getpid()) + "_" + std::to_string(counter++) + ".sv");
     std::ofstream(path) << svCode;
 
     auto session = std::make_unique<connect::CompilationSession>();

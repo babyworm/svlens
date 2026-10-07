@@ -13,6 +13,7 @@
 #include <fstream>
 #include <filesystem>
 #include <string>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 using namespace sv_cdccheck;
@@ -21,7 +22,8 @@ using sv_cdccheck::test::compileSV;
 // Helper: write a temp file and return its path (do NOT delete)
 static fs::path writeTempFile(const std::string& content, const std::string& ext) {
     static int ctr = 0;
-    auto path = fs::temp_directory_path() / ("corner_" + std::to_string(ctr++) + ext);
+    auto path =
+        fs::temp_directory_path() / ("corner_" + std::to_string(::getpid()) + "_" + std::to_string(ctr++) + ext);
     std::ofstream(path) << content;
     return path;
 }

@@ -325,7 +325,7 @@ jobs:
   asan:
     runs-on: ubuntu-latest
     env:
-      SVLENS_ASAN_SLANG_PREFIX: ${{ runner.temp }}/svlens-slang-asan
+      SVLENS_ASAN_SLANG_PREFIX: /tmp/svlens-slang-asan
     steps:
       - uses: actions/checkout@v5
 

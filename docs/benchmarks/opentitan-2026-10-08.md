@@ -113,6 +113,29 @@ unchanged. The new probe still excludes multi-stage, computed, conditional,
 and procedural glue as well as interface/modport ports; it is not a whole-SoC
 recall estimate.
 
+### Follow-up: named constants are not signal aliases
+
+A second clean-tree run at 2026-10-07 20:12 UTC used svlens commit
+`8ed152afecabdd50d6e47ad3c8b3ab953e0180ff` and binary SHA-256
+`1fb743d04de0b60308cea53bf1435c27a3c44d627b87d011cd938834fddcbb7c`.
+Treating enum values and parameters as tie-offs removed 53 approximate
+connection rows and added none compared with the prior report: the SoC now
+has 19,349 connections (8,692 direct, 10,657 approximate) and 27,175
+bit-flow gaps. The removed rows had been joined through constant symbols;
+they were not individually adjudicated as a whole-design precision sample.
+Two source-checked nonpaths between the separate KMAC and entropy-source SHA3
+instances now raise the SoC absent-path gate to 7/7. The fixed direct-path
+frame remains 358/358.
+
+All 20 selected sample IDs and their source-backed verdicts remained the same.
+Only the population changed: the four stratum counts are 2,538 direct/unranged,
+6,154 direct/ranged, 6,202 approximate/unranged, and 4,455
+approximate/ranged, with SHA-256
+`32625e259f9208b86d50972cd6a191a598e3d723d9487b9bee745401e4ba7445`.
+The 19-channel AXI-lite modport regression checks direct paths and reverse- or
+cross-bus nonpaths, including enum-valued response members. It is still a
+fixture, not an AXI SoC accuracy estimate.
+
 The five CDC signal references and 1/1 category probe are unchanged. The
 supplemental SoC period projection still populates 157/243 timing bases and
 matches 4/4 root periods; it does not prove capture timing. Separate SVA runs

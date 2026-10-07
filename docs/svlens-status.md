@@ -340,9 +340,11 @@ Dependency bootstrap:
   `crypt_q` feedback through sparse-signal checking to `crypt_d` adds one
   transitive approximate reference; with the five PRNG lanes, the current
   SoC connectivity total is 16/16.
-  Five manually checked SoC absent-path probes (and two standalone AES probes)
+  Seven manually checked SoC absent-path probes (and two standalone AES probes)
   also pass; the evaluator requires both endpoints to occur elsewhere in the
-  report. A separate benchmark-only period projection from the pinned ASIC
+  report. Two new probes keep separate KMAC and entropy-source SHA3 controls
+  from being joined through a shared enum constant. A separate benchmark-only
+  period projection from the pinned ASIC
   SDC gives all four base-clock domains their expected `period_ns` values
   (4/4), and 157/243 SoC crossings a reported 4750 ns timing basis while
   preserving every structural classification; the power-manager path and
@@ -362,6 +364,11 @@ Dependency bootstrap:
   adjudicated in both hierarchies. Other new rows remain unlabeled.
   A deterministic four-stratum sample of 20 SoC connection rows now has 20
   source-backed confirmations and zero contradictions or unresolved rows. The
+  selected 20 IDs remain unchanged after 53 constant-derived approximate SoC
+  rows were removed; the sample population hash was updated and no direct
+  rows were added or removed. The SoC report now has 19,349 connections
+  (8,692 direct and 10,657 approximate), with 27,175 recorded bit-flow gaps.
+  These changes do not establish whole-design precision. The
   lockstep buffer bit index was independently checked by summing 30 operand
   widths. The evaluator gates annotation freshness and contradictions;
   the sample is too small and correlated to estimate whole-SoC precision or

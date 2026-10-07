@@ -24,8 +24,9 @@ does not claim a particular partition is selected on every response.
 `forbidden_connections[*]` provides bounded negative path probes. Each lists
 an exact `source`/`dest` pair that must have no connection row; both endpoints
 must appear independently in the report, and duplicate or required-and-
-forbidden pairs are rejected. The AES share swap, EDN0/EDN1 misroutes, and
-OTP FIFO valid-to-ready misroute are pinned-RTL examples. Passing these
+forbidden pairs are rejected. The AES share swap, EDN0/EDN1 misroutes,
+OTP FIFO valid-to-ready misroute, and two cross-instance SHA3 control paths
+are pinned-RTL examples. Passing these
 probes is not a whole-design precision estimate.
 
 In a golden YAML, `known_connections[*]` requires matching `source` and `dest`.

@@ -11,13 +11,15 @@
 
 #include <fstream>
 #include <filesystem>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 using namespace sv_cdccheck;
 
 static fs::path writeTempSdc(const std::string& content) {
     static int counter = 0;
-    auto path = fs::temp_directory_path() / ("test_gap_" + std::to_string(counter++) + ".sdc");
+    auto path = fs::temp_directory_path() /
+                ("test_gap_" + std::to_string(::getpid()) + "_" + std::to_string(counter++) + ".sdc");
     std::ofstream(path) << content;
     return path;
 }

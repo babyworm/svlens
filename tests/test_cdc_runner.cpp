@@ -701,6 +701,31 @@ TEST_CASE("CdcRunner: 2FF assertion ID links SVA and JSON", "[cdc][runner][emit_
     CHECK(elaborated);
 }
 
+TEST_CASE("CdcRunner: enabled receiving FF does not get unconditional transfer SVA", "[cdc][runner][emit_sva][sync]") {
+    connect::CompilationSession session;
+    std::vector<std::string> args = {"test", "--top", "enabled_sync_stage", cdcFixture("enabled_sync_stage.sv")};
+    REQUIRE(session.compile(args));
+    const auto out = fs::temp_directory_path() / ("svlens_enabled_sync_sva_" + std::to_string(::getpid()));
+    fs::remove_all(out);
+    cdccli::CdcCliOptions opts;
+    opts.topModule = "enabled_sync_stage";
+    opts.outputDir = out.string();
+    opts.format = "json";
+    opts.svaOutputFile = (out / "cdc_assertions.sva").string();
+    REQUIRE(cdccli::runCdcWithCompilation(session.compilation(), opts) == 0);
+
+    std::ifstream jsonFile(out / "cdc_report.json");
+    REQUIRE(jsonFile.good());
+    const std::string json((std::istreambuf_iterator<char>(jsonFile)), std::istreambuf_iterator<char>());
+    std::ifstream svaFile(opts.svaOutputFile);
+    REQUIRE(svaFile.good());
+    const std::string sva((std::istreambuf_iterator<char>(svaFile)), std::istreambuf_iterator<char>());
+    CHECK(json.find("\"sync_type\": \"two_ff\"") != std::string::npos);
+    CHECK(json.find("\"category\": \"INFO\"") != std::string::npos);
+    CHECK(json.find("\"sva_assertion_id\"") == std::string::npos);
+    CHECK(sva.find("_2ff: assert property") == std::string::npos);
+}
+
 TEST_CASE("CdcRunner: FIFO Gray assertion ID links SVA and JSON", "[cdc][runner][emit_sva][fifo]") {
     connect::CompilationSession session;
     std::vector<std::string> args = {"test", cdcFixture("registered_fifo_gray.sv")};

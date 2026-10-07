@@ -633,6 +633,51 @@ TEST_CASE("CDC ReportGenerator: linked 2FF and 3FF assertions use verified stage
     CHECK(json.find("\"sva_assertion_id\": \"cdc_INFO_2_2ff\"") != std::string::npos);
     CHECK(json.find("\"sva_assertion_id\": \"cdc_INFO_3_3ff\"") != std::string::npos);
 
+    second2->capture_conditions.push_back("en_i");
+    const auto enabledPath = fs::temp_directory_path() / "svlens_sync_enabled_stage.sva";
+    REQUIRE(generator.generateSVA(enabledPath));
+    std::ifstream enabledFile(enabledPath);
+    const std::string enabledSva((std::istreambuf_iterator<char>(enabledFile)), std::istreambuf_iterator<char>());
+    fs::remove(enabledPath);
+    CHECK(enabledSva.find("cdc_INFO_2_2ff: assert property") == std::string::npos);
+    CHECK(enabledSva.find("cdc_INFO_3_3ff: assert property") != std::string::npos);
+    second2->capture_conditions.clear();
+
+    auto reset = std::make_unique<ResetSignal>();
+    reset->hier_path = "top.sync2.rst_ni";
+    reset->declared_path = reset->hier_path;
+    second2->reset = reset.get();
+    result.clock_db.resets.push_back(std::move(reset));
+    second2->capture_conditions.push_back("rst_ni");
+    const auto resetOnlyPath = fs::temp_directory_path() / "svlens_sync_reset_guard.sva";
+    REQUIRE(generator.generateSVA(resetOnlyPath));
+    std::ifstream resetOnlyFile(resetOnlyPath);
+    const std::string resetOnlySva((std::istreambuf_iterator<char>(resetOnlyFile)), std::istreambuf_iterator<char>());
+    fs::remove(resetOnlyPath);
+    CHECK(resetOnlySva.find("cdc_INFO_2_2ff: assert property") != std::string::npos);
+    second2->capture_conditions.clear();
+    second2->reset = nullptr;
+
+    second2->width = 2;
+    const auto unequalPath = fs::temp_directory_path() / "svlens_sync_unequal_stage.sva";
+    REQUIRE(generator.generateSVA(unequalPath));
+    std::ifstream unequalFile(unequalPath);
+    const std::string unequalSva((std::istreambuf_iterator<char>(unequalFile)), std::istreambuf_iterator<char>());
+    fs::remove(unequalPath);
+    CHECK(unequalSva.find("cdc_INFO_2_2ff: assert property") == std::string::npos);
+    second2->width = 1;
+
+    third3->capture_conditions.push_back("en_i");
+    const auto thirdEnabledPath = fs::temp_directory_path() / "svlens_sync_enabled_third_stage.sva";
+    REQUIRE(generator.generateSVA(thirdEnabledPath));
+    std::ifstream thirdEnabledFile(thirdEnabledPath);
+    const std::string thirdEnabledSva((std::istreambuf_iterator<char>(thirdEnabledFile)),
+                                      std::istreambuf_iterator<char>());
+    fs::remove(thirdEnabledPath);
+    CHECK(thirdEnabledSva.find("cdc_INFO_2_2ff: assert property") != std::string::npos);
+    CHECK(thirdEnabledSva.find("cdc_INFO_3_3ff: assert property") == std::string::npos);
+    third3->capture_conditions.clear();
+
     first2->declared_path.clear();
     const auto skippedPath = fs::temp_directory_path() / "svlens_sync_opaque_stage.sva";
     REQUIRE(generator.generateSVA(skippedPath));

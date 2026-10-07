@@ -102,12 +102,12 @@ The full local regression on 2026-10-08 passed:
 - `cmake --build build -j8`
 - `ctest --test-dir build --output-on-failure -j8`
 - `ctest --test-dir build-ubsan --output-on-failure -j4`
-- **738 / 738 tests passing** in both builds
+- **739 / 739 tests passing** in both builds
 
 The shared inline-SV test helper now owns the slang driver for the full AST
 lifetime. This removes a dangling-source dependency that could corrupt
 hierarchical names and make CDC regressions depend on allocator behavior.
-The full ASan regression also passes **738 / 738** when svlens is linked to a
+The full ASan regression also passes **739 / 739** when svlens is linked to a
 separately built slang v10 at the same pinned commit with
 `SLANG_USE_MIMALLOC=OFF`. The default installed slang exports mimalloc and the
 same ASan test binary crashes inside `mi_free_block_delayed_mt` on standalone
@@ -285,8 +285,10 @@ Dependency bootstrap:
 - A connected `prim_sync_reqack_data` port signature now exposes both clock
   boundaries as CAUTION records without claiming the primitive is safe.
 - `--emit-sva` produces covers for eligible unsynchronized crossings and
-  stage-transfer assertions for unambiguous 2FF/3FF chains. A verified
-  `prim_fifo_async` Gray pointer can add a source-clock one-bit transition
+  stage-transfer assertions for unambiguous, equal-width 2FF/3FF chains
+  without observed non-reset capture guards on receiving stages. A guarded
+  FF can retain its structural sync classification without unconditional SVA.
+  A verified `prim_fifo_async` Gray pointer can add a source-clock one-bit transition
   assertion. If its side-specific one-bit ready/valid ports are connected,
   it can also add a no-step-without-transfer pointer assertion. JSON links
   these alongside a stage assertion when applicable.

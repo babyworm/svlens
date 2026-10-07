@@ -107,8 +107,10 @@ external coverage table.
 
 **Current**: `--emit-sva <path>` writes a cover property for an unsynchronized
 violation when its source path is safe to use as an SVA expression. An
-unambiguous 2FF/3FF chain emits a sampled stage-transfer `assert property`,
-with an optional `sva_assertion_id` in JSON when the SVA file is written.
+unambiguous 2FF/3FF chain emits a sampled stage-transfer `assert property`
+only if adjacent receiving FF widths agree and no non-reset capture guard is
+observed. Enabled receiving stages remain documentation-only. A generated
+assertion has an optional `sva_assertion_id` link in JSON when the SVA file is written.
 A `prim_fifo_async` Gray pointer with verified source FF, width, clock, reset,
 and destination shape emits the primitive's one-bit transition property.
 When its relevant one-bit ready/valid and clock/reset ports are also connected,

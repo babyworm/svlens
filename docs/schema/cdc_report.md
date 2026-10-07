@@ -167,6 +167,13 @@ unresolved; a selected bit does not establish timing or mode safety.
   FIFO no-step, req/ack ACK contract, then req/ack-data hold contract when applicable.
   Every label appears in the SVA file.
 
+A 2FF/3FF stage-transfer assertion requires equal widths between adjacent
+receiving FFs and no observed non-reset guard on a receiving stage. An FF
+with an enable can remain structurally classified as `two_ff` or `three_ff`
+without an unconditional stage-transfer assertion or JSON assertion ID.
+The absence of an observed guard is not a proof of unconditional capture,
+especially for opaque library cells.
+
 The FIFO Gray property is emitted only for a uniquely identified
 `prim_fifo_async` `fifo_wptr_gray_q` or `fifo_rptr_gray_q` FF with a matching
 `sync_wptr`/`sync_rptr` destination, width >= 2, known source clock, and

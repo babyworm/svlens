@@ -2,9 +2,9 @@
 
 The source-only run used pinned OpenTitan `earlgrey_silver_release_v5`
 (`ed044fc9760bdf9fc075d0015ba1db07fa075355`) and a dirty svlens worktree
-based on `fc6c83fb5cd1f56d937957e77f35d6093bacf387`. The analyzed binary
-SHA-256 was `1f704d75b91dfaedcf1c0f6496b0442f5fbb95f888e96e05803d2e76dd41c260`.
-The audited report was generated on 2026-10-07 18:57 UTC (2026-10-08 in Korea).
+based on `dc81854adcc4b6148ee7abc3b06d7b946c5ec474`. The analyzed binary
+SHA-256 was `b3526211a562c95458505876a33a88e0494827e29291f57bcc9d571b5cc02c38`.
+The audited report was generated on 2026-10-07 19:07 UTC (2026-10-08 in Korea).
 Counts are analyzer output, not a whole-design precision or recall estimate.
 
 | Target | Connections (direct / approximate) | Bit-flow gaps | Required paths | Absent paths | CDC (violation / caution / info) |
@@ -98,6 +98,9 @@ retain the primary crossing classifications: AES's data-hold reference passes
 no-step, req-ack, and data-hold references pass 6/6 with 399/399 labels.
 Generated-array FIFO properties use the pointer FF's declaration scope;
 the full SoC SVA elaborates with zero errors and the same 12 upstream RTL
-warnings as the no-SVA baseline. SVA elaboration is not simulation or
+warnings as the no-SVA baseline. An enabled receiving-FF fixture remains
+structurally `two_ff/INFO` but emits no unconditional stage-transfer
+assertion or JSON assertion ID; the pinned SoC label counts remain unchanged.
+SVA elaboration is not simulation or
 a protocol-safety proof. Raw benchmark artifacts remain under ignored
 `bench/opentitan/results/` and are uploaded by the scheduled/on-demand CI job.

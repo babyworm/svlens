@@ -980,8 +980,26 @@ static std::optional<SvaSyncAssertion> svaSyncAssertion(const AnalysisResult& re
     }
 
     std::vector<std::string> resetConditions;
+    auto hasNonResetGuard = [](const FFNode& stage) {
+        auto leafName = [](std::string_view path) {
+            const auto dot = path.rfind('.');
+            return path.substr(dot == std::string_view::npos ? 0 : dot + 1);
+        };
+        for (const auto& guard : stage.capture_conditions) {
+            if (!stage.reset)
+                return true;
+            const auto& resetPath = stage.reset->hier_path;
+            const auto& declaredReset = svaResetPath(*stage.reset);
+            const auto resetLeaf = leafName(resetPath);
+            const auto declaredLeaf = leafName(declaredReset);
+            if (guard != resetPath && guard != declaredReset && guard != resetLeaf && guard != declaredLeaf)
+                return true;
+        }
+        return false;
+    };
     for (size_t i = 1; i < stages.size(); ++i) {
-        if (stages[i - 1]->declared_path.empty() || stages[i]->declared_path.empty())
+        if (stages[i - 1]->declared_path.empty() || stages[i]->declared_path.empty() || stages[i]->width <= 0 ||
+            stages[i - 1]->width != stages[i]->width || hasNonResetGuard(*stages[i]))
             return std::nullopt;
         std::string prior;
         std::string current;

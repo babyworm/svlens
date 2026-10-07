@@ -134,6 +134,12 @@ artifact and elaborates the emitted AES and SoC SVA alongside the pinned RTL.
 - Git
 - ~2GB disk for OpenTitan clone
 
+The default `setup-deps.sh` install contains the slang library but may omit
+the CLI. For a fresh benchmark prefix, run `./scripts/setup-deps.sh --prefix
+<dedicated-prefix> --with-tools` from the repository root and set
+`SVLENS_SLANG=<dedicated-prefix>/bin/slang` when running `make bench`. A cached
+library-only prefix is rejected instead of silently skipping AST checks.
+
 The runner works on macOS and Linux. It records elapsed wall time; peak RSS is
 left unavailable because the old GNU `time -v` path was not portable.
 Filelist generation selects FuseSoC's default RTL filesets, enables

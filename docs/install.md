@@ -82,6 +82,21 @@ during configure. Missing dependencies are reported as actionable configuration 
 
 ---
 
+## Optional OpenTitan benchmark CLI
+
+The source-derived benchmark checks invoke the `slang` executable; the
+default library-only dependency install does not build it. Use a separate
+prefix with `--with-tools` (an existing library-only prefix is rejected):
+
+```bash
+SVLENS_BENCH_PREFIX="$HOME/.local-svlens-bench"
+./scripts/setup-deps.sh --prefix "$SVLENS_BENCH_PREFIX" --with-tools
+SVLENS_SLANG="$SVLENS_BENCH_PREFIX/bin/slang" \
+  make bench CMAKE_PREFIX_PATH="$SVLENS_BENCH_PREFIX"
+```
+
+---
+
 ## AddressSanitizer validation
 
 Use a separate slang v10 prefix with mimalloc disabled. The normal installed

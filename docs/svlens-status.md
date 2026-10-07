@@ -116,7 +116,7 @@ DOT/JSON report tests. The opt-in prefix flow is documented in
 a full-test CI job (external CI execution has not yet been observed here);
 the default dependency install remains unchanged.
 
-The OpenTitan benchmark parser/evaluator suite passes 35/35 Python tests and
+The OpenTitan benchmark parser/evaluator suite passes 36/36 Python tests and
 Ruff checks. Pinned AES and full-SoC SVA elaborate with their RTL (0 errors;
 the SoC's 12 implicit-conversion warnings also occur without SVA). The
 benchmark gates AES's data-hold reference (1/1), six SoC 2FF/FIFO/req-ack

@@ -1000,19 +1000,35 @@ TEST_CASE("Extractor: AXI-lite-style modport channels preserve direction and iso
     ConnectionExtractor extractor(*result.compilation, "interface_axi_lite");
     const auto graph = extractor.extract();
 
-    auto hasEdge = [&](const std::string& source, const std::string& dest) {
+    auto hasEdge = [&](const std::string& source, const std::string& dest, bool directOnly = false) {
         for (const auto& conn : graph.connections) {
-            if (conn.source.fullPath() == source && conn.dest.fullPath() == dest)
+            if (conn.source.fullPath() == source && conn.dest.fullPath() == dest &&
+                (!directOnly || conn.kind == ConnectionKind::Direct))
                 return true;
         }
         return false;
     };
-    CHECK(hasEdge("interface_axi_lite.u_mgr_a.bus.awaddr", "interface_axi_lite.u_sub_a.bus.awaddr"));
-    CHECK(hasEdge("interface_axi_lite.u_mgr_a.bus.wdata", "interface_axi_lite.u_sub_a.bus.wdata"));
-    CHECK(hasEdge("interface_axi_lite.u_sub_a.bus.awready", "interface_axi_lite.u_mgr_a.bus.awready"));
-    CHECK(hasEdge("interface_axi_lite.u_sub_a.bus.bresp", "interface_axi_lite.u_mgr_a.bus.bresp"));
-    CHECK_FALSE(hasEdge("interface_axi_lite.u_sub_a.bus.awaddr", "interface_axi_lite.u_mgr_a.bus.awaddr"));
-    CHECK_FALSE(hasEdge("interface_axi_lite.u_mgr_a.bus.wdata", "interface_axi_lite.u_sub_b.bus.wdata"));
+    for (const auto& member : {"awaddr", "awprot", "awvalid", "wdata", "wstrb", "wvalid", "bready", "araddr", "arprot",
+                               "arvalid", "rready"}) {
+        INFO(member);
+        CHECK(hasEdge("interface_axi_lite.u_mgr_a.bus." + std::string(member),
+                      "interface_axi_lite.u_sub_a.bus." + std::string(member), true));
+        CHECK_FALSE(hasEdge("interface_axi_lite.u_sub_a.bus." + std::string(member),
+                            "interface_axi_lite.u_mgr_a.bus." + std::string(member)));
+        CHECK_FALSE(hasEdge("interface_axi_lite.u_mgr_a.bus." + std::string(member),
+                            "interface_axi_lite.u_sub_b.bus." + std::string(member)));
+    }
+    for (const auto& member : {"awready", "wready", "bresp", "bvalid", "arready", "rdata", "rresp", "rvalid"}) {
+        INFO(member);
+        CHECK(hasEdge("interface_axi_lite.u_sub_a.bus." + std::string(member),
+                      "interface_axi_lite.u_mgr_a.bus." + std::string(member), true));
+        CHECK_FALSE(hasEdge("interface_axi_lite.u_mgr_a.bus." + std::string(member),
+                            "interface_axi_lite.u_sub_a.bus." + std::string(member)));
+        CHECK_FALSE(hasEdge("interface_axi_lite.u_sub_a.bus." + std::string(member),
+                            "interface_axi_lite.u_mgr_b.bus." + std::string(member)));
+    }
+    CHECK_FALSE(hasEdge("interface_axi_lite.u_sub_a.bus.bresp", "interface_axi_lite.u_mgr_a.bus.rresp"));
+    CHECK_FALSE(hasEdge("interface_axi_lite.u_sub_a.bus.rresp", "interface_axi_lite.u_mgr_a.bus.bresp"));
 }
 
 TEST_CASE("Extractor: parameterized interface-array elements do not cross-connect", "[extractor][interface][array]") {

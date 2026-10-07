@@ -304,5 +304,11 @@ forbidden_connections:
   - source: top_earlgrey.u_otp_ctrl.u_otp_rsp_fifo.rvalid_o
     dest: top_earlgrey.u_otp_ctrl.u_otp_rsp_fifo.rready_i
     evidence: otp_ctrl.sv:673,694-695
+  - source: top_earlgrey.u_kmac.u_sha3.u_keccak.complete_o
+    dest: top_earlgrey.u_entropy_src.u_entropy_src_core.u_sha3.u_pad.process_i
+    evidence: kmac.sv:622-646, entropy_src_core.sv:1933-1960; the two sha3 instances have separate local controls
+  - source: top_earlgrey.u_entropy_src.u_entropy_src_core.u_sha3.u_keccak.complete_o
+    dest: top_earlgrey.u_kmac.u_sha3.u_pad.process_i
+    evidence: kmac.sv:622-646, entropy_src_core.sv:1933-1960; the two sha3 instances have separate local controls
 
 known_clean: []

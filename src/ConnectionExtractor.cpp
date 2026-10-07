@@ -626,6 +626,12 @@ ConnectionExtractor::ResolvedExpr ConnectionExtractor::resolveExpr(
     switch (expr->kind) {
         case slang::ast::ExpressionKind::NamedValue: {
             auto& named = expr->as<slang::ast::NamedValueExpression>();
+            if (named.symbol.kind == slang::ast::SymbolKind::EnumValue ||
+                named.symbol.kind == slang::ast::SymbolKind::Parameter ||
+                named.symbol.kind == slang::ast::SymbolKind::TypeParameter) {
+                result.tieOff = true;
+                return result;
+            }
             result.netNames.push_back(std::string(named.symbol.name));
             return result;
         }

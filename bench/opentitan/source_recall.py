@@ -22,8 +22,28 @@ def simple_logic_width(type_name: str | None) -> int | None:
 
 
 def expected_simple_edges(scope: dict, path: str) -> list[tuple[str, str]]:
-    """Find unique-output scalar or whole-vector pairs sharing one net."""
+    """Find unique-output scalar or whole-vector pairs on nets or one direct alias."""
     expected = set()
+
+    def named_values(value):
+        if isinstance(value, dict):
+            if value.get("kind") == "NamedValue" and isinstance(value.get("symbol"), str):
+                yield value["symbol"]
+            for child in value.values():
+                yield from named_values(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from named_values(child)
+
+    def assignments(value):
+        if isinstance(value, dict):
+            if value.get("kind") == "Assignment":
+                yield value
+            for child in value.values():
+                yield from assignments(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from assignments(child)
 
     def port_path(scope_path: str, instance: str, port: str, width: int) -> str:
         return f"{scope_path}.{instance}.{port}" + (f"[{width - 1}:0]" if width > 1 else "")
@@ -34,6 +54,7 @@ def expected_simple_edges(scope: dict, path: str) -> list[tuple[str, str]]:
         if not isinstance(members, list):
             return
         by_symbol = defaultdict(lambda: {"Out": [], "In": []})
+        output_writers = defaultdict(int)
         for child in members:
             if not isinstance(child, dict) or child.get("kind") != "Instance":
                 continue
@@ -41,6 +62,10 @@ def expected_simple_edges(scope: dict, path: str) -> list[tuple[str, str]]:
                 port = connection.get("port") or {}
                 expr = connection.get("expr") or {}
                 direction = port.get("direction")
+                if direction == "Out":
+                    output_expr = (expr.get("left") or {}) if expr.get("kind") == "Assignment" else expr
+                    for symbol in named_values(output_expr):
+                        output_writers[symbol] += 1
                 width = simple_logic_width(port.get("type"))
                 if width is None or direction not in ("In", "Out"):
                     continue
@@ -57,6 +82,40 @@ def expected_simple_edges(scope: dict, path: str) -> list[tuple[str, str]]:
                 if source_instance != dest_instance and source_width == dest_width:
                     expected.add((port_path(scope_path, source_instance, source_port, source_width),
                                   port_path(scope_path, dest_instance, dest_port, dest_width)))
+
+        writes = defaultdict(int)
+        aliases = []
+        for member in members:
+            if not isinstance(member, dict) or member.get("kind") in ("Instance", "GenerateBlock",
+                                                                        "GenerateBlockArray"):
+                continue
+            for assignment in assignments(member):
+                for symbol in named_values(assignment.get("left")):
+                    writes[symbol] += 1
+            if member.get("kind") != "ContinuousAssign":
+                continue
+            assignment = member.get("assignment") or {}
+            lhs = assignment.get("left") or {}
+            rhs = assignment.get("right") or {}
+            width = simple_logic_width(lhs.get("type"))
+            if (assignment.get("kind") == "Assignment" and lhs.get("kind") == rhs.get("kind") == "NamedValue" and
+                    isinstance(lhs.get("symbol"), str) and isinstance(rhs.get("symbol"), str) and width is not None and
+                    simple_logic_width(rhs.get("type")) == width and lhs.get("symbol") != rhs.get("symbol")):
+                aliases.append((rhs.get("symbol"), lhs.get("symbol"), width))
+        for source_symbol, dest_symbol, width in aliases:
+            if (writes[dest_symbol] != 1 or writes[source_symbol] or output_writers[source_symbol] != 1 or
+                    output_writers[dest_symbol]):
+                continue
+            sources = by_symbol[source_symbol]["Out"]
+            if len(sources) != 1:
+                continue
+            source_instance, source_port, source_width = sources[0]
+            if source_width != width:
+                continue
+            for dest_instance, dest_port, dest_width in by_symbol[dest_symbol]["In"]:
+                if source_instance != dest_instance and dest_width == width:
+                    expected.add((port_path(scope_path, source_instance, source_port, width),
+                                  port_path(scope_path, dest_instance, dest_port, width)))
 
         for child in members:
             if not isinstance(child, dict):

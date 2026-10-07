@@ -41,4 +41,4 @@ targets:
       - top_earlgrey.u_usbdev
       - top_earlgrey.u_rv_core_ibex
       - top_earlgrey.u_pwrmgr_aon
-    source_recall_expected_sha256: "f4d18eb380230608f7fe3776f4dd68e5222e97d1f9fd19cc9d324300599579b9"
+    source_recall_expected_sha256: "489f2ee89a2927b87654a85211290e57718a643de2ebcb77eba12248341026f3"

@@ -50,6 +50,55 @@ class SourceRecallTests(unittest.TestCase):
             ("top.u_source.q_o", "top.u_sink.d_i"),
         ])
 
+    def test_unique_direct_continuous_alias_connects_sibling_ports(self):
+        alias = {"kind": "ContinuousAssign", "assignment": {
+            "kind": "Assignment",
+            "left": {"kind": "NamedValue", "type": "logic[7:0]", "symbol": "forwarded"},
+            "right": {"kind": "NamedValue", "type": "logic[7:0]", "symbol": "driven"},
+        }}
+        members = [
+            {"kind": "Instance", "name": "u_source",
+             "connections": [port("data_o", "Out", "driven", "logic[7:0]")]},
+            {"kind": "Instance", "name": "u_sink",
+             "connections": [port("data_i", "In", "forwarded", "logic[7:0]")]},
+            alias,
+        ]
+        expected = [("top.u_source.data_o[7:0]", "top.u_sink.data_i[7:0]")]
+        self.assertEqual(expected_simple_edges({"body": {"members": members}}, "top"), expected)
+
+        # A second driver or a computed RHS cannot establish a direct alias.
+        second = {"kind": "ContinuousAssign", "assignment": {
+            "kind": "Assignment",
+            "left": {"kind": "NamedValue", "type": "logic[7:0]", "symbol": "forwarded"},
+            "right": {"kind": "NamedValue", "type": "logic[7:0]", "symbol": "other"},
+        }}
+        self.assertEqual(expected_simple_edges({"body": {"members": members + [second]}}, "top"), [])
+        second_source = {"kind": "Instance", "name": "u_other",
+                         "connections": [port("data_o", "Out", "driven", "logic[7:0]")]}
+        self.assertEqual(expected_simple_edges({"body": {"members": members + [second_source]}}, "top"), [])
+        procedural = {"kind": "ProceduralBlock", "body": {"kind": "ExpressionStatement", "expr": {
+            "kind": "Assignment", "left": alias["assignment"]["left"],
+            "right": {"kind": "IntegerLiteral", "type": "logic[7:0]", "value": "8'h00"},
+        }}}
+        self.assertEqual(expected_simple_edges({"body": {"members": members + [procedural]}}, "top"), [])
+        partial_write = {"kind": "ProceduralBlock", "body": {"kind": "ExpressionStatement", "expr": {
+            "kind": "Assignment", "left": {
+                "kind": "ElementSelect", "value": alias["assignment"]["left"],
+                "selector": {"kind": "IntegerLiteral", "value": "0"}},
+            "right": {"kind": "IntegerLiteral", "type": "logic", "value": "1'b0"},
+        }}}
+        self.assertEqual(expected_simple_edges({"body": {"members": members + [partial_write]}}, "top"), [])
+        computed = {"kind": "ContinuousAssign", "assignment": {
+            "kind": "Assignment", "left": alias["assignment"]["left"],
+            "right": {"kind": "BinaryOp", "type": "logic[7:0]"},
+        }}
+        self.assertEqual(expected_simple_edges({"body": {"members": members[:2] + [computed]}}, "top"), [])
+        converted = {"kind": "ContinuousAssign", "assignment": {
+            "kind": "Assignment", "left": alias["assignment"]["left"],
+            "right": {"kind": "NamedValue", "type": "logic[3:0]", "symbol": "driven"},
+        }}
+        self.assertEqual(expected_simple_edges({"body": {"members": members[:2] + [converted]}}, "top"), [])
+
     def test_report_separates_direct_approximate_and_missing(self):
         expected = {"scope": [("a", "b"), ("c", "d"), ("e", "f")]}
         report = {"connections": [

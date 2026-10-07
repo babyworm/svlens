@@ -112,9 +112,9 @@ separately built slang v10 at the same pinned commit with
 `SLANG_USE_MIMALLOC=OFF`. The default installed slang exports mimalloc and the
 same ASan test binary crashes inside `mi_free_block_delayed_mt` on standalone
 DOT/JSON report tests. The opt-in prefix flow is documented in
-[`docs/install.md`](install.md#addresssanitizer-validation) and configured as
-a full-test CI job (external CI execution has not yet been observed here);
-the default dependency install remains unchanged.
+[`docs/install.md`](install.md#addresssanitizer-validation). Branch CI runs
+exercise that prefix and the parallel test suite. The default dependency
+install remains unchanged.
 
 The OpenTitan benchmark parser/evaluator suite passes 36/36 Python tests and
 Ruff checks. Pinned AES and full-SoC SVA elaborate with their RTL (0 errors;

@@ -42,6 +42,10 @@ based on backward transformation cones and repeated bit-lane normalization.
 - `root_kind`  (`output` | `ff_d`)
 - `raw_node_count`
 - `logic_depth_est`
+- `max_fanout` (maximum number of distinct transform nodes consuming any
+  signal in this cone, counted across the whole extracted graph)
+- `gate_cost_proxy` (uncalibrated operation-weighted logic cost; wiring costs
+  zero, adders and multipliers scale with width; not a mapped cell count)
 - `normalized_transform_count`
 - `repeated_lane_group_count`
 - `source_inputs`

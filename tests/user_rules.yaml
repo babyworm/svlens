@@ -1,0 +1,11 @@
+checkers:
+  - id: USR-001
+    description: Module names must end in _ip
+    target: module
+    pattern: ".*_ip"
+    severity: error
+  - id: USR-002
+    description: Temporary signals are forbidden
+    target: signal
+    forbidden: "tmp_.*"
+    severity: warning

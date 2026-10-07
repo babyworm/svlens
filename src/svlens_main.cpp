@@ -9,7 +9,9 @@
 #include <algorithm>
 #include <filesystem>
 #include <fmt/core.h>
+#include <yaml-cpp/yaml.h>
 #include <fstream>
+#include <set>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -17,6 +19,76 @@
 namespace {
 
 namespace fs = std::filesystem;
+
+struct CrossReference {
+    size_t connIssueIndex;
+    std::string cdcCrossingId;
+    std::string matchedSignal;
+};
+
+struct CorrelationResult {
+    bool available = false;
+    std::vector<CrossReference> links;
+};
+
+std::string scalar(const YAML::Node& node) {
+    return node && node.IsScalar() ? node.as<std::string>() : std::string{};
+}
+
+CorrelationResult correlateReports(const fs::path& connPath, const fs::path& cdcPath) {
+    if (!fs::exists(connPath) || !fs::exists(cdcPath))
+        return {};
+    try {
+        const auto conn = YAML::LoadFile(connPath.string());
+        const auto cdc = YAML::LoadFile(cdcPath.string());
+        if (!conn["issues"].IsSequence() || !cdc["crossings"].IsSequence())
+            return {};
+
+        CorrelationResult result;
+        result.available = true;
+        const auto issues = conn["issues"];
+        const auto crossings = cdc["crossings"];
+        for (size_t issueIndex = 0; issueIndex < issues.size(); ++issueIndex) {
+            std::set<std::string> issueSignals;
+            const auto issue = issues[issueIndex];
+            if (auto port = scalar(issue["port"]); !port.empty())
+                issueSignals.insert(std::move(port));
+            for (auto side : {"source", "dest"}) {
+                const auto endpoint = issue[side];
+                if (!endpoint.IsMap())
+                    continue;
+                const auto instance = scalar(endpoint["instance"]);
+                const auto port = scalar(endpoint["port"]);
+                if (!instance.empty() && !port.empty())
+                    issueSignals.insert(instance + "." + port);
+            }
+
+            for (const auto& crossing : crossings) {
+                const auto id = scalar(crossing["id"]);
+                if (id.empty())
+                    continue;
+                std::set<std::string> crossingSignals;
+                for (auto side : {"source", "dest"}) {
+                    if (auto signal = scalar(crossing[side]); !signal.empty())
+                        crossingSignals.insert(std::move(signal));
+                }
+                if (crossing["path"].IsSequence()) {
+                    for (const auto& step : crossing["path"]) {
+                        if (auto signal = scalar(step); !signal.empty())
+                            crossingSignals.insert(std::move(signal));
+                    }
+                }
+                for (const auto& signal : issueSignals) {
+                    if (crossingSignals.count(signal))
+                        result.links.push_back({issueIndex, id, signal});
+                }
+            }
+        }
+        return result;
+    } catch (const YAML::Exception&) {
+        return {};
+    }
+}
 
 void printDocsPointer() {
     fmt::print("Docs:\n  {}\n\n", commoncli::docsHint());
@@ -101,10 +173,9 @@ int invoke(int (*fn)(int, char**), std::vector<std::string> args) {
     return fn(static_cast<int>(argv.size()), argv.data());
 }
 
-const std::unordered_set<std::string> kConnValueOptions = {
-    "--output", "-o", "--format", "--waiver", "--expect", "--diff",
-    "--trace", "--convention", "--depth", "--top"
-};
+const std::unordered_set<std::string> kConnValueOptions = {"--output",     "-o",      "--format", "--waiver",
+                                                           "--expect",     "--diff",  "--trace",  "--convention",
+                                                           "--user-rules", "--depth", "--top"};
 
 const std::unordered_set<std::string> kCdcValueOptions = {
     "--output", "-o", "--format", "--sdc", "--clock-yaml", "--waiver",
@@ -161,6 +232,7 @@ void writeSummary(const std::string& outputBase,
     const auto connDir = fs::path(outputBase) / "conn";
     const auto cdcDir = fs::path(outputBase) / "cdc";
     const auto metricsDir = fs::path(outputBase) / "metrics";
+    const auto correlations = correlateReports(connDir / "connect_report.json", cdcDir / "cdc_report.json");
 
     ofs << "{\n";
     ofs << "  \"mode\": \"all\",\n";
@@ -189,6 +261,21 @@ void writeSummary(const std::string& outputBase,
     for (size_t i = 0; i < sourceFiles.size(); ++i) {
         ofs << "    " << svlens::jsonStr(sourceFiles[i]);
         if (i + 1 < sourceFiles.size())
+            ofs << ",";
+        ofs << "\n";
+    }
+    ofs << "  ],\n";
+    ofs << "  \"cross_reference_status\": "
+        << svlens::jsonStr(correlations.available ? (correlations.links.empty() ? "no_exact_match" : "matched")
+                                                  : "unavailable")
+        << ",\n";
+    ofs << "  \"cross_references\": [\n";
+    for (size_t i = 0; i < correlations.links.size(); ++i) {
+        const auto& link = correlations.links[i];
+        ofs << "    {\"conn_issue_index\": " << link.connIssueIndex
+            << ", \"cdc_crossing_id\": " << svlens::jsonStr(link.cdcCrossingId)
+            << ", \"matched_signal\": " << svlens::jsonStr(link.matchedSignal) << "}";
+        if (i + 1 < correlations.links.size())
             ofs << ",";
         ofs << "\n";
     }

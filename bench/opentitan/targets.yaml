@@ -8,6 +8,7 @@ targets:
     core: "lowrisc:ip:aes"
     core_file: "hw/ip/aes/aes.core"
     timeout_sec: 120
+    sva_probe: true
 
   - name: hmac
     level: L2
@@ -29,3 +30,5 @@ targets:
     core: "lowrisc:systems:top_earlgrey"
     core_file: "hw/top_earlgrey/top_earlgrey.core"
     timeout_sec: 600
+    period_sdc: "constraints/top_earlgrey_periods.sdc"
+    sva_probe: true

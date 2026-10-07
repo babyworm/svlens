@@ -37,6 +37,7 @@ struct Issue {
     // Zero means "not available".
     uint32_t lineNumber = 0;
     uint32_t columnNumber = 0;
+    std::string ruleId; // optional user-defined checker ID
 
     static const char* typeToString(Type t) {
         switch (t) {

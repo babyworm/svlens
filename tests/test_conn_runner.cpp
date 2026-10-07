@@ -88,6 +88,9 @@ TEST_CASE("ConnRunner: modport-width paired fixtures stay deterministic",
     // matching abs-path entry into netMap_ so the connection forms.
     CHECK(exitPos > 0);
     CHECK(fs::exists(out_pos / "connect_report.json"));
+    std::ifstream posReport(out_pos / "connect_report.json");
+    const std::string posBody((std::istreambuf_iterator<char>(posReport)), std::istreambuf_iterator<char>());
+    CHECK(posBody.find("\"file\":") != std::string::npos);
 
     auto neg = testutils::compileFile("sv/conn_modport_width_neg.sv");
     REQUIRE(neg);

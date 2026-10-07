@@ -3,6 +3,7 @@
 #include "sv-cdccheck/sdc_parser.h"
 
 #include <filesystem>
+#include <unistd.h>
 #include <fstream>
 
 namespace fs = std::filesystem;
@@ -10,7 +11,8 @@ using namespace sv_cdccheck;
 
 static fs::path writeTempSdc(const std::string& content) {
     static int counter = 0;
-    auto path = fs::temp_directory_path() / ("svlens_sdc_" + std::to_string(counter++) + ".sdc");
+    auto path = fs::temp_directory_path() /
+                ("svlens_sdc_" + std::to_string(::getpid()) + "_" + std::to_string(counter++) + ".sdc");
     std::ofstream(path) << content;
     return path;
 }
@@ -61,11 +63,31 @@ TEST_CASE("SDC: set_false_path parsing", "[cdc][sdc]") {
     REQUIRE(constraints.false_paths.size() == 1);
     CHECK(constraints.false_paths[0].from == "clkA");
     CHECK(constraints.false_paths[0].to == "clkB");
+    CHECK(constraints.false_paths[0].clock_to_clock);
 
     REQUIRE(constraints.max_delays.size() == 1);
     CHECK(constraints.max_delays[0].delay == Catch::Approx(5.0));
     CHECK(constraints.max_delays[0].from == "clkA");
     CHECK(constraints.max_delays[0].to == "clkB");
+    CHECK_FALSE(constraints.max_delays[0].datapath_only);
+}
+
+TEST_CASE("SDC: singleton brace selectors retain clock names", "[cdc][sdc]") {
+    auto tmp = fs::temp_directory_path() / "test_false_path_braced_clocks.sdc";
+    {
+        std::ofstream ofs(tmp);
+        ofs << "create_clock -name clkA -period 10 [get_ports {clk_a}]\n"
+            << "set_false_path -from [get_clocks {clkA}] -to [get_clocks {clkB}]\n";
+    }
+    auto constraints = SdcParser::parse(tmp);
+    fs::remove(tmp);
+
+    REQUIRE(constraints.clocks.size() == 1);
+    CHECK(constraints.clocks[0].target == "clk_a");
+    REQUIRE(constraints.false_paths.size() == 1);
+    CHECK(constraints.false_paths[0].from == "clkA");
+    CHECK(constraints.false_paths[0].to == "clkB");
+    CHECK(constraints.false_paths[0].clock_to_clock);
 }
 
 TEST_CASE("SDC: set_false_path with missing -to", "[cdc][sdc]") {
@@ -105,10 +127,8 @@ TEST_CASE("SDC: set_max_delay with malformed value", "[cdc][sdc]") {
     auto constraints = SdcParser::parse(tmp);
     fs::remove(tmp);
 
-    REQUIRE(constraints.max_delays.size() == 1);
-    CHECK(constraints.max_delays[0].delay == Catch::Approx(0.0));
-    CHECK(constraints.max_delays[0].from == "clkA");
-    CHECK(constraints.max_delays[0].to == "clkB");
+    CHECK(constraints.max_delays.empty());
+    CHECK(constraints.skipped_max_delays == 1);
 }
 
 TEST_CASE("SDC: set_max_delay with no value", "[cdc][sdc]") {
@@ -120,10 +140,39 @@ TEST_CASE("SDC: set_max_delay with no value", "[cdc][sdc]") {
     auto constraints = SdcParser::parse(tmp);
     fs::remove(tmp);
 
+    CHECK(constraints.max_delays.empty());
+    CHECK(constraints.skipped_max_delays == 1);
+}
+
+TEST_CASE("SDC: max-delay parser keeps one positive clock-pair declaration", "[cdc][sdc][max_delay]") {
+    auto tmp = fs::temp_directory_path() / "test_max_delay_datapath_only.sdc";
+    {
+        std::ofstream ofs(tmp);
+        ofs << "set_max_delay 6.5 -datapath_only -from [get_clocks {clkA}] -to [get_clocks clkB]\n";
+    }
+    auto constraints = SdcParser::parse(tmp);
+    fs::remove(tmp);
     REQUIRE(constraints.max_delays.size() == 1);
-    CHECK(constraints.max_delays[0].delay == Catch::Approx(0.0));
+    CHECK(constraints.max_delays[0].delay == Catch::Approx(6.5));
     CHECK(constraints.max_delays[0].from == "clkA");
     CHECK(constraints.max_delays[0].to == "clkB");
+    CHECK(constraints.max_delays[0].datapath_only);
+    CHECK(constraints.skipped_max_delays == 0);
+}
+
+TEST_CASE("SDC: max-delay parser rejects non-clock or ambiguous declarations", "[cdc][sdc][max_delay]") {
+    auto tmp = fs::temp_directory_path() / "test_max_delay_unsupported.sdc";
+    {
+        std::ofstream ofs(tmp);
+        ofs << "set_max_delay 5 -from [get_pins clkA] -to [get_clocks clkB]\n"
+            << "set_max_delay 5 -from [get_clocks clkA] -through [get_pins u_mid/D] -to [get_clocks clkB]\n"
+            << "set_max_delay 0 -from [get_clocks clkA] -to [get_clocks clkB]\n"
+            << "set_max_delay 5ns -from [get_clocks clkA] -to [get_clocks clkB]\n";
+    }
+    auto constraints = SdcParser::parse(tmp);
+    fs::remove(tmp);
+    CHECK(constraints.max_delays.empty());
+    CHECK(constraints.skipped_max_delays == 4);
 }
 
 TEST_CASE("SDC: multiple false_paths in one file", "[cdc][sdc]") {
@@ -158,6 +207,7 @@ TEST_CASE("SDC: mixed get_ports/get_pins/get_clocks in false_path", "[cdc][sdc]"
     REQUIRE(constraints.false_paths.size() == 1);
     CHECK(constraints.false_paths[0].from == "clkA");
     CHECK(constraints.false_paths[0].to == "clkB");
+    CHECK_FALSE(constraints.false_paths[0].clock_to_clock);
 }
 
 TEST_CASE("SDC: set_clock_groups with single group", "[cdc][sdc]") {

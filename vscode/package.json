@@ -1,0 +1,34 @@
+{
+  "name": "svlens",
+  "displayName": "svlens",
+  "description": "Run svlens and show SystemVerilog diagnostics",
+  "version": "0.1.0",
+  "publisher": "svlens",
+  "engines": {"vscode": "^1.84.0"},
+  "categories": ["Linters"],
+  "main": "./extension.js",
+  "activationEvents": ["onCommand:svlens.runConn", "onCommand:svlens.runCdc"],
+  "contributes": {
+    "commands": [
+      {"command": "svlens.runConn", "title": "svlens: Run Connectivity"},
+      {"command": "svlens.runCdc", "title": "svlens: Run CDC"}
+    ],
+    "configuration": {
+      "title": "svlens",
+      "properties": {
+        "svlens.binary": {
+          "type": "string", "default": "svlens",
+          "description": "Path to the svlens executable or a command on PATH."
+        },
+        "svlens.top": {
+          "type": "string", "default": "",
+          "description": "Top module; prompted when empty."
+        },
+        "svlens.filelist": {
+          "type": "string", "default": "",
+          "description": "Filelist path relative to the workspace. When empty, analyzes the active file."
+        }
+      }
+    }
+  }
+}

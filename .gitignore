@@ -17,3 +17,6 @@ Testing/
 bench/opentitan/.ot-src/
 bench/opentitan/results/
 bench/opentitan/filelists/
+__pycache__/
+*.pyc
+*.egg-info/

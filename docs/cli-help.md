@@ -5,11 +5,12 @@
 - `svlens --help` — root overview, quick-start, install hint, docs pointer, product boundary
 - `svlens help conn` / `svlens conn --help` — connectivity-specific contract
 - `svlens help cdc` / `svlens cdc --help` — CDC-specific contract
-- `svlens help both` / `svlens both --help` — combined-run contract
+- `svlens help metrics` / `svlens metrics --help` — metrics-specific contract
+- `svlens help all` / `svlens all --help` — combined-run contract (`both` remains an alias)
 
 ## Help architecture
 
-Phase 1B uses a **hybrid help architecture**:
+The CLI uses a **hybrid help architecture**:
 
 - **Generated / structured sections**
   - command usage
@@ -30,11 +31,11 @@ This keeps help aligned with the CLI surface while still giving users practical 
 Use it for CI gates, review support, and early structural/CDC checks.
 Do not treat the help text as a claim of sign-off equivalence.
 
-## Stable expectations in Phase 1B
+## Current help expectations
 
 ### Root help
 Must include:
-- usage for `conn`, `cdc`, `both`, and `help`
+- usage for `conn`, `cdc`, `metrics`, `all`, and `help`
 - quick-start examples
 - install hint for offline / preinstalled builds
 - docs pointer
@@ -55,4 +56,5 @@ Must include:
 - [`docs/install.md`](install.md)
 - [`docs/schema/connect_report.md`](schema/connect_report.md)
 - [`docs/schema/cdc_report.md`](schema/cdc_report.md)
+- [`docs/schema/metrics_report.md`](schema/metrics_report.md)
 - [`docs/schema/svlens_summary.md`](schema/svlens_summary.md)

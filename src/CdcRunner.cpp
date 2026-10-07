@@ -7,7 +7,8 @@
 
 void cdccli::printCdcUsage() {
     const std::string usage =
-        std::string("svlens cdc v") + SVLENS_VERSION + " — Structural CDC Analysis Tool\n\n"
+        std::string("svlens cdc v") + SVLENS_VERSION +
+        " — Structural CDC Analysis Tool\n\n"
         "Usage: svlens cdc [OPTIONS] <SV_FILES...>\n\n"
         "Required:\n"
         "  <SV_FILES...>           SystemVerilog source files\n"
@@ -16,18 +17,20 @@ void cdccli::printCdcUsage() {
         "  -o, --output <dir>      Output directory (default: ./cdc_reports/)\n"
         "  --version               Show version\n"
         "  -h, --help              Show this help\n"
-        "  " + commoncli::passThroughNote() + "\n\n"
+        "  " +
+        commoncli::passThroughNote() +
+        "\n\n"
         "Outputs:\n"
         "  md      -> cdc_report.md\n"
         "  json    -> cdc_report.json\n"
-        "  sdc     -> cdc_constraints.sdc\n"
+        "  sdc     -> cdc_constraints.sdc (review-only, no active constraints)\n"
         "  waiver  -> cdc_waiver_template.yaml\n"
         "  dot     -> file from --dump-graph\n\n"
         "Filelist:\n"
         "  -f <filelist>           Read source files and options from filelist\n"
         "  -F <filelist>           Same as -f, but paths relative to filelist location\n\n"
         "Options:\n"
-        "  --format <fmt>          md|json|sdc|waiver|all (default: all)\n"
+        "  --format <fmt>          md|json|html|sdc|waiver|all (default: all)\n"
         "  --dump-graph <file>     Export DOT graph to file\n"
         "  --sdc <file>            SDC file with clock definitions\n"
         "  --clock-yaml <file>     Clock specification YAML file\n"
@@ -42,9 +45,9 @@ void cdccli::printCdcUsage() {
         "  --glitch-free-mux-cell <name>\n"
         "                          Treat instances of <name> as glitch-free clock muxes (repeatable)\n"
         "  --cdc-config <file>     YAML config with sync_cells / glitch_free_mux_cells lists\n"
-        "  --emit-sva <path>       Emit informational SVA properties to <path>\n"
-        "                          (one cover-property per VIOLATION crossing,\n"
-        "                          documentation-only header per verified synchronizer)\n"
+        "  --emit-sva <path>       Emit CDC SVA to <path>\n"
+        "                          (covers for eligible unsynchronized violations;\n"
+        "                          stage-transfer asserts for verified 2FF/3FF chains)\n"
         "  -v, --verbose           Detailed output\n"
         "  -q, --quiet             Only violations and summary\n\n"
         "Examples:\n"
@@ -55,11 +58,13 @@ void cdccli::printCdcUsage() {
         "  Returns the number of VIOLATION crossings, capped at 255.\n"
         "  With --strict, CAUTION crossings are added to the exit code total.\n\n"
         "Limitations:\n"
-        "  SDC period data is used for reporting, not full timing-aware sign-off classification.\n"
-        "  " + commoncli::productBoundaryNote() + "\n\n"
+        "  Clock periods add fast-to-slow data-stability review hints; they do not prove safe timing.\n"
+        "  " +
+        commoncli::productBoundaryNote() +
+        "\n\n"
         "Notes:\n"
         "  Stable report fields are documented in docs/schema/cdc_report.md.\n"
-        "  Use 'svlens help both' for combined-run behavior.\n";
+        "  Use 'svlens help all' for combined-run behavior.\n";
     std::cout << usage;
 }
 
@@ -143,10 +148,9 @@ bool cdccli::validateCdcOptions(const CdcCliOptions& opts) {
         printCdcUsage();
         return false;
     }
-    if (opts.format != "md" && opts.format != "json" && opts.format != "sdc" &&
+    if (opts.format != "md" && opts.format != "json" && opts.format != "html" && opts.format != "sdc" &&
         opts.format != "waiver" && opts.format != "all") {
-        std::cerr << "svlens cdc: error: invalid format '" << opts.format
-                  << "'. Use md|json|sdc|waiver|all\n";
+        std::cerr << "svlens cdc: error: invalid format '" << opts.format << "'. Use md|json|html|sdc|waiver|all\n";
         return false;
     }
     return true;

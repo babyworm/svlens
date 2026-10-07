@@ -144,6 +144,8 @@ void writeJsonReport(const std::string& outputDir,
         ofs << "      \"root_kind\": " << jsonStr(r.root_kind) << ",\n";
         ofs << "      \"raw_node_count\": " << r.cone.raw_node_count << ",\n";
         ofs << "      \"logic_depth_est\": " << r.cone.logic_depth_est << ",\n";
+        ofs << "      \"max_fanout\": " << r.cone.max_fanout << ",\n";
+        ofs << "      \"gate_cost_proxy\": " << r.cone.gate_cost_proxy << ",\n";
         ofs << "      \"normalized_transform_count\": " << r.norm.normalized_count << ",\n";
         ofs << "      \"repeated_lane_group_count\": "
             << static_cast<uint32_t>(r.norm.groups.size()) << ",\n";
@@ -339,16 +341,13 @@ void writeMarkdownReport(const std::string& outputDir,
 
     // Roots table
     ofs << "## Roots\n\n";
-    ofs << "| Root | Kind | Raw | Depth | Normalized | Inputs | FFs | Approx |\n";
-    ofs << "|---|---|---|---|---|---|---|---|\n";
+    ofs << "| Root | Kind | Raw | Depth | Max fanout | Gate cost proxy | Normalized | Inputs | FFs | Approx |\n";
+    ofs << "|---|---|---|---|---|---|---|---|---|---|\n";
     for (auto& r : results) {
-        ofs << "| " << r.root_id << " | " << r.root_kind
-            << " | " << r.cone.raw_node_count
-            << " | " << r.cone.logic_depth_est
-            << " | " << r.norm.normalized_count
-            << " | " << r.cone.source_input_count
-            << " | " << r.cone.source_ff_count
-            << " | " << (r.cone.approximate ? "yes" : "no") << " |\n";
+        ofs << "| " << r.root_id << " | " << r.root_kind << " | " << r.cone.raw_node_count << " | "
+            << r.cone.logic_depth_est << " | " << r.cone.max_fanout << " | " << r.cone.gate_cost_proxy << " | "
+            << r.norm.normalized_count << " | " << r.cone.source_input_count << " | " << r.cone.source_ff_count << " | "
+            << (r.cone.approximate ? "yes" : "no") << " |\n";
     }
     ofs << "\n";
 

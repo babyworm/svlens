@@ -1,5 +1,6 @@
 #include "WaiverFilter.h"
 #include "GlobUtil.h"
+#include "InlineWaiver.h"
 #include <fmt/core.h>
 #include <yaml-cpp/yaml.h>
 
@@ -23,13 +24,17 @@ WaiverFilter::WaiverFilter(const std::string& yamlPath) {
     }
 }
 
-WaiverFilter::WaiverResult WaiverFilter::apply(const std::vector<Issue>& issues) const {
+WaiverFilter::WaiverResult WaiverFilter::apply(const std::vector<Issue>& issues,
+                                               const slang::SourceManager* sourceManager) const {
     WaiverResult result;
+    svlens::InlineWaiver inlineWaiver;
+
     for (auto& issue : issues) {
         bool waived = false;
         std::string fullPath = issue.port.fullPath();
         for (auto& rule : rules_) {
-            bool typeMatch = (rule.type == "*") || (rule.type == Issue::typeToString(issue.type));
+            bool typeMatch = (rule.type == "*") || (rule.type == Issue::typeToString(issue.type)) ||
+                             (!issue.ruleId.empty() && rule.type == issue.ruleId);
             bool pathMatch;
             if (!rule.source.empty())
                 pathMatch = (fullPath == rule.source);
@@ -37,6 +42,10 @@ WaiverFilter::WaiverResult WaiverFilter::apply(const std::vector<Issue>& issues)
                 pathMatch = globMatch(rule.pattern, fullPath);
             if (typeMatch && pathMatch) { waived = true; break; }
         }
+        if (!waived)
+            waived = inlineWaiver.matches(
+                sourceManager, issue.port.location, {Issue::typeToString(issue.type), issue.ruleId}, fullPath,
+                issue.type != Issue::Type::CONVENTION && issue.type != Issue::Type::SYNTH_RISK);
         if (waived) result.waived.push_back(issue);
         else result.active.push_back(issue);
     }

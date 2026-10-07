@@ -50,6 +50,23 @@ if(NOT SVLENS_KEEP_SLANG_DEBUG)
             "if your slang was built Debug.")
     endif()
 endif()
+
+string(CONCAT _svlens_all_cxx_flags "${CMAKE_CXX_FLAGS}"
+    " ${CMAKE_CXX_FLAGS_DEBUG}" " ${CMAKE_CXX_FLAGS_RELEASE}"
+    " ${CMAKE_CXX_FLAGS_RELWITHDEBINFO}" " ${CMAKE_CXX_FLAGS_MINSIZEREL}")
+if(_svlens_all_cxx_flags MATCHES "fsanitize=address")
+    get_target_property(_svlens_slang_allocator_defs slang::slang INTERFACE_COMPILE_DEFINITIONS)
+    if(_svlens_slang_allocator_defs)
+        list(FIND _svlens_slang_allocator_defs "SLANG_USE_MIMALLOC" _svlens_mimalloc_index)
+        if(NOT _svlens_mimalloc_index EQUAL -1)
+            message(FATAL_ERROR
+                "AddressSanitizer cannot use this mimalloc-enabled slang install reliably. "
+                "Build slang in a separate prefix with scripts/setup-deps.sh --no-mimalloc, "
+                "then configure with that CMAKE_PREFIX_PATH and slang_DIR; "
+                "see docs/install.md#addresssanitizer-validation.")
+        endif()
+    endif()
+endif()
 # fmt: prefer slang's bundled copy; fall back to system install
 if(NOT TARGET slang::fmt)
     find_package(fmt REQUIRED)
@@ -158,6 +175,7 @@ add_library(svlens-conn-lib OBJECT
     src/ProtocolChecker.cpp
     src/SynthesizabilityChecker.cpp
     src/ConventionChecker.cpp
+    src/UserChecker.cpp
     src/CheckerRunner.cpp
     src/WaiverFilter.cpp
     src/JsonReport.cpp

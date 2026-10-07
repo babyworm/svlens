@@ -4,6 +4,9 @@
 #include <slang/text/SourceLocation.h>
 
 #include <cstdint>
+#include <cstddef>
+#include <map>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -28,10 +31,28 @@ enum class ConnectionKind {
     Approximate
 };
 
+struct BitRange {
+    int64_t low = 0;
+    int64_t high = 0;
+    uint64_t width() const { return static_cast<uint64_t>(high - low + 1); }
+};
+
 struct Connection {
     PortInfo source;
     PortInfo dest;
     ConnectionKind kind = ConnectionKind::Direct;
+    std::optional<BitRange> sourceBits; // connected ordinal bits of source port
+    std::optional<BitRange> destBits;   // connected ordinal bits of destination port
+};
+
+// One assignment whose positional bit correspondence could not be fully
+// extracted. The total is unbounded; only the first examples are retained.
+struct BitFlowGap {
+    std::string scopePath;
+    std::string reason;
+    slang::SourceLocation location;
+    uint32_t lhsWidth = 0;
+    uint32_t rhsWidth = 0;
 };
 
 // Round 38: style-only observations recorded by ConnectionExtractor
@@ -108,6 +129,9 @@ struct SynthRisk {
 
 struct ConnectionGraph {
     std::vector<Connection> connections;
+    size_t bitFlowGapCount = 0;
+    std::map<std::string, size_t> bitFlowGapReasons;
+    std::vector<BitFlowGap> bitFlowGaps;
     std::vector<PortInfo> allPorts;
     std::unordered_set<std::string> connectedPorts; // ports with non-empty expressions
     std::unordered_set<std::string> tieOffPorts;    // ports connected only to compile-time constants
@@ -116,6 +140,9 @@ struct ConnectionGraph {
     std::vector<StyleObservation> styleObservations;
     std::vector<DeclarationCapture> parameters;
     std::vector<DeclarationCapture> typedefs;
+    std::vector<DeclarationCapture> modules;
+    std::vector<DeclarationCapture> instances;
+    std::vector<DeclarationCapture> signals;
     std::vector<SynthRisk> synthRisks;
 };
 

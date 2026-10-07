@@ -1,9 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
 #include "sv-cdccheck/report_generator.h"
 #include "sv-cdccheck/types.h"
+#include <slang/syntax/SyntaxTree.h>
 
 #include <filesystem>
 #include <fstream>
+#include <tuple>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 using namespace sv_cdccheck;
@@ -53,7 +56,23 @@ static AnalysisResult makeCdcResult() {
     info.timing_basis_ns = 8.0;
     result.crossings.push_back(info);
 
+    auto violationDest = std::make_unique<FFNode>();
+    violationDest->hier_path = "top.u_b.q_data";
+    violationDest->domain = extDom;
+    violationDest->clock_path = "top.u_b.clk_i";
+    violationDest->declared_path = violationDest->hier_path;
+    result.ff_nodes.push_back(std::move(violationDest));
+
     return result;
+}
+
+static void addSvaSamplingFF(AnalysisResult& result, std::string path, ClockDomain* domain) {
+    auto ff = std::make_unique<FFNode>();
+    ff->hier_path = std::move(path);
+    ff->domain = domain;
+    ff->clock_path = "top.clk_b";
+    ff->declared_path = ff->hier_path;
+    result.ff_nodes.push_back(std::move(ff));
 }
 
 TEST_CASE("CDC ReportGenerator: counts reflect crossing categories", "[cdc][report]") {
@@ -65,6 +84,9 @@ TEST_CASE("CDC ReportGenerator: counts reflect crossing categories", "[cdc][repo
 
 TEST_CASE("CDC ReportGenerator: markdown output contains summary and domains", "[cdc][report]") {
     auto result = makeCdcResult();
+    result.crossings[0].sdc_false_path = true;
+    result.crossings[0].sdc_max_delay_constraint_ns = 8.0;
+    result.crossings[0].sdc_max_delay_datapath_only = true;
     ReportGenerator generator(result);
 
     auto path = fs::temp_directory_path() / "svlens_cdc_report.md";
@@ -80,10 +102,17 @@ TEST_CASE("CDC ReportGenerator: markdown output contains summary and domains", "
     CHECK(content.find("VIOLATION | 1") != std::string::npos);
     CHECK(content.find("sys_clk") != std::string::npos);
     CHECK(content.find("ext_clk") != std::string::npos);
+    CHECK(content.find("SDC False Path: timing excluded; CDC classification unchanged") != std::string::npos);
+    CHECK(content.find("Declared SDC Max Delay: 8 ns (datapath only); not measured path delay") != std::string::npos);
 }
 
 TEST_CASE("CDC ReportGenerator: json output contains summary and crossing ids", "[cdc][report]") {
     auto result = makeCdcResult();
+    result.clock_db.sources[0]->period_ns = 8.5;
+    result.crossings[0].capture_conditions = {"en_i"};
+    result.crossings[0].sdc_false_path = true;
+    result.crossings[0].sdc_max_delay_constraint_ns = 8.0;
+    result.crossings[0].sdc_max_delay_datapath_only = true;
     ReportGenerator generator(result);
 
     auto path = fs::temp_directory_path() / "svlens_cdc_report.json";
@@ -96,12 +125,43 @@ TEST_CASE("CDC ReportGenerator: json output contains summary and crossing ids", 
     fs::remove(path);
 
     CHECK(content.find("\"summary\"") != std::string::npos);
+    CHECK(content.find("\"period_ns\": 8.5") != std::string::npos);
+    CHECK(content.find("\"period_ns\": null") != std::string::npos);
     CHECK(content.find("\"violations\": 1") != std::string::npos);
     CHECK(content.find("VIOLATION-001") != std::string::npos);
     CHECK(content.find("INFO-001") != std::string::npos);
     CHECK(content.find("\"relationship\": \"asynchronous\"") != std::string::npos);
     CHECK(content.find("\"rationale\": \"Related clocks share timing constraints\"") != std::string::npos);
     CHECK(content.find("\"timing_basis_ns\": 8") != std::string::npos);
+    CHECK(content.find("\"sdc_false_path\": true") != std::string::npos);
+    CHECK(content.find("\"sdc_max_delay_constraint_ns\": 8") != std::string::npos);
+    CHECK(content.find("\"sdc_max_delay_datapath_only\": true") != std::string::npos);
+    CHECK(content.find("\"capture_conditions\": [\"en_i\"]") != std::string::npos);
+}
+
+TEST_CASE("CDC ReportGenerator: root provenance is separate from crossing classification", "[cdc][report][lineage]") {
+    auto result = makeCdcResult();
+    auto* root = result.clock_db.sources[0].get();
+    auto* derived = result.clock_db.sources[1].get();
+    root->origin_signal = "top.clk_main_i";
+    derived->origin_signal = "u_gate/clk_o";
+    result.clock_db.root_by_path[root->origin_signal] = root;
+    result.clock_db.root_by_path["top.gated_clk"] = root;
+    auto gatedNet = std::make_unique<ClockNet>();
+    gatedNet->hier_path = "top.gated_clk";
+    gatedNet->source = derived;
+    result.clock_db.addNet(std::move(gatedNet));
+
+    auto path = fs::temp_directory_path() / "svlens_cdc_lineage_report.json";
+    ReportGenerator(result).generateJSON(path);
+    std::ifstream ifs(path);
+    REQUIRE(ifs.good());
+    std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+    fs::remove(path);
+
+    CHECK(content.find("\"source_root_domain\": \"sys_clk\"") != std::string::npos);
+    CHECK(content.find("\"dest_root_domain\": \"sys_clk\"") != std::string::npos);
+    CHECK(content.find("\"category\": \"VIOLATION\"") != std::string::npos);
 }
 
 TEST_CASE("CDC ReportGenerator: markdown output includes relationship and rationale details", "[cdc][report]") {
@@ -187,6 +247,7 @@ TEST_CASE("CDC ReportGenerator: SVA emitter prefixes underscore on leading-digit
     v.dest_domain = extDom;
     v.sync_type = SyncType::None;
     result.crossings.push_back(std::move(v));
+    addSvaSamplingFF(result, "top.sync_q", extDom);
 
     ReportGenerator gen(result);
     auto path = fs::temp_directory_path() / "svlens_sva_leading_digit.sva";
@@ -250,6 +311,7 @@ TEST_CASE("CDC ReportGenerator: SVA collision dedup avoids self-collision with l
     result.crossings.push_back(mkViol("X"));
     result.crossings.push_back(mkViol("X"));
     result.crossings.push_back(mkViol("X_dup2"));
+    addSvaSamplingFF(result, "top.sync_q", extDom);
 
     ReportGenerator gen(result);
     auto path = fs::temp_directory_path() / "svlens_sva_collision_self.sva";
@@ -309,6 +371,7 @@ TEST_CASE("CDC ReportGenerator: SVA emitter deduplicates colliding property name
     };
     result.crossings.push_back(mkViol("VIOLATION-1"));
     result.crossings.push_back(mkViol("VIOLATION_1"));
+    addSvaSamplingFF(result, "top.sync_q", extDom);
 
     ReportGenerator gen(result);
     auto path = fs::temp_directory_path() / "svlens_sva_collision.sva";
@@ -440,6 +503,7 @@ TEST_CASE("CDC ReportGenerator: SVA emitter never emits unsafe leading-dot expre
 
     // INVARIANT: never emit a leading-dot expression inside $stable.
     CHECK(content.find("!$stable(.q_leading_dot)") == std::string::npos);
+    CHECK(content.find(": cover property (") == std::string::npos);
     // INVARIANT: the unsanitized source path remains in the comment
     // header so a human can still trace the finding back.
     CHECK(content.find(".q_leading_dot") != std::string::npos);
@@ -503,8 +567,7 @@ TEST_CASE("CDC ReportGenerator: SVA emitter splits VIOLATION cover from INFO doc
     CHECK(content.find("cover property (cdc_VIOLATION_001_src_toggle)") !=
           std::string::npos);
     // The property guards on the dest clock and asserts source toggle.
-    CHECK(content.find("@(posedge ext_clk) !$stable(top.u_a.q_data)") !=
-          std::string::npos);
+    CHECK(content.find("@(posedge top.u_b.clk_i) !$stable(top.u_a.q_data)") != std::string::npos);
 
     // Verified TwoFF synchronizer emits a doc-only block (no runtime
     // property to avoid bind-time signal-name fragility).
@@ -512,4 +575,464 @@ TEST_CASE("CDC ReportGenerator: SVA emitter splits VIOLATION cover from INFO doc
     CHECK(content.find("Verified two_ff synchronizer") != std::string::npos);
     CHECK(content.find("property cdc_INFO_001_src_toggle") ==
           std::string::npos);
+}
+
+TEST_CASE("CDC ReportGenerator: linked 2FF and 3FF assertions use verified stages", "[cdc][report][sva][assert]") {
+    auto result = makeCdcResult();
+    auto* destDomain = result.clock_db.domains[1].get();
+
+    auto addStage = [&](const std::string& path) {
+        auto node = std::make_unique<FFNode>();
+        node->hier_path = path;
+        node->clock_path = path.substr(0, path.rfind('.')) + ".clk_i";
+        node->declared_path = path;
+        node->domain = destDomain;
+        auto* ptr = node.get();
+        result.ff_nodes.push_back(std::move(node));
+        return ptr;
+    };
+    auto* first2 = addStage("top.sync2.q1");
+    auto* second2 = addStage("top.sync2.q2");
+    auto* first3 = addStage("top.sync3.q1");
+    auto* second3 = addStage("top.sync3.q2");
+    auto* third3 = addStage("top.sync3.q3");
+    result.edges.push_back({first2, second2, {}, SyncType::None, false});
+    result.edges.push_back({first3, second3, {}, SyncType::None, false});
+    result.edges.push_back({second3, third3, {}, SyncType::None, false});
+
+    for (auto [id, dest, type] : {std::tuple{"INFO-2", "top.sync2.q1", SyncType::TwoFF},
+                                  std::tuple{"INFO-3", "top.sync3.q1", SyncType::ThreeFF}}) {
+        CrossingReport crossing;
+        crossing.id = id;
+        crossing.category = ViolationCategory::Info;
+        crossing.source_signal = "top.async_data";
+        crossing.dest_signal = dest;
+        crossing.source_domain = result.clock_db.domains[0].get();
+        crossing.dest_domain = destDomain;
+        crossing.sync_type = type;
+        result.crossings.push_back(std::move(crossing));
+    }
+
+    ReportGenerator generator(result, true);
+    auto svaPath = fs::temp_directory_path() / "svlens_sync_assertions.sva";
+    REQUIRE(generator.generateSVA(svaPath));
+    std::ifstream svaFile(svaPath);
+    const std::string sva((std::istreambuf_iterator<char>(svaFile)), std::istreambuf_iterator<char>());
+    fs::remove(svaPath);
+    CHECK(sva.find("cdc_INFO_2_2ff: assert property") != std::string::npos);
+    CHECK(sva.find("@(posedge top.sync2.clk_i)") != std::string::npos);
+    CHECK(sva.find("top.sync2.q2 == $past(top.sync2.q1)") != std::string::npos);
+    CHECK(sva.find("cdc_INFO_3_3ff: assert property") != std::string::npos);
+    CHECK(sva.find("top.sync3.q3 == $past(top.sync3.q2)") != std::string::npos);
+
+    auto jsonPath = fs::temp_directory_path() / "svlens_sync_assertions.json";
+    generator.generateJSON(jsonPath);
+    std::ifstream jsonFile(jsonPath);
+    const std::string json((std::istreambuf_iterator<char>(jsonFile)), std::istreambuf_iterator<char>());
+    fs::remove(jsonPath);
+    CHECK(json.find("\"sva_assertion_id\": \"cdc_INFO_2_2ff\"") != std::string::npos);
+    CHECK(json.find("\"sva_assertion_id\": \"cdc_INFO_3_3ff\"") != std::string::npos);
+
+    first2->declared_path.clear();
+    const auto skippedPath = fs::temp_directory_path() / "svlens_sync_opaque_stage.sva";
+    REQUIRE(generator.generateSVA(skippedPath));
+    std::ifstream skippedFile(skippedPath);
+    const std::string skipped((std::istreambuf_iterator<char>(skippedFile)), std::istreambuf_iterator<char>());
+    fs::remove(skippedPath);
+    CHECK(skipped.find("cdc_INFO_2_2ff: assert property") == std::string::npos);
+    CHECK(skipped.find("cdc_INFO_3_3ff: assert property") != std::string::npos);
+}
+
+TEST_CASE("CDC ReportGenerator: verified prim_fifo_async pointer gets a linked Gray assertion",
+          "[cdc][report][sva][fifo]") {
+    auto result = makeCdcResult();
+    auto reset = std::make_unique<ResetSignal>();
+    reset->hier_path = "top.fifo.rst_wr_ni";
+    reset->is_async = true;
+    reset->polarity = ResetSignal::Polarity::ActiveLow;
+    auto* resetPtr = reset.get();
+    result.clock_db.resets.push_back(std::move(reset));
+    auto pointer = std::make_unique<FFNode>();
+    pointer->hier_path = "top.fifo.fifo_wptr_gray_q";
+    pointer->domain = result.clock_db.domains[0].get();
+    pointer->reset = resetPtr;
+    pointer->width = 3;
+    pointer->primitive_name = "prim_fifo_async";
+    auto* pointerPtr = pointer.get();
+    result.ff_nodes.push_back(std::move(pointer));
+
+    CrossingReport crossing;
+    crossing.id = "CAUTION-FIFO";
+    crossing.category = ViolationCategory::Caution;
+    crossing.source_signal = pointerPtr->hier_path;
+    crossing.dest_signal = "top.fifo.sync_wptr.q1";
+    crossing.source_domain = pointerPtr->domain;
+    crossing.dest_domain = result.clock_db.domains[1].get();
+    crossing.sync_type = SyncType::AsyncFIFO;
+    result.crossings.push_back(crossing);
+
+    ReportGenerator generator(result, true);
+    const auto svaPath = fs::temp_directory_path() / "svlens_fifo_gray_assertion.sva";
+    REQUIRE(generator.generateSVA(svaPath));
+    std::ifstream svaFile(svaPath);
+    const std::string sva((std::istreambuf_iterator<char>(svaFile)), std::istreambuf_iterator<char>());
+    fs::remove(svaPath);
+    CHECK(sva.find("cdc_CAUTION_FIFO_fifo_gray: assert property") != std::string::npos);
+    CHECK(sva.find("$countones(top.fifo.fifo_wptr_gray_q ^ $past(top.fifo.fifo_wptr_gray_q)) <= 1") !=
+          std::string::npos);
+    CHECK(sva.find("disable iff ((!top.fifo.rst_wr_ni) !== '0)") != std::string::npos);
+    CHECK(sva.find("@(posedge top.fifo.clk_wr_i)") != std::string::npos);
+    CHECK(slang::syntax::SyntaxTree::fromText(sva)->diagnostics().empty());
+
+    const auto jsonPath = fs::temp_directory_path() / "svlens_fifo_gray_assertion.json";
+    generator.generateJSON(jsonPath);
+    std::ifstream jsonFile(jsonPath);
+    const std::string json((std::istreambuf_iterator<char>(jsonFile)), std::istreambuf_iterator<char>());
+    fs::remove(jsonPath);
+    CHECK(json.find("\"sva_assertion_id\": \"cdc_CAUTION_FIFO_fifo_gray\"") != std::string::npos);
+
+    const auto skippedPath = fs::temp_directory_path() / "svlens_fifo_gray_skipped.sva";
+    auto emitsFifoGray = [&]() {
+        CHECK(generator.generateSVA(skippedPath));
+        std::ifstream skippedFile(skippedPath);
+        const std::string skipped((std::istreambuf_iterator<char>(skippedFile)), std::istreambuf_iterator<char>());
+        fs::remove(skippedPath);
+        return skipped.find("cdc_CAUTION_FIFO_fifo_gray: assert property") != std::string::npos;
+    };
+    pointerPtr->primitive_name = "unverified_fifo";
+    CHECK_FALSE(emitsFifoGray());
+    pointerPtr->primitive_name = "prim_fifo_async";
+    pointerPtr->width = 1;
+    CHECK_FALSE(emitsFifoGray());
+    pointerPtr->width = 3;
+    resetPtr->is_async = false;
+    CHECK_FALSE(emitsFifoGray());
+    resetPtr->is_async = true;
+    resetPtr->polarity = ResetSignal::Polarity::ActiveHigh;
+    CHECK_FALSE(emitsFifoGray());
+    resetPtr->polarity = ResetSignal::Polarity::ActiveLow;
+    result.crossings.back().dest_signal = "top.other.q1";
+    CHECK_FALSE(emitsFifoGray());
+    result.crossings.back().dest_signal = "top.fifo.sync_wptr.q1";
+    result.crossings.back().category = ViolationCategory::Violation;
+    CHECK_FALSE(emitsFifoGray());
+    result.crossings.back().category = ViolationCategory::Caution;
+    result.crossings.back().sync_type = SyncType::None;
+    CHECK_FALSE(emitsFifoGray());
+    result.crossings.back().sync_type = SyncType::AsyncFIFO;
+    pointerPtr->hier_path = "top.fifo.fifo_rptr_gray_q";
+    resetPtr->hier_path = "top.fifo.rst_rd_ni";
+    result.crossings.back().source_signal = pointerPtr->hier_path;
+    result.crossings.back().dest_signal = "top.fifo.sync_rptr.q1";
+    CHECK(emitsFifoGray());
+
+    result.crossings.back().dest_signal = "top.other.q1";
+    generator.generateJSON(jsonPath);
+    std::ifstream skippedJsonFile(jsonPath);
+    const std::string skippedJson((std::istreambuf_iterator<char>(skippedJsonFile)), std::istreambuf_iterator<char>());
+    fs::remove(jsonPath);
+    CHECK(skippedJson.find("cdc_CAUTION_FIFO_fifo_gray") == std::string::npos);
+}
+
+TEST_CASE("CDC ReportGenerator: FIFO Gray and 2FF stage assertions both link to one crossing",
+          "[cdc][report][sva][fifo][assert]") {
+    auto result = makeCdcResult();
+    auto reset = std::make_unique<ResetSignal>();
+    reset->hier_path = "top.fifo.rst_wr_ni";
+    reset->is_async = true;
+    auto* resetPtr = reset.get();
+    result.clock_db.resets.push_back(std::move(reset));
+    auto source = std::make_unique<FFNode>();
+    source->hier_path = "top.fifo.fifo_wptr_gray_q";
+    source->domain = result.clock_db.domains[0].get();
+    source->reset = resetPtr;
+    source->primitive_name = "prim_fifo_async";
+    source->width = 4;
+    result.ff_nodes.push_back(std::move(source));
+    auto first = std::make_unique<FFNode>();
+    first->hier_path = "top.fifo.sync_wptr.q1";
+    first->clock_path = "top.fifo.sync_wptr.clk_i";
+    first->declared_path = first->hier_path;
+    first->domain = result.clock_db.domains[1].get();
+    auto* firstPtr = first.get();
+    result.ff_nodes.push_back(std::move(first));
+    auto second = std::make_unique<FFNode>();
+    second->hier_path = "top.fifo.sync_wptr.q2";
+    second->declared_path = second->hier_path;
+    second->domain = firstPtr->domain;
+    auto* secondPtr = second.get();
+    result.ff_nodes.push_back(std::move(second));
+    result.edges.push_back({firstPtr, secondPtr, {}, SyncType::None, false});
+
+    CrossingReport crossing;
+    crossing.id = "INFO-FIFO";
+    crossing.category = ViolationCategory::Info;
+    crossing.source_signal = "top.fifo.fifo_wptr_gray_q";
+    crossing.dest_signal = firstPtr->hier_path;
+    crossing.source_domain = result.clock_db.domains[0].get();
+    crossing.dest_domain = firstPtr->domain;
+    crossing.sync_type = SyncType::TwoFF;
+    result.crossings.push_back(crossing);
+
+    ReportGenerator generator(result, true);
+    const auto svaPath = fs::temp_directory_path() / "svlens_fifo_two_assertions.sva";
+    REQUIRE(generator.generateSVA(svaPath));
+    std::ifstream svaFile(svaPath);
+    const std::string sva((std::istreambuf_iterator<char>(svaFile)), std::istreambuf_iterator<char>());
+    fs::remove(svaPath);
+    CHECK(sva.find("cdc_INFO_FIFO_2ff: assert property") != std::string::npos);
+    CHECK(sva.find("cdc_INFO_FIFO_fifo_gray: assert property") != std::string::npos);
+    CHECK(slang::syntax::SyntaxTree::fromText(sva)->diagnostics().empty());
+
+    const auto jsonPath = fs::temp_directory_path() / "svlens_fifo_two_assertions.json";
+    generator.generateJSON(jsonPath);
+    std::ifstream jsonFile(jsonPath);
+    const std::string json((std::istreambuf_iterator<char>(jsonFile)), std::istreambuf_iterator<char>());
+    fs::remove(jsonPath);
+    CHECK(json.find("\"sva_assertion_id\": \"cdc_INFO_FIFO_2ff\"") != std::string::npos);
+    CHECK(json.find("\"sva_assertion_ids\": [\"cdc_INFO_FIFO_2ff\", \"cdc_INFO_FIFO_fifo_gray\"]") !=
+          std::string::npos);
+}
+
+TEST_CASE("CDC ReportGenerator: verified prim_sync_reqack emits ACK-needs-REQ assertion",
+          "[cdc][report][sva][handshake]") {
+    auto result = makeCdcResult();
+    auto sourceReset = std::make_unique<ResetSignal>();
+    sourceReset->hier_path = "top.u_reqack.rst_src_ni";
+    sourceReset->is_async = true;
+    auto* sourceResetPtr = sourceReset.get();
+    result.clock_db.resets.push_back(std::move(sourceReset));
+    auto destReset = std::make_unique<ResetSignal>();
+    destReset->hier_path = "top.u_reqack.req_sync.u_sync_1.rst_ni";
+    destReset->is_async = true;
+    auto* destResetPtr = destReset.get();
+    result.clock_db.resets.push_back(std::move(destReset));
+    auto source = std::make_unique<FFNode>();
+    source->hier_path = "top.u_reqack.src_req_q";
+    source->domain = result.clock_db.domains[0].get();
+    source->reset = sourceResetPtr;
+    source->primitive_name = "prim_sync_reqack";
+    auto* sourcePtr = source.get();
+    result.ff_nodes.push_back(std::move(source));
+    auto dest = std::make_unique<FFNode>();
+    dest->hier_path = "top.u_reqack.req_sync.u_sync_1.q_o";
+    dest->domain = result.clock_db.domains[1].get();
+    dest->reset = destResetPtr;
+    auto* destPtr = dest.get();
+    result.ff_nodes.push_back(std::move(dest));
+    result.clock_db.directed_aliases["top.u_reqack.rst_dst_ni"] = {"top.u_reqack.req_sync.rst_ni"};
+    result.clock_db.directed_aliases["top.u_reqack.req_sync.rst_ni"] = {destResetPtr->hier_path};
+
+    CrossingReport crossing;
+    crossing.id = "INFO-HANDSHAKE";
+    crossing.category = ViolationCategory::Info;
+    crossing.source_signal = sourcePtr->hier_path;
+    crossing.dest_signal = destPtr->hier_path;
+    crossing.source_domain = sourcePtr->domain;
+    crossing.dest_domain = destPtr->domain;
+    crossing.sync_type = SyncType::Handshake;
+    result.crossings.push_back(crossing);
+
+    ReportGenerator generator(result, true);
+    const auto svaPath = fs::temp_directory_path() / "svlens_reqack_assertion.sva";
+    REQUIRE(generator.generateSVA(svaPath));
+    std::ifstream svaFile(svaPath);
+    const std::string sva((std::istreambuf_iterator<char>(svaFile)), std::istreambuf_iterator<char>());
+    fs::remove(svaPath);
+    CHECK(sva.find("cdc_INFO_HANDSHAKE_ack_requires_req: assert property") != std::string::npos);
+    CHECK(sva.find("top.u_reqack.dst_ack_i |-> top.u_reqack.dst_req_o") != std::string::npos);
+    CHECK(sva.find("disable iff ((!top.u_reqack.rst_dst_ni) !== '0)") != std::string::npos);
+    CHECK(sva.find("@(posedge top.u_reqack.clk_dst_i)") != std::string::npos);
+    CHECK(slang::syntax::SyntaxTree::fromText(sva)->diagnostics().empty());
+
+    const auto jsonPath = fs::temp_directory_path() / "svlens_reqack_assertion.json";
+    generator.generateJSON(jsonPath);
+    std::ifstream jsonFile(jsonPath);
+    const std::string json((std::istreambuf_iterator<char>(jsonFile)), std::istreambuf_iterator<char>());
+    fs::remove(jsonPath);
+    CHECK(json.find("\"sva_assertion_id\": \"cdc_INFO_HANDSHAKE_ack_requires_req\"") != std::string::npos);
+
+    const auto skippedPath = fs::temp_directory_path() / "svlens_reqack_skipped.sva";
+    auto emitsReqAck = [&]() {
+        CHECK(generator.generateSVA(skippedPath));
+        std::ifstream skippedFile(skippedPath);
+        const std::string skipped((std::istreambuf_iterator<char>(skippedFile)), std::istreambuf_iterator<char>());
+        fs::remove(skippedPath);
+        return skipped.find("cdc_INFO_HANDSHAKE_ack_requires_req: assert property") != std::string::npos;
+    };
+    sourcePtr->primitive_name = "unverified_reqack";
+    CHECK_FALSE(emitsReqAck());
+    sourcePtr->primitive_name = "prim_sync_reqack";
+    sourcePtr->width = 2;
+    CHECK_FALSE(emitsReqAck());
+    sourcePtr->width = 1;
+    sourceResetPtr->is_async = false;
+    CHECK_FALSE(emitsReqAck());
+    sourceResetPtr->is_async = true;
+    destResetPtr->is_async = false;
+    CHECK_FALSE(emitsReqAck());
+    destResetPtr->is_async = true;
+    result.crossings.back().category = ViolationCategory::Violation;
+    CHECK_FALSE(emitsReqAck());
+    result.crossings.back().category = ViolationCategory::Info;
+    sourcePtr->hier_path = "top.u_reqack.dst_ack_q";
+    result.crossings.back().source_signal = sourcePtr->hier_path;
+    CHECK_FALSE(emitsReqAck());
+    sourcePtr->hier_path = "top.u_reqack.src_req_q";
+    result.crossings.back().source_signal = sourcePtr->hier_path;
+    destPtr->hier_path = "top.u_reqack.other.q_o";
+    result.crossings.back().dest_signal = destPtr->hier_path;
+    CHECK_FALSE(emitsReqAck());
+    destPtr->hier_path = "top.u_reqack.req_sync.u_sync_1.q_o";
+    result.crossings.back().dest_signal = destPtr->hier_path;
+    result.clock_db.directed_aliases.clear();
+    CHECK_FALSE(emitsReqAck());
+    generator.generateJSON(jsonPath);
+    std::ifstream skippedJsonFile(jsonPath);
+    const std::string skippedJson((std::istreambuf_iterator<char>(skippedJsonFile)), std::istreambuf_iterator<char>());
+    fs::remove(jsonPath);
+    CHECK(skippedJson.find("cdc_INFO_HANDSHAKE_ack_requires_req") == std::string::npos);
+}
+
+TEST_CASE("CDC ReportGenerator: HTML embeds navigable crossing data safely", "[cdc][report][html]") {
+    auto result = makeCdcResult();
+    result.crossings[0].recommendation = "review </script> path";
+    ReportGenerator generator(result);
+    auto path = fs::temp_directory_path() / "svlens_cdc_report.html";
+    generator.generateHTML(path);
+
+    std::ifstream file(path);
+    REQUIRE(file.good());
+    const std::string html((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    fs::remove(path);
+
+    CHECK(html.find("id=\"crossing-list\"") != std::string::npos);
+    CHECK(html.find("id=\"module-filter\"") != std::string::npos);
+    CHECK(html.find("VIOLATION-001") != std::string::npos);
+    CHECK(html.find("review <\\/script> path") != std::string::npos);
+    CHECK(html.find("review </script> path") == std::string::npos);
+}
+
+TEST_CASE("CDC ReportGenerator: reset usage groups FF sinks by reset path", "[cdc][report][reset]") {
+    auto result = makeCdcResult();
+    auto reset = std::make_unique<ResetSignal>();
+    reset->hier_path = "top.rst_n";
+    reset->is_async = true;
+    reset->driver_ff_path = "top.reset_q";
+    reset->source_domain = "sys_clk";
+    reset->driver_inverted = true;
+    auto* resetPtr = reset.get();
+    result.clock_db.resets.push_back(std::move(reset));
+    for (size_t domain = 0; domain < 2; ++domain) {
+        auto ff = std::make_unique<FFNode>();
+        ff->hier_path = "top.q" + std::to_string(domain);
+        ff->domain = result.clock_db.domains[domain].get();
+        ff->reset = resetPtr;
+        result.ff_nodes.push_back(std::move(ff));
+    }
+    ReportGenerator generator(result);
+    auto path = fs::temp_directory_path() / "svlens_reset_usage.json";
+    generator.generateJSON(path);
+    std::ifstream file(path);
+    const std::string json((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    fs::remove(path);
+    CHECK(json.find("\"reset_usage\": [") != std::string::npos);
+    CHECK(json.find("\"signal\": \"top.rst_n\"") != std::string::npos);
+    CHECK(json.find("\"ff_count\": 2") != std::string::npos);
+    CHECK(json.find("\"driver_ff\": \"top.reset_q\"") != std::string::npos);
+    CHECK(json.find("\"driver_inverted\": true") != std::string::npos);
+    CHECK(json.find("\"source_domain\": \"sys_clk\"") != std::string::npos);
+    CHECK(json.find("\"dest_domains\": [\"ext_clk\", \"sys_clk\"]") != std::string::npos);
+}
+
+TEST_CASE("CDC ReportGenerator: conflicting mux-branch FF polarity stays ambiguous", "[cdc][report][reset][mux]") {
+    auto result = makeCdcResult();
+    auto reset = std::make_unique<ResetSignal>();
+    reset->hier_path = "top.rst_n";
+    reset->is_async = true;
+    auto* resetPtr = reset.get();
+    result.clock_db.resets.push_back(std::move(reset));
+
+    auto source = std::make_unique<FFNode>();
+    source->hier_path = "top.reset_q";
+    source->domain = result.clock_db.domains[0].get();
+    result.ff_nodes.push_back(std::move(source));
+    auto sink = std::make_unique<FFNode>();
+    sink->hier_path = "top.sink_q";
+    sink->domain = result.clock_db.domains[1].get();
+    sink->reset = resetPtr;
+    result.ff_nodes.push_back(std::move(sink));
+
+    result.clock_db.directed_aliases["top.reset_q"] = {"top.u_mux.clk0_i"};
+    result.clock_db.reset_inversions["top.reset_q"] = {"top.u_mux.clk0_i"};
+    result.clock_db.directed_aliases["top.u_mux.clk_o"] = {"top.rst_n"};
+    result.clock_db.reset_mux_inputs["top.u_mux.clk_o"] =
+        ResetMuxInputs{"top.u_mux.clk0_i", "top.u_mux.clk1_i", "top.u_mux.sel_i"};
+
+    const auto path = fs::temp_directory_path() / ("svlens_reset_mux_polarity_" + std::to_string(::getpid()) + ".json");
+    ReportGenerator(result).generateJSON(path);
+    std::ifstream file(path);
+    REQUIRE(file.good());
+    const std::string json((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    fs::remove(path);
+    const auto signalPos = json.find("\"signal\": \"top.rst_n\"");
+    REQUIRE(signalPos != std::string::npos);
+    const auto lineEnd = json.find('\n', signalPos);
+    const auto record = json.substr(signalPos, lineEnd - signalPos);
+    CHECK(record.find("\"input0_candidate_ffs\": [{\"path\": \"top.reset_q\", \"domain\": \"sys_clk\", "
+                      "\"inversion_ambiguous\": true}]") != std::string::npos);
+    CHECK(record.find("\"inverted\"") == std::string::npos);
+    CHECK(record.find("\"driver_ff\"") == std::string::npos);
+}
+
+TEST_CASE("CDC ReportGenerator: mixed reset provenance is not published as unique", "[cdc][report][reset]") {
+    auto result = makeCdcResult();
+    for (size_t i = 0; i < 2; ++i) {
+        auto reset = std::make_unique<ResetSignal>();
+        reset->hier_path = "top.rst_n";
+        reset->is_async = true;
+        if (i == 0) {
+            reset->driver_ff_path = "top.reset_q";
+            reset->source_domain = "sys_clk";
+        }
+        auto ff = std::make_unique<FFNode>();
+        ff->hier_path = "top.q" + std::to_string(i);
+        ff->domain = result.clock_db.domains[i].get();
+        ff->reset = reset.get();
+        result.clock_db.resets.push_back(std::move(reset));
+        result.ff_nodes.push_back(std::move(ff));
+    }
+    const auto path = fs::temp_directory_path() / "svlens_reset_mixed_provenance.json";
+    ReportGenerator(result).generateJSON(path);
+    std::ifstream file(path);
+    const std::string json((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    fs::remove(path);
+    CHECK(json.find("\"ff_count\": 2") != std::string::npos);
+    CHECK(json.find("\"driver_ff\"") == std::string::npos);
+}
+
+TEST_CASE("CDC ReportGenerator: conflicting reset inversion parity omits driver provenance", "[cdc][report][reset]") {
+    auto result = makeCdcResult();
+    for (size_t i = 0; i < 2; ++i) {
+        auto reset = std::make_unique<ResetSignal>();
+        reset->hier_path = "top.rst_n";
+        reset->is_async = true;
+        reset->driver_ff_path = "top.reset_q";
+        reset->source_domain = "sys_clk";
+        reset->driver_inverted = i == 0;
+        auto ff = std::make_unique<FFNode>();
+        ff->hier_path = "top.q" + std::to_string(i);
+        ff->domain = result.clock_db.domains[i].get();
+        ff->reset = reset.get();
+        result.clock_db.resets.push_back(std::move(reset));
+        result.ff_nodes.push_back(std::move(ff));
+    }
+    const auto path = fs::temp_directory_path() / "svlens_reset_mixed_inversion.json";
+    ReportGenerator(result).generateJSON(path);
+    std::ifstream file(path);
+    const std::string json((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    fs::remove(path);
+    CHECK(json.find("\"ff_count\": 2") != std::string::npos);
+    CHECK(json.find("\"driver_ff\"") == std::string::npos);
+    CHECK(json.find("\"driver_inverted\"") == std::string::npos);
 }

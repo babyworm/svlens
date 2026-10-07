@@ -77,7 +77,7 @@ TEST_CASE("CDC ClockDatabase: isAsynchronous honors explicit relationships", "[c
     CHECK_FALSE(db.isAsynchronous(sysDom, extDom));
 }
 
-TEST_CASE("isAsynchronous: PhysicallyExclusive clocks are NOT async (never coexist per SDC)", "[cdc][clock_db]") {
+TEST_CASE("isAsynchronous: declared physically exclusive clocks are not inferred async", "[cdc][clock_db]") {
     ClockDatabase db;
     auto s1 = std::make_unique<ClockSource>();
     s1->id = "mux_clk_a"; s1->name = "mux_clk_a";
@@ -96,7 +96,7 @@ TEST_CASE("isAsynchronous: PhysicallyExclusive clocks are NOT async (never coexi
     CHECK_FALSE(db.isAsynchronous(d1, d2));
 }
 
-TEST_CASE("isAsynchronous: LogicallyExclusive clocks are NOT async (never coexist per SDC)", "[cdc][clock_db]") {
+TEST_CASE("isAsynchronous: declared logically exclusive clocks are not inferred async", "[cdc][clock_db]") {
     ClockDatabase db;
     auto s1 = std::make_unique<ClockSource>();
     s1->id = "le_a"; s1->name = "le_a";

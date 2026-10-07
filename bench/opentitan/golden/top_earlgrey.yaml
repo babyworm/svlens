@@ -24,24 +24,271 @@ clock_domains:
     master: clk_io_i
     divide_by: 4
 
-known_crossings:
+domain_pair_probes:
   - from_domain: clk_main_i
     to_domain: clk_io_i
-    description: "Main-to-IO crossings"
+    description: "Potential Main-to-IO domain pair"
   - from_domain: clk_io_i
     to_domain: clk_main_i
-    description: "IO-to-Main crossings"
+    description: "Potential IO-to-Main domain pair"
   - from_domain: clk_main_i
     to_domain: clk_usb_i
-    description: "Main-to-USB crossings"
+    description: "Potential Main-to-USB domain pair; signal path unverified"
   - from_domain: clk_usb_i
     to_domain: clk_main_i
-    description: "USB-to-Main crossings"
+    description: "Potential USB-to-Main domain pair; signal path unverified"
   - from_domain: clk_aon_i
     to_domain: clk_main_i
-    description: "AON-to-Main crossings"
+    description: "Potential AON-to-Main domain pair; signal path unverified"
   - from_domain: clk_main_i
     to_domain: clk_aon_i
-    description: "Main-to-AON crossings"
+    description: "Potential Main-to-AON domain pair; signal path unverified"
+
+# FIFO references verify prim_fifo_async.sv pointer FFs and sync_wptr/sync_rptr
+# wiring; the power-manager reference checks a bundled-data path, not protocol
+# correctness. Root labels use top_earlgrey.sv clock-port connections.
+reference_crossings:
+  - source: top_earlgrey.u_xbar_main.u_asf_29.reqfifo.fifo_wptr_gray_q
+    dest: top_earlgrey.u_xbar_main.u_asf_29.reqfifo.sync_wptr.u_sync_1.q_o
+    source_root_domain: clk_main_i
+    dest_root_domain: clk_io_i
+    evidence: xbar_main.sv:811, tlul_fifo_async.sv:28, prim_fifo_async.sv:65-79
+  - source: top_earlgrey.u_xbar_main.u_asf_29.rspfifo.fifo_wptr_gray_q
+    dest: top_earlgrey.u_xbar_main.u_asf_29.rspfifo.sync_wptr.u_sync_1.q_o
+    source_root_domain: clk_io_i
+    dest_root_domain: clk_main_i
+    evidence: xbar_main.sv:811, tlul_fifo_async.sv:61, prim_fifo_async.sv:65-79
+  - source: top_earlgrey.u_usbdev.usbdev_avfifo.fifo_wptr_gray_q
+    dest: top_earlgrey.u_usbdev.usbdev_avfifo.sync_wptr.u_sync_1.q_o
+    source_root_domain: clk_io_i
+    dest_root_domain: clk_usb_i
+    evidence: usbdev.sv:195-213, prim_fifo_async.sv:65-79
+  - source: top_earlgrey.u_usbdev.usbdev_avfifo.fifo_rptr_gray_q
+    dest: top_earlgrey.u_usbdev.usbdev_avfifo.sync_rptr.u_sync_1.q_o
+    source_root_domain: clk_usb_i
+    dest_root_domain: clk_io_i
+    evidence: usbdev.sv:195-213, prim_fifo_async.sv:90-112
+  - source: top_earlgrey.u_pwrmgr_aon.i_slow_fsm.cause_q
+    dest: top_earlgrey.u_pwrmgr_aon.i_cdc.pwrup_cause_o
+    source_root_domain: clk_aon_i
+    dest_root_domain: clk_io_i
+    category: VIOLATION
+    evidence: pwrmgr_slow_fsm.sv:69-85,224; pwrmgr.sv:189,217,295; pwrmgr_cdc.sv:201-230; top_earlgrey.sv:1747-1751
+    description: "Bundled-data path gated by a synchronized cause toggle; path and roots checked, stability not proven"
+
+sva_references:
+  - source: top_earlgrey.u_usbdev.usbdev_avfifo.fifo_wptr_gray_q
+    dest: top_earlgrey.u_usbdev.usbdev_avfifo.sync_wptr.u_sync_1.q_o
+    assertion_suffix: _2ff
+    contains:
+      - "$past(top_earlgrey.u_usbdev.usbdev_avfifo.sync_wptr.u_sync_1.q_o)"
+      - "@(posedge top_earlgrey.u_usbdev.usbdev_avfifo.sync_wptr.u_sync_1.clk_i)"
+    evidence: usbdev.sv:195-213, prim_fifo_async.sv:65-79
+  - source: top_earlgrey.u_usbdev.usbdev_avfifo.fifo_wptr_gray_q
+    dest: top_earlgrey.u_usbdev.usbdev_avfifo.sync_wptr.u_sync_1.q_o
+    assertion_suffix: _fifo_gray
+    contains:
+      - "$countones(top_earlgrey.u_usbdev.usbdev_avfifo.fifo_wptr_gray_q ^"
+      - "@(posedge top_earlgrey.u_usbdev.usbdev_avfifo.clk_wr_i)"
+    evidence: prim_fifo_async.sv:280-284
+  - source: top_earlgrey.u_spi_host0.u_cmd_cdc.u_sync_reqack.u_prim_sync_reqack.src_req_q
+    dest: top_earlgrey.u_spi_host0.u_cmd_cdc.u_sync_reqack.u_prim_sync_reqack.req_sync.u_sync_1.q_o
+    assertion_suffix: _ack_requires_req
+    contains:
+      - "dst_ack_i |-> top_earlgrey.u_spi_host0.u_cmd_cdc.u_sync_reqack.u_prim_sync_reqack.dst_req_o"
+    evidence: spi_host_command_cdc.sv:69-84, prim_sync_reqack.sv
+  - source: top_earlgrey.u_spi_host0.u_cmd_cdc.u_sync_reqack.src_req_i
+    dest: top_earlgrey.u_spi_host0.u_cmd_cdc.u_sync_reqack.dst_req_o
+    assertion_suffix: _data_hold_src2dst
+    contains:
+      - "!$stable(top_earlgrey.u_spi_host0.u_cmd_cdc.u_sync_reqack.data_i)"
+      - "@(posedge top_earlgrey.u_spi_host0.u_cmd_cdc.u_sync_reqack.clk_src_i)"
+    evidence: spi_host_command_cdc.sv:69-84, prim_sync_reqack_data.sv:89-94
+
+period_references:
+  - source: top_earlgrey.u_pwrmgr_aon.i_slow_fsm.cause_q
+    dest: top_earlgrey.u_pwrmgr_aon.i_cdc.pwrup_cause_o
+    timing_basis_ns: 4750
+    source_root_domain: AON_CLK
+    dest_root_domain: IO_CLK
+    category: VIOLATION
+
+clock_period_references:
+  - source: MAIN_CLK
+    period_ns: 8.5
+  - source: IO_CLK
+    period_ns: 9.8952
+  - source: USB_CLK
+    period_ns: 19.76
+  - source: AON_CLK
+    period_ns: 4750
+
+guidance_references:
+  - source: top_earlgrey.u_spi_device.u_passthrough.csb_deassert
+    dest: top_earlgrey.u_spi_device.u_passthrough.csb_deassert_outclk
+    category: VIOLATION
+    contains: ["Review the clock relationship", "pulse/toggle"]
+    excludes: ["Insert 2-FF synchronizer"]
+  - source: top_earlgrey.u_spi_device.u_passthrough.addrcnt
+    dest: top_earlgrey.u_spi_device.u_passthrough.addrcnt_outclk
+    category: VIOLATION
+    contains: ["coherent multi-bit CDC scheme"]
+    excludes: ["Insert 2-FF synchronizer"]
+  - source: top_earlgrey.u_pwrmgr_aon.i_slow_fsm.cause_q
+    dest: top_earlgrey.u_pwrmgr_aon.i_cdc.pwrup_cause_o
+    category: VIOLATION
+    contains: ["coherent multi-bit CDC scheme", "Ac_cdc08"]
+    excludes: ["Insert 2-FF synchronizer"]
+
+reset_unresolved_references:
+  - signal: top_earlgrey.u_hmac.rst_ni
+    dest_domain: clkmgr_aon_clocks.clk_main_hmac
+    conditional_mux:
+      output: top_earlgrey.u_rstmgr_aon.u_0_sys_mux.clk_o
+      input0: top_earlgrey.u_rstmgr_aon.u_0_sys_mux.clk0_i
+      input1: top_earlgrey.u_rstmgr_aon.u_0_sys_mux.clk1_i
+      select: top_earlgrey.u_rstmgr_aon.u_0_sys_mux.sel_i
+      input0_source: top_earlgrey.u_rstmgr_aon.rst_sys_n[1]
+      input1_source: top_earlgrey.u_rstmgr_aon.scan_rst_ni
+      select_dependencies:
+        - top_earlgrey.u_rstmgr_aon.leaf_rst_scanmode[7]
+      input0_candidate_ffs:
+        - path: top_earlgrey.u_rstmgr_aon.u_0_sys.u_sync_2.q_o
+          domain: clk_main_i
+          inverted: false
+    conditional_mux_absent_fields: [select_source, selected_input, input1_candidate_ffs]
+    conditional_mux_count: 1
+    evidence: >-
+      top_earlgrey.sv:2166-2168 connects rst_sys_n[Domain0Sel] to HMAC;
+      rstmgr.sv:390-414 selects prim_flop_2sync output or scan_rst_ni
+      through prim_clock_mux2. No unique unconditional FF driver is proven.
+
+# EDN response is a packed [6:0] array of 34-bit edn_rsp_t values. These
+# selected lanes are verified against top_earlgrey.sv and edn_pkg.sv:20-24.
+# Lane 2 goes to the top AST output and is not a child-port connection here.
+known_connections:
+  # The same generated AES seed split is checked at the full-SoC hierarchy.
+  - source: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.u_prim_packer_fifo.rdata_o[159:0]
+    dest: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.gen_chunks[0].u_lfsr_chunk.seed_i[31:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 0, high: 31}
+    dest_bits: {low: 0, high: 31}
+    evidence: aes_prng_masking.sv:76-83,117-128
+  - source: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.u_prim_packer_fifo.rdata_o[159:0]
+    dest: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.gen_chunks[1].u_lfsr_chunk.seed_i[31:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 32, high: 63}
+    dest_bits: {low: 0, high: 31}
+    evidence: aes_prng_masking.sv:76-83,117-128
+  - source: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.u_prim_packer_fifo.rdata_o[159:0]
+    dest: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.gen_chunks[2].u_lfsr_chunk.seed_i[31:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 64, high: 95}
+    dest_bits: {low: 0, high: 31}
+    evidence: aes_prng_masking.sv:76-83,117-128
+  - source: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.u_prim_packer_fifo.rdata_o[159:0]
+    dest: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.gen_chunks[3].u_lfsr_chunk.seed_i[31:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 96, high: 127}
+    dest_bits: {low: 0, high: 31}
+    evidence: aes_prng_masking.sv:76-83,117-128
+  - source: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.u_prim_packer_fifo.rdata_o[159:0]
+    dest: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.gen_chunks[4].u_lfsr_chunk.seed_i[31:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 128, high: 159}
+    dest_bits: {low: 0, high: 31}
+    evidence: aes_prng_masking.sv:76-83,117-128
+  - source: top_earlgrey.u_edn0.edn_o[237:0]
+    dest: top_earlgrey.u_keymgr.edn_i[33:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 0, high: 33}
+    dest_bits: {low: 0, high: 33}
+    evidence: top_earlgrey.sv:2227-2228,2332-2333
+  - source: top_earlgrey.u_edn0.edn_o[237:0]
+    dest: top_earlgrey.u_otp_ctrl.edn_i[33:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 34, high: 67}
+    dest_bits: {low: 0, high: 33}
+    evidence: top_earlgrey.sv:1597-1598,2332-2333
+  - source: top_earlgrey.u_edn0.edn_o[237:0]
+    dest: top_earlgrey.u_kmac.entropy_i[33:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 102, high: 135}
+    dest_bits: {low: 0, high: 33}
+    evidence: top_earlgrey.sv:2189-2190,2332-2333
+  - source: top_earlgrey.u_edn0.edn_o[237:0]
+    dest: top_earlgrey.u_alert_handler.edn_i[33:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 136, high: 169}
+    dest_bits: {low: 0, high: 33}
+    evidence: top_earlgrey.sv:1701-1702,2332-2333
+  - source: top_earlgrey.u_edn0.edn_o[237:0]
+    dest: top_earlgrey.u_aes.edn_i[33:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 170, high: 203}
+    dest_bits: {low: 0, high: 33}
+    evidence: top_earlgrey.sv:2137-2138,2332-2333
+  - source: top_earlgrey.u_edn0.edn_o[237:0]
+    dest: top_earlgrey.u_otbn.edn_urnd_i[33:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 204, high: 237}
+    dest_bits: {low: 0, high: 33}
+    evidence: top_earlgrey.sv:2417-2419,2332-2333
+  - source: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.u_aes_sub_bytes.data_o[127:0]
+    dest: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_shares_shift_mix[0].u_aes_shift_rows.data_i[127:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 0, high: 127}
+    dest_bits: {low: 0, high: 127}
+    evidence: aes_cipher_core.sv:352-379, aes_sub_bytes.sv:20, aes_shift_rows.sv:9
+  - source: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.u_aes_sub_bytes.mask_o[127:0]
+    dest: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_shares_shift_mix[1].u_aes_shift_rows.data_i[127:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 0, high: 127}
+    dest_bits: {low: 0, high: 127}
+    evidence: aes_cipher_core.sv:352-379, aes_sub_bytes.sv:21, aes_shift_rows.sv:9
+  - source: top_earlgrey.u_otp_ctrl.u_otp.valid_o
+    dest: top_earlgrey.u_otp_ctrl.gen_partitions[0].gen_unbuffered.u_part_unbuf.otp_rvalid_i
+    kind: approximate
+    evidence: otp_ctrl.sv:673,702-704,986
+  - source: top_earlgrey.u_otp_ctrl.u_otp_rsp_fifo.rvalid_o
+    dest: top_earlgrey.u_otp_ctrl.gen_partitions[0].gen_unbuffered.u_part_unbuf.otp_rvalid_i
+    kind: approximate
+    evidence: otp_ctrl.sv:694,702-704,986
+  - source: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.u_aes_cipher_control.gen_sel_buf_chk[4].u_aes_sp2v_sig_buf_chk_i.sel_o[2:0]
+    dest: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.u_aes_cipher_control.u_crypt_regs.d_i[2:0]
+    kind: approximate
+    evidence: aes_cipher_control.sv:161,190,543-546,575-597
+
+# The evaluator also requires both endpoints to occur individually in report
+# rows, so an absent pair cannot pass merely because a port was never seen.
+forbidden_connections:
+  - source: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.u_aes_sub_bytes.data_o[127:0]
+    dest: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_shares_shift_mix[1].u_aes_shift_rows.data_i[127:0]
+    evidence: aes_cipher_core.sv:366-379
+  - source: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.u_aes_sub_bytes.mask_o[127:0]
+    dest: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_shares_shift_mix[0].u_aes_shift_rows.data_i[127:0]
+    evidence: aes_cipher_core.sv:366-379
+  - source: top_earlgrey.u_edn1.edn_o[237:0]
+    dest: top_earlgrey.u_aes.edn_i[33:0]
+    evidence: top_earlgrey.sv:2137-2138,2332-2333,2356-2357
+  - source: top_earlgrey.u_edn0.edn_o[237:0]
+    dest: top_earlgrey.u_otbn.edn_rnd_i[33:0]
+    evidence: top_earlgrey.sv:2332-2333,2356-2357,2416-2419
+  - source: top_earlgrey.u_otp_ctrl.u_otp_rsp_fifo.rvalid_o
+    dest: top_earlgrey.u_otp_ctrl.u_otp_rsp_fifo.rready_i
+    evidence: otp_ctrl.sv:673,694-695
 
 known_clean: []

@@ -41,6 +41,9 @@ void TableReportGenerator::generate(const ReportData& data, std::ostream& out) c
         data.warnCount(),
         data.infoCount(),
         static_cast<int>(data.waived.size()));
+    if (data.graph.bitFlowGapCount > 0)
+        out << fmt::format("Bit-flow gaps: {} (exact bit mapping incomplete; use --format json for examples)\n\n",
+                           data.graph.bitFlowGapCount);
 
     if (data.active.empty()) {
         out << "No issues found.\n";

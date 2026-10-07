@@ -1,0 +1,5 @@
+create_clock -name clk_a -period 10 [get_ports clk_a_i]
+create_clock -name clk_b -period 12 [get_ports clk_b_i]
+create_generated_clock -name div4 -source [get_clocks div2] -divide_by 2 [get_pins u_div4/clk_o]
+create_generated_clock -name div2 -source [get_clocks clk_a] -divide_by 2 [get_pins u_div2/clk_o]
+set_clock_groups -asynchronous -group [get_clocks -include_generated_clocks clk_a] -group [get_clocks clk_b]

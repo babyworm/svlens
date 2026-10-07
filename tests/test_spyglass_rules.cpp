@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include "test_helpers.h"
 #include "sv-cdccheck/clock_tree.h"
 #include "sv-cdccheck/ff_classifier.h"
 #include "sv-cdccheck/connectivity.h"
@@ -10,6 +11,7 @@
 
 #include <fstream>
 #include <filesystem>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 using namespace sv_cdccheck;
@@ -17,24 +19,8 @@ using Catch::Matchers::ContainsSubstring;
 
 namespace {
 
-std::unique_ptr<slang::ast::Compilation> compileSpyglassSV(const std::string& sv_code) {
-    static int counter = 0;
-    auto path = fs::temp_directory_path() /
-        ("test_spyglass_" + std::to_string(counter++) + ".sv");
-    std::ofstream(path) << sv_code;
-
-    std::string path_str = path.string();
-    slang::driver::Driver driver;
-    driver.addStandardArgs();
-    const char* args[] = {"test", path_str.c_str()};
-    (void)driver.parseCommandLine(2, const_cast<char**>(args));
-    (void)driver.processOptions();
-    (void)driver.parseAllSources();
-
-    auto compilation = driver.createCompilation();
-    compilation->getRoot();
-    compilation->getAllDiagnostics();
-    return compilation;
+auto compileSpyglassSV(const std::string& sv_code) {
+    return sv_cdccheck::test::compileSV(sv_code, "test_spyglass");
 }
 
 struct SpyglassPipeline {
@@ -85,11 +71,94 @@ TEST_CASE("SpyGlass Ac_cdc09: clock signal used as data input", "[spyglass][cdc0
         if (c.rule == "Ac_cdc09") {
             found_cdc09 = true;
             CHECK(c.category == ViolationCategory::Caution);
+            CHECK(c.source_signal == "clk_as_data.clk_a");
             CHECK_THAT(c.recommendation, ContainsSubstring("Ac_cdc09"));
             CHECK_THAT(c.recommendation, ContainsSubstring("Clock signal used as data"));
         }
     }
     CHECK(found_cdc09);
+}
+
+TEST_CASE("SpyGlass Ac_cdc09: a sibling clock port must not taint a data port with the same name",
+          "[spyglass][cdc09]") {
+    auto compilation = compileSpyglassSV(R"(
+        module clock_consumer(input logic d_i, payload_i, output logic q_o);
+            always_ff @(posedge d_i) q_o <= payload_i;
+        endmodule
+        module data_consumer(input logic clk_i, d_i, output logic q_o);
+            always_ff @(posedge clk_i) q_o <= d_i;
+        endmodule
+        module clock_data_scope(input logic clk_i, other_clk, payload_i,
+                                output logic q_clock, q_data);
+            clock_consumer u_clock(.d_i(other_clk), .payload_i(payload_i),
+                                   .q_o(q_clock));
+            data_consumer u_data(.clk_i(clk_i), .d_i(payload_i), .q_o(q_data));
+        endmodule
+    )");
+    SpyglassPipeline pipeline;
+    pipeline.run(*compilation);
+    for (const auto& crossing : pipeline.crossings)
+        CHECK_FALSE((crossing.rule == "Ac_cdc09" && crossing.dest_signal == "clock_data_scope.u_data.q_o"));
+}
+
+TEST_CASE("SpyGlass Ac_cdc09: propagated child clock used as data is still reported", "[spyglass][cdc09]") {
+    auto compilation = compileSpyglassSV(R"(
+        module clock_data_child(input logic clk_a, clk_b, output logic q_o);
+            always_ff @(posedge clk_b) q_o <= clk_a;
+        endmodule
+        module nested_clock_as_data(input logic clk_a, clk_b, output logic q_o);
+            clock_data_child u_child(.clk_a(clk_a), .clk_b(clk_b), .q_o(q_o));
+        endmodule
+    )");
+    SpyglassPipeline pipeline;
+    pipeline.run(*compilation);
+    bool found = false;
+    for (const auto& crossing : pipeline.crossings) {
+        if (crossing.rule == "Ac_cdc09" && crossing.dest_signal == "nested_clock_as_data.u_child.q_o") {
+            found = true;
+            CHECK(crossing.source_signal == "nested_clock_as_data.u_child.clk_a");
+        }
+    }
+    CHECK(found);
+}
+
+TEST_CASE("SpyGlass Ac_cdc09: clock connected to a differently named data port", "[spyglass][cdc09]") {
+    auto compilation = compileSpyglassSV(R"(
+        module renamed_clock_data_child(input logic sample_clk, data_i, output logic q_o);
+            always_ff @(posedge sample_clk) q_o <= data_i;
+        endmodule
+        module renamed_clock_data_top(input logic clk_a, clk_b, output logic q_o);
+            renamed_clock_data_child u_child(.sample_clk(clk_b), .data_i(clk_a), .q_o(q_o));
+        endmodule
+    )");
+    SpyglassPipeline pipeline;
+    pipeline.run(*compilation);
+    bool found = false;
+    for (const auto& crossing : pipeline.crossings)
+        found |= crossing.rule == "Ac_cdc09" && crossing.source_signal == "renamed_clock_data_top.u_child.data_i" &&
+                 crossing.dest_signal == "renamed_clock_data_top.u_child.q_o";
+    CHECK(found);
+}
+
+TEST_CASE("SpyGlass Ac_cdc09: a data port shadows a parent clock name", "[spyglass][cdc09]") {
+    auto compilation = compileSpyglassSV(R"(
+        module shadow_child(input logic clk_b, clk_a, output logic q_o);
+            always_ff @(posedge clk_b) q_o <= clk_a;
+        endmodule
+        module shadow_middle(input logic clk_a, clk_b, payload_i,
+                             output logic q_o);
+            shadow_child u_child(.clk_b(clk_b), .clk_a(payload_i), .q_o(q_o));
+        endmodule
+        module shadow_top(input logic clk_a, clk_b, payload_i,
+                          output logic q_o);
+            shadow_middle u_mid(.clk_a(clk_a), .clk_b(clk_b),
+                                .payload_i(payload_i), .q_o(q_o));
+        endmodule
+    )");
+    SpyglassPipeline pipeline;
+    pipeline.run(*compilation);
+    for (const auto& crossing : pipeline.crossings)
+        CHECK_FALSE((crossing.rule == "Ac_cdc09" && crossing.dest_signal == "shadow_top.u_mid.u_child.q_o"));
 }
 
 // ─── Test 2: Data-as-clock detection [Ac_cdc10] ───

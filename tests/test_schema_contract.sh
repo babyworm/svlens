@@ -23,6 +23,8 @@ METRICS_EXIT=$?
 METRICS_UNSUP_EXIT=$?
 set -e
 
+"$SVLENS_BINARY" conn tests/sv/bit_flow_gaps.sv --top bit_flow_gaps_top --format json -o "$OUTDIR/conn_gaps"
+
 if [ "$CONN_EXIT" -eq 0 ]; then
   echo "FAIL: expected conn canary to report at least one issue" >&2
   exit 1
@@ -54,11 +56,12 @@ import sys
 outdir = pathlib.Path(sys.argv[1])
 
 conn = json.loads((outdir / 'conn' / 'connect_report.json').read_text())
+conn_gaps = json.loads((outdir / 'conn_gaps' / 'connect_report.json').read_text())
 cdc = json.loads((outdir / 'cdc' / 'cdc_report.json').read_text())
 both = json.loads((outdir / 'both' / 'svlens_summary.json').read_text())
 
-conn_top = {'version', 'top', 'summary', 'issues', 'analysis', 'connections'}
-conn_summary = {'connections_analyzed', 'errors', 'warnings', 'info', 'waived'}
+conn_top = {'version', 'top', 'summary', 'issues', 'analysis', 'connections', 'bit_flow_gaps'}
+conn_summary = {'connections_analyzed', 'errors', 'warnings', 'info', 'waived', 'bit_flow_gap_count'}
 conn_analysis = {'overall_score', 'total_ports', 'total_connections', 'total_issues', 'module_health', 'coupling', 'risks'}
 conn_issue = {'type', 'severity', 'port', 'detail'}
 conn_connection = {'source', 'dest', 'status'}
@@ -82,6 +85,10 @@ if conn['connections']:
     assert conn_connection.issubset(conn['connections'][0].keys()), conn['connections'][0].keys()
 assert conn['top'] == 'dangling_top', conn['top']
 assert conn['summary']['warnings'] >= 1 or conn['summary']['errors'] >= 1, conn['summary']
+assert conn_gaps['summary']['bit_flow_gap_count'] == 8, conn_gaps['summary']
+assert conn_gaps['summary']['bit_flow_gap_reasons'] == {'width_limit': 1, 'unresolved_source_range': 7}
+assert [g['reason'] for g in conn_gaps['bit_flow_gaps']] == ['width_limit'] + ['unresolved_source_range'] * 4
+assert all(g['file'].endswith('bit_flow_gaps.sv') and g['line'] > 0 for g in conn_gaps['bit_flow_gaps'])
 
 assert cdc_top.issubset(cdc.keys()), cdc.keys()
 assert cdc_summary.issubset(cdc['summary'].keys()), cdc['summary'].keys()

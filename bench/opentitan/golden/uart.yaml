@@ -3,6 +3,6 @@ clock_domains:
   - name: clk_i
     type: primary
 
-known_crossings: []
+domain_pair_probes: []
 known_clean:
   - description: "Single clock domain design"

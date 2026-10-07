@@ -82,6 +82,34 @@ during configure. Missing dependencies are reported as actionable configuration 
 
 ---
 
+## AddressSanitizer validation
+
+Use a separate slang v10 prefix with mimalloc disabled. The normal installed
+slang can remain untouched; `setup-deps.sh` refuses `--no-mimalloc` if an
+existing prefix exports `SLANG_USE_MIMALLOC`.
+
+```bash
+SVLENS_ASAN_PREFIX="$(mktemp -d)"
+./scripts/setup-deps.sh --prefix "$SVLENS_ASAN_PREFIX" --no-mimalloc
+cmake -B build-asan-nomimalloc \
+  -DCMAKE_PREFIX_PATH="$SVLENS_ASAN_PREFIX" \
+  -Dslang_DIR="$SVLENS_ASAN_PREFIX/lib/cmake/slang" \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer" \
+  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"
+cmake --build build-asan-nomimalloc -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
+ctest --test-dir build-asan-nomimalloc --output-on-failure
+```
+
+Keep the prefix until testing is finished; use a persistent location if the
+build directory will be reused across sessions. CMake caches `slang_DIR`, so
+set it explicitly when changing prefixes. An ASan-instrumented svlens linked
+against the default mimalloc-enabled prebuilt slang may crash inside mimalloc
+before it can provide a meaningful memory-safety result; CMake rejects that
+combination. The CI ASan job uses the separate no-mimalloc prefix.
+
+---
+
 ## 4. Installed binary smoke check
 
 After installation:

@@ -6,7 +6,7 @@ clock_domains:
     type: primary
     async_to: [clk_i]
 
-known_crossings:
+domain_pair_probes:
   - from_domain: clk_i
     to_domain: clk_edn_i
     description: "AES-EDN clock domain crossing"
@@ -15,3 +15,77 @@ known_crossings:
     description: "EDN response to AES core"
 
 known_clean: []
+
+sva_references:
+  - source: aes.u_prim_sync_reqack_data.dst_ack_i
+    dest: aes.u_prim_sync_reqack_data.src_ack_o
+    assertion_suffix: _data_hold_dst2src
+    contains:
+      - "$past(aes.u_prim_sync_reqack_data.data_o, 2)"
+      - "@(posedge aes.u_prim_sync_reqack_data.clk_src_i)"
+    evidence: aes.sv:107-111, prim_sync_reqack_data.sv:99-106
+
+# aes_cipher_core.sv:352-379 assigns the SubBytes data/mask outputs to
+# separate unpacked share elements before the two ShiftRows instances.
+known_connections:
+  # aes_prng_masking.sv:76-83,117-128 splits the 160-bit FIFO seed into
+  # five 32-bit generated LFSR inputs; each lane must be exclusive.
+  - source: aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.u_prim_packer_fifo.rdata_o[159:0]
+    dest: aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.gen_chunks[0].u_lfsr_chunk.seed_i[31:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 0, high: 31}
+    dest_bits: {low: 0, high: 31}
+    evidence: aes_prng_masking.sv:76-83,117-128
+  - source: aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.u_prim_packer_fifo.rdata_o[159:0]
+    dest: aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.gen_chunks[1].u_lfsr_chunk.seed_i[31:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 32, high: 63}
+    dest_bits: {low: 0, high: 31}
+    evidence: aes_prng_masking.sv:76-83,117-128
+  - source: aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.u_prim_packer_fifo.rdata_o[159:0]
+    dest: aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.gen_chunks[2].u_lfsr_chunk.seed_i[31:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 64, high: 95}
+    dest_bits: {low: 0, high: 31}
+    evidence: aes_prng_masking.sv:76-83,117-128
+  - source: aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.u_prim_packer_fifo.rdata_o[159:0]
+    dest: aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.gen_chunks[3].u_lfsr_chunk.seed_i[31:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 96, high: 127}
+    dest_bits: {low: 0, high: 31}
+    evidence: aes_prng_masking.sv:76-83,117-128
+  - source: aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.u_prim_packer_fifo.rdata_o[159:0]
+    dest: aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.gen_chunks[4].u_lfsr_chunk.seed_i[31:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 128, high: 159}
+    dest_bits: {low: 0, high: 31}
+    evidence: aes_prng_masking.sv:76-83,117-128
+  - source: aes.u_aes_core.u_aes_cipher_core.u_aes_sub_bytes.data_o[127:0]
+    dest: aes.u_aes_core.u_aes_cipher_core.gen_shares_shift_mix[0].u_aes_shift_rows.data_i[127:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 0, high: 127}
+    dest_bits: {low: 0, high: 127}
+    evidence: aes_cipher_core.sv:352-379, aes_sub_bytes.sv:20, aes_shift_rows.sv:9
+  - source: aes.u_aes_core.u_aes_cipher_core.u_aes_sub_bytes.mask_o[127:0]
+    dest: aes.u_aes_core.u_aes_cipher_core.gen_shares_shift_mix[1].u_aes_shift_rows.data_i[127:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 0, high: 127}
+    dest_bits: {low: 0, high: 127}
+    evidence: aes_cipher_core.sv:352-379, aes_sub_bytes.sv:21, aes_shift_rows.sv:9
+
+# Both endpoints of each probe occur elsewhere in the report. The pinned RTL
+# assigns data to share 0 and mask to share 1, never the opposite pairing.
+forbidden_connections:
+  - source: aes.u_aes_core.u_aes_cipher_core.u_aes_sub_bytes.data_o[127:0]
+    dest: aes.u_aes_core.u_aes_cipher_core.gen_shares_shift_mix[1].u_aes_shift_rows.data_i[127:0]
+    evidence: aes_cipher_core.sv:366-379
+  - source: aes.u_aes_core.u_aes_cipher_core.u_aes_sub_bytes.mask_o[127:0]
+    dest: aes.u_aes_core.u_aes_cipher_core.gen_shares_shift_mix[0].u_aes_shift_rows.data_i[127:0]
+    evidence: aes_cipher_core.sv:366-379

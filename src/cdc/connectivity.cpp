@@ -326,17 +326,19 @@ static FFNode* findFFByName(
         }
     }
 
-    // Try direct wire_map lookup: sig_name is a local wire driven by a child FF output
-    // (e.g., top-level always_ff reads wire_ab which is connected to u_a.q's output)
-    auto wit = wire_map.find(sig_name);
-    if (wit != wire_map.end())
-        return wit->second;
-
     // Resolve through port connection: sig_name is a port, trace to actual signal.
     // Walk up the parent_port_chain so that a port wired to another port at
     // the next level is also resolved (multi-level submodule traversal).
     std::string current = sig_name;
     auto pit = port_map.find(current);
+    if (pit == port_map.end()) {
+        // Only a non-port signal may use a local/ancestor wire map by its
+        // unqualified name. An input port with the same spelling can be
+        // connected to a different parent net.
+        auto wit = wire_map.find(sig_name);
+        if (wit != wire_map.end())
+            return wit->second;
+    }
     if (pit != port_map.end()) {
         current = pit->second;
         // If port_map produced a fully hierarchical path (e.g., a
@@ -417,24 +419,6 @@ static FFNode* findFFByName(
         }
     }
 
-    // Try matching by suffix in the same parent scope. Hoist the
-    // concatenated prefix / suffix strings out of the loop and add
-    // a length pre-check so paths that cannot possibly match are
-    // skipped without any allocation. (Code-reviewer Round 12 #2.)
-    std::string parent_path;
-    auto last_dot = inst_path.rfind('.');
-    if (last_dot != std::string::npos) {
-        parent_path = inst_path.substr(0, last_dot);
-        std::string prefix = parent_path + ".";
-        std::string suffix = "." + sig_name;
-        size_t min_len = prefix.size() + sig_name.size() + 1;
-        for (auto& [path, ff] : output_map) {
-            if (path.size() < min_len) continue;
-            if (path.starts_with(prefix) && path.ends_with(suffix))
-                return ff;
-        }
-    }
-
     // Last-resort fallback: walk every ancestor scope (current path with
     // the last segment chopped off, repeatedly) and try `<ancestor>.<sig>`
     // against the output_map. This catches cases where a port maps to a
@@ -450,13 +434,6 @@ static FFNode* findFFByName(
         auto cand_it = output_map.find(ancestor + "." + current);
         if (cand_it != output_map.end())
             return cand_it->second;
-        // Also try the original sig_name (in case port resolution
-        // already advanced `current` and we want to fall back).
-        if (current != sig_name) {
-            cand_it = output_map.find(ancestor + "." + sig_name);
-            if (cand_it != output_map.end())
-                return cand_it->second;
-        }
     }
 
     return nullptr;
@@ -689,6 +666,7 @@ static void processScopeForEdges(
             auto& body = block.getBody();
             std::vector<AssignInfo> assignments;
             collectAssignments(body, assignments);
+
             for (auto& assign : assignments) {
                 FFNode* dest = findFFByName(assign.lhs_name, path_prefix,
                                             output_map, enclosing_port_map,

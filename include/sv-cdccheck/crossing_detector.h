@@ -14,8 +14,9 @@ public:
     CrossingDetector(const std::vector<FFEdge>& edges,
                      const ClockDatabase& clock_db);
 
-    /// Set SDC false_path constraints to auto-waive matching crossings
+    /// Preserve SDC timing exceptions as context; neither changes CDC safety.
     void setFalsePaths(const std::vector<SdcFalsePath>& false_paths);
+    void setMaxDelays(const std::vector<SdcMaxDelay>& max_delays);
 
     void analyze();
     std::vector<CrossingReport> getCrossings() const;
@@ -25,6 +26,7 @@ private:
     const ClockDatabase& clock_db_;
     std::vector<CrossingReport> crossings_;
     std::vector<SdcFalsePath> false_paths_;
+    std::vector<SdcMaxDelay> max_delays_;
     int violation_counter_ = 0;
     int caution_counter_ = 0;
     int convention_counter_ = 0;

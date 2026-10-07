@@ -3,6 +3,7 @@
 #include "sv-cdccheck/filelist_parser.h"
 
 #include <slang/ast/symbols/CompilationUnitSymbols.h>
+#include <slang/diagnostics/Diagnostics.h>
 
 #include <stdexcept>
 
@@ -87,6 +88,17 @@ bool CompilationSession::compile(const std::vector<std::string>& args,
     compilation_ = driver_->createCompilation();
     if (!compilation_)
         return fail("failed to create compilation", errorMessage);
+
+    compilation_->getRoot();
+    size_t errors = 0;
+    for (const auto& diagnostic : compilation_->getAllDiagnostics()) {
+        if (diagnostic.isError())
+            ++errors;
+    }
+    if (errors) {
+        compilation_.reset();
+        return fail("elaboration reported " + std::to_string(errors) + " error(s)", errorMessage);
+    }
 
     if (errorMessage)
         errorMessage->clear();

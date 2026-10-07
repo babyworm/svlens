@@ -1,11 +1,21 @@
 #include <catch2/catch_test_macros.hpp>
 #include "CompilationSession.h"
 #include "TestUtils.h"
+#include "test_helpers.h"
 
 #include <filesystem>
 #include <fstream>
 
 using namespace connect;
+
+TEST_CASE("test compile helper retains the slang driver for AST lifetime", "[compilation]") {
+    auto compiled = sv_cdccheck::test::compileSV("module held_top; endmodule\n", "held_driver");
+    REQUIRE(compiled);
+    REQUIRE(compiled.driver);
+    const auto& root = compiled->getRoot();
+    REQUIRE(root.topInstances.size() == 1);
+    CHECK(std::string(root.topInstances[0]->name) == "held_top");
+}
 
 TEST_CASE("CompilationSession: elaborates a valid fixture and finds top") {
     CompilationSession session;
@@ -52,6 +62,14 @@ TEST_CASE("CompilationSession: reports failure on missing source") {
     CompilationSession session;
     std::vector<std::string> args = {"test", "sv/definitely_missing_file.sv"};
 
+    std::string error;
+    CHECK_FALSE(session.compile(args, &error));
+    CHECK_FALSE(error.empty());
+}
+
+TEST_CASE("CompilationSession: rejects elaboration errors after parsing", "[compilation]") {
+    CompilationSession session;
+    std::vector<std::string> args = {"test", testutils::resolveSvFixturePath("sv/invalid_semantic.sv").string()};
     std::string error;
     CHECK_FALSE(session.compile(args, &error));
     CHECK_FALSE(error.empty());

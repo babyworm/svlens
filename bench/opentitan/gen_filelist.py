@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Parse FuseSoC .core files to generate flat .f filelists for svlens."""
 
+import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -35,7 +37,7 @@ def find_core_files(ot_root: Path) -> dict:
     base name without version (lowrisc:ip:uart) for flexible lookup.
     """
     core_map = {}
-    for core_path in ot_root.rglob("*.core"):
+    for core_path in sorted(ot_root.rglob("*.core")):
         try:
             data = parse_core_yaml(core_path)
             if "name" not in data:
@@ -48,40 +50,50 @@ def find_core_files(ot_root: Path) -> dict:
                 base_name = ":".join(parts[:3])  # "lowrisc:ip:uart"
                 if base_name not in core_map:
                     core_map[base_name] = core_path
-        except Exception:
+        except (OSError, UnicodeError, yaml.YAMLError, AttributeError, TypeError) as exc:
+            logging.getLogger(__name__).debug("Skipping core metadata %s: %s", core_path, exc)
             continue
     return core_map
 
 
-def extract_sv_files(core_path: Path) -> list:
-    """Extract .sv/.svh/.v/.vh file paths from a .core file."""
-    data = parse_core_yaml(core_path)
-    if not data:
-        return []
+def select_entry(entry: str, flags: set[str]) -> str | None:
+    """Evaluate the simple FuseSoC `flag ? (item)` spelling used in this tag."""
+    match = re.fullmatch(r"\s*(!?\w+)\s*\?\s*\(([^()]*)\)\s*", entry)
+    if not match:
+        return entry
+    condition, value = match.groups()
+    enabled = condition[1:] not in flags if condition.startswith("!") else condition in flags
+    return value.strip() if enabled else None
 
-    files = []
+
+def selected_filesets(data: dict, flags: set[str]) -> list[dict]:
     filesets = data.get("filesets", {})
-    for fs_name, fs_data in filesets.items():
-        if not isinstance(fs_data, dict):
+    default = data.get("targets", {}).get("default", {})
+    names = default.get("filesets") if isinstance(default, dict) else None
+    if not names:
+        names = [name for name, item in filesets.items()
+                 if isinstance(item, dict) and item.get("file_type") in
+                 ("systemVerilogSource", "verilogSource")]
+    if isinstance(names, str):
+        names = [names]
+    selected = []
+    for name in names:
+        name = select_entry(name, flags)
+        if name is None:
             continue
-        # Only include RTL filesets (skip lint waivers, docs, etc.)
-        file_type = fs_data.get("file_type", "")
-        for entry in (fs_data.get("files") or []):
-            if isinstance(entry, dict):
-                fname = list(entry.keys())[0]
-            else:
-                fname = entry
-            if fname.endswith((".sv", ".svh", ".v", ".vh")):
-                full = core_path.parent / fname
-                if full.exists():
-                    files.append(str(full.resolve()))
-    return files
+        if name not in filesets:
+            raise ValueError(f"selected fileset {name!r} is missing")
+        selected.append(filesets[name])
+    return selected
 
 
-def resolve_deps(core_name: str, core_map: dict, visited: set = None) -> list:
+def resolve_deps(core_name: str, core_map: dict, flags: set[str],
+                 visited: set[str] | None = None, generated_prims: set[str] | None = None) -> list:
     """Recursively resolve dependencies and collect all SV files."""
     if visited is None:
         visited = set()
+    if generated_prims is None:
+        generated_prims = set()
     if core_name in visited:
         return []
     visited.add(core_name)
@@ -94,24 +106,47 @@ def resolve_deps(core_name: str, core_map: dict, visited: set = None) -> list:
                 core_path = v
                 break
     if not core_path:
-        return []
+        raise ValueError(f"unresolved core dependency: {core_name}")
 
     data = parse_core_yaml(core_path)
     if not data:
-        return []
+        raise ValueError(f"invalid core metadata: {core_path}")
 
     all_files = []
 
+    # FuseSoC's primgen normally creates a technology-selecting wrapper.
+    # For a source-only benchmark use the generic implementation under the
+    # wrapper name, and track exactly which wrappers were synthesized here.
+    generator = data.get("generate", {}).get("impl", {})
+    if generator.get("generator") == "primgen" and core_name.startswith("lowrisc:prim:"):
+        if generator.get("parameters", {}).get("action") == "generate_prim_pkg":
+            generated_prims.add("__prim_pkg__")
+        else:
+            primitive = core_name.split(":")[2]
+            all_files.extend(resolve_deps("lowrisc:prim_generic:" + primitive,
+                                          core_map, flags, visited, generated_prims))
+            generated_prims.add(primitive)
+
     # Resolve dependencies first (depth-first)
-    filesets = data.get("filesets", {})
-    for fs_name, fs_data in filesets.items():
-        if not isinstance(fs_data, dict):
-            continue
+    filesets = selected_filesets(data, flags)
+    for fs_data in filesets:
         for dep in (fs_data.get("depend") or []):
-            all_files.extend(resolve_deps(dep, core_map, visited))
+            selected = select_entry(dep, flags)
+            if selected:
+                all_files.extend(resolve_deps(selected, core_map, flags,
+                                              visited, generated_prims))
 
     # Then add this core's own files
-    all_files.extend(extract_sv_files(core_path))
+    for fs_data in filesets:
+        for entry in (fs_data.get("files") or []):
+            raw = next(iter(entry)) if isinstance(entry, dict) else entry
+            selected = select_entry(raw, flags)
+            if not selected or not selected.endswith((".sv", ".svh", ".v", ".vh")):
+                continue
+            full = core_path.parent / selected
+            if not full.is_file():
+                raise ValueError(f"missing source selected by {core_path}: {selected}")
+            all_files.append(str(full.resolve()))
     return all_files
 
 
@@ -121,7 +156,9 @@ def generate_filelist(target: dict, core_map: dict) -> Path:
     core_name = target["core"]
 
     print(f"  Resolving {name} ({core_name})...")
-    files = resolve_deps(core_name, core_map)
+    flags = {"fileset_top"} if name == "top_earlgrey" else {"fileset_ip"}
+    generated_prims = set()
+    files = resolve_deps(core_name, core_map, flags, generated_prims=generated_prims)
 
     # Deduplicate preserving order
     seen = set()
@@ -133,16 +170,40 @@ def generate_filelist(target: dict, core_map: dict) -> Path:
 
     # Collect include directories
     inc_dirs = sorted({os.path.dirname(f) for f in unique})
+    sources = [f for f in unique if f.endswith((".sv", ".v"))]
+    header_count = len(unique) - len(sources)
+    generated_dir = FILELIST_DIR / "generated" / name
+    generated_dir.mkdir(parents=True, exist_ok=True)
+    if "__prim_pkg__" in generated_prims:
+        package = generated_dir / "prim_pkg.sv"
+        package.write_text("package prim_pkg;\n"
+                           "  typedef enum integer { ImplGeneric } impl_e;\n"
+                           "endpackage : prim_pkg\n")
+        sources.insert(0, str(package.resolve()))
+    for primitive in sorted(generated_prims):
+        if primitive == "__prim_pkg__":
+            continue
+        generic = OT_DIR / "hw" / "ip" / "prim_generic" / "rtl" / f"prim_generic_{primitive}.sv"
+        if not generic.is_file():
+            raise ValueError(f"primgen needs a generic implementation for {primitive}")
+        module_decl = re.compile(r"\bmodule\s+prim_generic_" + re.escape(primitive) + r"\b")
+        content, count = module_decl.subn(f"module prim_{primitive}", generic.read_text(), count=1)
+        if count != 1:
+            raise ValueError(f"module declaration missing in {generic}")
+        content = re.sub(r"\bendmodule\s*:\s*prim_generic_" + re.escape(primitive) + r"\b",
+                         f"endmodule : prim_{primitive}", content)
+        generated = generated_dir / f"prim_{primitive}.sv"
+        generated.write_text(content)
+        sources.append(str(generated.resolve()))
 
     out_path = FILELIST_DIR / f"{name}.f"
     with open(out_path, "w") as out:
-        for d in inc_dirs:
-            out.write(f"+incdir+{d}\n")
+        out.write("+define+SYNTHESIS\n")
+        out.writelines(f"+incdir+{d}\n" for d in inc_dirs)
         out.write("\n")
-        for f in unique:
-            out.write(f"{f}\n")
+        out.writelines(f"{source}\n" for source in sources)
 
-    print(f"  -> {out_path} ({len(unique)} files)")
+    print(f"  -> {out_path} ({len(sources)} sources, {header_count} headers)")
     return out_path
 
 
@@ -162,12 +223,16 @@ def main():
     core_map = find_core_files(OT_DIR)
     print(f"Found {len(core_map)} core entries ({sum(1 for p in OT_DIR.rglob('*.core'))} .core files)")
 
+    failures = []
     for target in config["targets"]:
         try:
             generate_filelist(target, core_map)
-        except Exception as e:
-            print(f"  WARNING: {target['name']} failed: {e}", file=sys.stderr)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, yaml.YAMLError) as e:
+            failures.append(target["name"])
+            print(f"  ERROR: {target['name']} failed: {e}", file=sys.stderr)
 
+    if failures:
+        raise SystemExit("Filelist generation failed: " + ", ".join(failures))
     print("Done.")
 
 

@@ -140,3 +140,23 @@ add_test(NAME metrics_lhs_concat_for_loop
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_metrics_lhs_concat_for_loop.sh
             $<TARGET_FILE:svlens>
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME report_convert
+    COMMAND python3 -B -m unittest discover -s ${CMAKE_SOURCE_DIR}/tests
+            -p test_report_convert.py
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME python_api
+    COMMAND python3 -B -m unittest discover -s ${CMAKE_SOURCE_DIR}/python/tests
+            -p test_api.py
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME cross_references
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_cross_references.sh
+            $<TARGET_FILE:svlens>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME user_rules
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_user_rules.sh
+            $<TARGET_FILE:svlens>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

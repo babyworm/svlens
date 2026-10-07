@@ -3,6 +3,40 @@ clock_domains:
   - name: clk_i
     type: primary
 
-known_crossings: []
+domain_pair_probes: []
+known_connections:
+  - source: hmac.u_reg.u_socket.tl_d_o
+    dest: hmac.u_reg.u_reg_if.tl_i[106:0]
+    description: >-
+      hmac_reg_top.sv:89,111,137 connects the whole socket output array
+      through tl_socket_h2d[1] to the register adapter input.
+  - source: hmac.u_sha2.digest[255:0]
+    dest: hmac.u_msg_fifo.wdata_i[35:0]
+    kind: approximate
+    description: >-
+      hmac.sv:267-268,281,415-433 selects one digest word into fifo_wdata
+      when hmac_fifo_wsel is set. The selected word and branch are runtime
+      choices; this is possible data influence, not a fixed bit mapping.
+  - source: hmac.u_hmac.fifo_wdata_sel[2:0]
+    dest: hmac.u_msg_fifo.wdata_i[35:0]
+    kind: approximate
+    description: >-
+      hmac.sv:267-268,281,401-406 uses the core's selector to choose a
+      digest word for fifo_wdata. This is control influence, not a 3-to-36
+      positional data connection.
+
+forbidden_connections:
+  - source: hmac.u_sha2.digest[255:0]
+    dest: hmac.u_hmac.fifo_wready
+    description: >-
+      hmac.sv:280-281,407 connects prim_fifo_sync.wready_o to the core's
+      fifo_wready input; prim_fifo_sync.sv:83-95 computes it from occupancy
+      and reset, not from wdata_i or the selected digest value.
+  - source: hmac.u_hmac.fifo_wdata_sel[2:0]
+    dest: hmac.u_hmac.fifo_wready
+    description: >-
+      The selector affects fifo_wdata, while prim_fifo_sync.sv:83-95 computes
+      wready_o independently of write data and hmac.sv:407 routes ready to
+      the core input.
 known_clean:
   - description: "All paths within clk_i domain"

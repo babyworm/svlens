@@ -1,4 +1,6 @@
 #include "JsonReport.h"
+#include <slang/text/SourceManager.h>
+#include <filesystem>
 #include <fmt/format.h>
 #include <string>
 #include <unordered_map>
@@ -51,6 +53,15 @@ void JsonReportGenerator::generate(const ReportData& data, std::ostream& out) co
     out << fmt::format("    \"errors\": {},\n", data.errorCount());
     out << fmt::format("    \"warnings\": {},\n", data.warnCount());
     out << fmt::format("    \"info\": {},\n", data.infoCount());
+    out << fmt::format("    \"bit_flow_gap_count\": {},\n", data.graph.bitFlowGapCount);
+    out << "    \"bit_flow_gap_reasons\": {";
+    size_t reasonIndex = 0;
+    for (const auto& [reason, count] : data.graph.bitFlowGapReasons) {
+        if (reasonIndex++ > 0)
+            out << ", ";
+        out << fmt::format("\"{}\": {}", escapeJson(reason), count);
+    }
+    out << "},\n";
     out << fmt::format("    \"waived\": {}\n", static_cast<int>(data.waived.size()));
     out << "  },\n";
 
@@ -61,6 +72,8 @@ void JsonReportGenerator::generate(const ReportData& data, std::ostream& out) co
         out << "    {\n";
         out << fmt::format("      \"type\": \"{}\",\n", Issue::typeToString(issue.type));
         out << fmt::format("      \"severity\": \"{}\",\n", Issue::severityToString(issue.severity));
+        if (!issue.ruleId.empty())
+            out << fmt::format("      \"rule_id\": \"{}\",\n", escapeJson(issue.ruleId));
         out << fmt::format("      \"port\": \"{}\",\n", escapeJson(issue.port.fullPath()));
 
         if (issue.connection.has_value()) {
@@ -78,13 +91,32 @@ void JsonReportGenerator::generate(const ReportData& data, std::ostream& out) co
         }
 
         out << fmt::format("      \"detail\": \"{}\"", escapeJson(issue.detail));
+        uint32_t line = issue.lineNumber;
+        uint32_t column = issue.columnNumber;
+        // An explicit issue line can originate from a different syntax node;
+        // do not pair it with the port declaration's filename.
+        if (data.sourceManager && issue.port.location.valid() && issue.lineNumber == 0) {
+            const auto& manager = *data.sourceManager;
+            const std::string filename(manager.getFileName(issue.port.location));
+            if (!filename.empty()) {
+                namespace fs = std::filesystem;
+                std::error_code ec;
+                const auto relative = fs::relative(filename, fs::current_path(), ec);
+                const auto path = !ec && !relative.empty() ? relative.generic_string() : filename;
+                out << fmt::format(",\n      \"file\": \"{}\"", escapeJson(path));
+            }
+            if (line == 0)
+                line = static_cast<uint32_t>(manager.getLineNumber(issue.port.location));
+            if (column == 0)
+                column = static_cast<uint32_t>(manager.getColumnNumber(issue.port.location));
+        }
         // Emit explicit line/column when the upstream observation
         // carries them, so JSON consumers can jump to source without
         // regex-parsing the detail string.
-        if (issue.lineNumber != 0)
-            out << fmt::format(",\n      \"line\": {}", issue.lineNumber);
-        if (issue.columnNumber != 0)
-            out << fmt::format(",\n      \"column\": {}", issue.columnNumber);
+        if (line != 0)
+            out << fmt::format(",\n      \"line\": {}", line);
+        if (column != 0)
+            out << fmt::format(",\n      \"column\": {}", column);
         out << "\n";
         out << "    }";
         if (i + 1 < data.active.size()) out << ",";
@@ -174,9 +206,42 @@ void JsonReportGenerator::generate(const ReportData& data, std::ostream& out) co
         out << "    {\n";
         out << fmt::format("      \"source\": \"{}\",\n", escapeJson(portRange(conn.source)));
         out << fmt::format("      \"dest\": \"{}\",\n", escapeJson(portRange(conn.dest)));
+        out << fmt::format("      \"kind\": \"{}\",\n", conn.kind == ConnectionKind::Direct ? "direct" : "approximate");
+        if (conn.sourceBits)
+            out << fmt::format("      \"source_bits\": {{\"low\": {}, \"high\": {}}},\n", conn.sourceBits->low,
+                               conn.sourceBits->high);
+        if (conn.destBits)
+            out << fmt::format("      \"dest_bits\": {{\"low\": {}, \"high\": {}}},\n", conn.destBits->low,
+                               conn.destBits->high);
         out << fmt::format("      \"status\": \"{}\"\n", escapeJson(status));
         out << "    }";
         if (i + 1 < data.graph.connections.size()) out << ",";
+        out << "\n";
+    }
+    out << "  ],\n";
+    out << "  \"bit_flow_gaps\": [\n";
+    for (size_t i = 0; i < data.graph.bitFlowGaps.size(); ++i) {
+        const auto& gap = data.graph.bitFlowGaps[i];
+        out << "    {\n";
+        out << fmt::format("      \"scope\": \"{}\",\n", escapeJson(gap.scopePath));
+        out << fmt::format("      \"reason\": \"{}\",\n", escapeJson(gap.reason));
+        out << fmt::format("      \"lhs_width\": {},\n", gap.lhsWidth);
+        out << fmt::format("      \"rhs_width\": {}", gap.rhsWidth);
+        if (data.sourceManager && gap.location.valid()) {
+            const auto& manager = *data.sourceManager;
+            const std::string filename(manager.getFileName(gap.location));
+            if (!filename.empty()) {
+                namespace fs = std::filesystem;
+                std::error_code ec;
+                const auto relative = fs::relative(filename, fs::current_path(), ec);
+                const auto path = !ec && !relative.empty() ? relative.generic_string() : filename;
+                out << fmt::format(",\n      \"file\": \"{}\"", escapeJson(path));
+            }
+            out << fmt::format(",\n      \"line\": {}", manager.getLineNumber(gap.location));
+        }
+        out << "\n    }";
+        if (i + 1 < data.graph.bitFlowGaps.size())
+            out << ",";
         out << "\n";
     }
     out << "  ]\n";

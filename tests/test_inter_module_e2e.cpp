@@ -10,6 +10,7 @@
 
 #include <fstream>
 #include <filesystem>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 using namespace sv_cdccheck;
@@ -200,7 +201,7 @@ TEST_CASE("E2E: multiple child outputs → top (multiple crossings)", "[e2e][wir
 static fs::path writeSdc(const std::string& content) {
     static int ctr = 0;
     auto path = fs::temp_directory_path() /
-        ("test_sdc_e2e_" + std::to_string(ctr++) + ".sdc");
+                ("test_sdc_e2e_" + std::to_string(::getpid()) + "_" + std::to_string(ctr++) + ".sdc");
     std::ofstream(path) << content;
     return path;
 }

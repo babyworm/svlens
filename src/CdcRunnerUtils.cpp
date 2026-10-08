@@ -443,8 +443,7 @@ void emitCdcReports(const CdcCliOptions& opts,
         svaWritten = svaReport.generateSVA(opts.svaOutputFile, opts.topModule);
         if (!svaWritten) {
             std::cerr << "svlens cdc: warning: failed to write --emit-sva file '" << opts.svaOutputFile
-                      << "' (parent directory missing or "
-                      << "permission denied); analysis result is unaffected.\n";
+                      << "' (parent directory missing or " << "permission denied); analysis result is unaffected.\n";
         }
     }
     sv_cdccheck::ReportGenerator report(result, svaWritten);

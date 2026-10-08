@@ -97,12 +97,12 @@ Representative scripts:
 
 ## Current Validation Result
 
-The full local regression on 2026-10-08 passed:
-
-- `cmake --build build -j8`
-- `ctest --test-dir build --output-on-failure -j8`
-- `ctest --test-dir build-ubsan --output-on-failure -j4`
-- **739 / 739 tests passing** in both builds
+The v0.4.0 regression on 2026-10-08 passed **743 / 743 tests** in a local
+default build (`cmake --build`, `ctest -j`) and in CI's build-and-test,
+coverage, and AddressSanitizer jobs. An earlier 739-test run on the same day
+also passed under UBSan; UBSan has not been rerun for the four CDC resolution
+cases added since. The OpenTitan benchmark workflow also passes in GitHub
+Actions with asserts enabled (see the 2026-10-08 benchmark follow-up).
 
 The shared inline-SV test helper now owns the slang driver for the full AST
 lifetime. This removes a dangling-source dependency that could corrupt

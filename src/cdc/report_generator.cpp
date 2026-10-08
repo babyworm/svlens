@@ -851,8 +851,7 @@ void ReportGenerator::generateSDC(const std::filesystem::path& output_path) cons
                 c.dest_domain && c.dest_domain->source ? c.dest_domain->source->period_ns : std::nullopt;
             if (period && std::isfinite(*period) && *period > 0) {
                 out << "# REVIEW: set_max_delay " << *period << " -from [get_cells {" << c.source_signal << "}]"
-                    << " -to [get_cells {" << c.dest_signal << "}]"
-                    << "  ;# SYNCED: " << c.id << "\n";
+                    << " -to [get_cells {" << c.dest_signal << "}]" << "  ;# SYNCED: " << c.id << "\n";
             } else {
                 out << "# REVIEW: SYNCED " << c.id << " " << c.source_signal << " -> " << c.dest_signal
                     << "; destination period unavailable, so no delay is guessed.\n";
@@ -1272,8 +1271,7 @@ bool ReportGenerator::generateSVA(const std::filesystem::path& output_path,
                 (!sourceFF || !sourceFF->declared_path.empty()) && svaExpressionSafe(sourcePath, src_expr) &&
                 svaExpressionSafe(destFF->clock_path, dst_clk_expr)) {
                 out << "property cdc_" << id_safe << "_src_toggle;\n";
-                out << "    @(posedge " << dst_clk_expr << ") "
-                    << "!$stable(" << src_expr << ");\n";
+                out << "    @(posedge " << dst_clk_expr << ") " << "!$stable(" << src_expr << ");\n";
                 out << "endproperty\n";
                 out << "cdc_" << id_safe << "_cover_toggle: cover property (cdc_"
                     << id_safe << "_src_toggle);\n";

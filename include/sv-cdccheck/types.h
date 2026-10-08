@@ -217,9 +217,9 @@ struct CrossingReport {
     std::optional<double> sdc_max_delay_constraint_ns; // declared bound, never measured path delay
     bool sdc_max_delay_datapath_only = false;
     bool sdc_max_delay_ambiguous = false;
-    std::string waive_reason;                               // reserved for explicit waiver provenance
-    std::vector<std::string> capture_conditions;            // destination FF control signals, if collected
-    std::optional<ReqAckDataContract> reqack_data_contract; // checked primitive port/parameter signature
+    std::string waive_reason;                                   // reserved for explicit waiver provenance
+    std::vector<std::string> capture_conditions;                // destination FF control signals, if collected
+    std::optional<ReqAckDataContract> reqack_data_contract;     // checked primitive port/parameter signature
     std::optional<FifoTransferContract> fifo_transfer_contract; // checked ready/valid port signature
 };
 

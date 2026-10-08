@@ -80,7 +80,14 @@ jobs:
             echo "::error::clang-format-diff still not found at format-check time; aborting."
             exit 1
           fi
-          OUT=$(git diff -U0 "$BASE" -- $CHANGED | "$DIFFCMD" -p1 -style=file)
+          # clang-format-diff exits 1 when it finds a diff; capture the status
+          # so `set -e` does not abort before the violations are printed.
+          RC=0
+          OUT=$(git diff -U0 "$BASE" -- $CHANGED | "$DIFFCMD" -p1 -style=file) || RC=$?
+          if [ "$RC" -ne 0 ] && [ -z "$OUT" ]; then
+            echo "::error::$DIFFCMD failed (exit $RC) without producing a diff."
+            exit "$RC"
+          fi
           if [ -n "$OUT" ]; then
             echo "::error::clang-format found violations on changed lines:"
             echo "$OUT"

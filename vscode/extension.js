@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {spawn} = require('node:child_process');
-const {locatedIssues, locatedCrossings} = require('./report');
+const {locatedIssues, locatedCrossings, crossingTree} = require('./report');
 
 function runBinary(binary, args, cwd) {
   return new Promise((resolve, reject) => {
@@ -21,11 +21,55 @@ function severityOf(name) {
   return vscode.DiagnosticSeverity.Information;
 }
 
+// Explorer view of CDC crossings grouped by category. Nodes come from
+// report.crossingTree(); this class only adapts them to VS Code tree items.
+class CrossingTreeProvider {
+  constructor() {
+    this.groups = [];
+    this.changed = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this.changed.event;
+  }
+
+  update(groups) {
+    this.groups = groups;
+    this.changed.fire();
+  }
+
+  getChildren(node) {
+    return node ? node.items || [] : this.groups;
+  }
+
+  getTreeItem(node) {
+    if (node.items) {
+      const state = node.category === 'VIOLATION'
+        ? vscode.TreeItemCollapsibleState.Expanded
+        : vscode.TreeItemCollapsibleState.Collapsed;
+      return new vscode.TreeItem(node.label, state);
+    }
+    const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
+    item.description = node.description;
+    item.tooltip = node.tooltip;
+    if (node.location) {
+      const {file, line, column} = node.location;
+      item.command = {
+        command: 'vscode.open',
+        title: 'Open crossing location',
+        arguments: [vscode.Uri.file(file),
+                    {selection: new vscode.Range(line, column, line, column)}],
+      };
+    }
+    return item;
+  }
+}
+
 function activate(context) {
   const diagnostics = vscode.languages.createDiagnosticCollection('svlens');
   const cdcDiagnostics = vscode.languages.createDiagnosticCollection('svlens-cdc');
   const output = vscode.window.createOutputChannel('svlens');
-  context.subscriptions.push(diagnostics, cdcDiagnostics, output);
+  const crossingView = new CrossingTreeProvider();
+  context.subscriptions.push(
+    diagnostics, cdcDiagnostics, output, crossingView.changed,
+    vscode.window.registerTreeDataProvider('svlens.cdcCrossings', crossingView));
 
   function publish(collection, grouped) {
     collection.clear();
@@ -80,6 +124,7 @@ function activate(context) {
       } else {
         const {grouped, withoutLocation} = locatedCrossings(report, root);
         publish(cdcDiagnostics, grouped);
+        crossingView.update(crossingTree(report, root));
         output.appendLine(`CDC: ${report.crossings?.length || 0} crossings. ` +
                           `${withoutLocation} without a source location.`);
         for (const crossing of report.crossings || []) {
@@ -93,7 +138,12 @@ function activate(context) {
     } catch (error) {
       // Drop findings from an earlier run so stale locations are not shown
       // as if they belonged to the current sources.
-      (mode === 'conn' ? diagnostics : cdcDiagnostics).clear();
+      if (mode === 'conn') {
+        diagnostics.clear();
+      } else {
+        cdcDiagnostics.clear();
+        crossingView.update([]);
+      }
       vscode.window.showErrorMessage(`svlens ${mode}: ${error.message}`);
     } finally {
       fs.rmSync(temp, {recursive: true, force: true});

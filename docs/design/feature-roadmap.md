@@ -379,9 +379,10 @@ slang build. Solve by linking slang statically into the Python module.
 ### F2. VSCode extension scaffolding -- `partial`
 
 **Current**: a dependency-free JavaScript extension runs conn and CDC on
-demand. Source-backed conn issues and CDC crossings become editor diagnostics;
-location-free crossings remain in the Output channel. Marketplace publishing
-and a CDC tree view remain open.
+demand. Source-backed conn issues and CDC crossings become editor diagnostics,
+and an Explorer tree view lists every CDC crossing by category, including
+location-free ones; located entries open their source. Marketplace publishing
+remains open.
 
 **Why**: surfacing svlens results inline in editor is a strong
 onboarding moment. slang already has an LSP, so we can wrap that and

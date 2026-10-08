@@ -16,4 +16,4 @@ jobs:
         run: |
           node --check vscode/extension.js
           node --check vscode/report.js
-          node --test vscode/test/report.test.js
+          node --test vscode/test/report.test.js vscode/test/extension.test.js

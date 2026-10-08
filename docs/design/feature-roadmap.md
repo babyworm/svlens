@@ -382,7 +382,7 @@ slang build. Solve by linking slang statically into the Python module.
 demand. Source-backed conn issues and CDC crossings become editor diagnostics,
 and an Explorer tree view lists every CDC crossing by category, including
 location-free ones; located entries open their source. Marketplace publishing
-and a connectivity tree view remain open.
+remains open.
 
 **Why**: surfacing svlens results inline in editor is a strong
 onboarding moment. slang already has an LSP, so we can wrap that and

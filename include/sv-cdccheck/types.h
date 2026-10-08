@@ -6,6 +6,11 @@
 #include <optional>
 #include <memory>
 #include <cstdint>
+#include <slang/text/SourceLocation.h>
+
+namespace slang {
+class SourceManager;
+}
 
 namespace sv_cdccheck {
 
@@ -56,11 +61,11 @@ struct DomainRelationship {
     ClockSource* a;
     ClockSource* b;
     enum class Type {
-        Asynchronous,         // set_clock_groups -asynchronous
-        SameSource,           // same PLL, same division
-        Divided,              // integer-divided (harmonic)
-        PhysicallyExclusive,  // set_clock_groups -physically_exclusive (mux)
-        LogicallyExclusive    // set_clock_groups -logically_exclusive
+        Asynchronous,        // set_clock_groups -asynchronous
+        SameSource,          // same PLL, same division
+        Divided,             // integer-divided (harmonic)
+        PhysicallyExclusive, // set_clock_groups -physically_exclusive timing assumption
+        LogicallyExclusive   // set_clock_groups -logically_exclusive timing assumption
     } relationship;
     bool sdc_declared = false; // true when from SDC set_clock_groups, false when inferred
 };
@@ -80,9 +85,25 @@ struct ClockDomain {
 // ─── Reset Signal tracking ───
 struct ResetSignal {
     std::string hier_path;
-    std::string source_domain;   // clock domain that generates this reset
+    std::string source_domain;           // unique FF driver's clock domain, when traced
+    std::string driver_ff_path;          // unique FF driver through direct aliases, if known
+    std::optional<bool> driver_inverted; // odd one-bit inversions from driver to this reset pin
+    std::string declared_path;           // AST symbol path; may differ from generated analysis scope
     bool is_async = false;       // appears in sensitivity list (not just if-condition)
     enum class Polarity { ActiveLow, ActiveHigh } polarity = Polarity::ActiveLow;
+};
+
+struct ResetMuxInputs {
+    std::string input0;
+    std::string input1;
+    std::string select;
+    std::optional<bool> selected_input; // elaboration-time 0/1; absent for runtime or unknown selection
+    std::string input0_source;          // direct connected net, when structurally resolved
+    std::string input1_source;
+    std::string select_source;
+    std::vector<std::string> input0_dependencies; // possible inputs of a computed expression
+    std::vector<std::string> input1_dependencies;
+    std::vector<std::string> select_dependencies;
 };
 
 // ─── Flip-flop node in connectivity graph ───
@@ -104,10 +125,20 @@ struct FFNode {
     // empty fanin_signals does NOT mean "no inputs".
     // sync_verifier::findNextFF uses this to decide whether an
     // empty fanin is "definitively single source" (populated) or
-    // "data is missing" (not populated). Field placed at the end
-    // to preserve aggregate-init order for existing test fixtures
-    // that rely on positional initialization through `primitive_name`.
+    // "data is missing" (not populated). Optional fields stay after
+    // the legacy positional fields used by test fixtures.
     bool fanin_populated = false;
+    slang::SourceLocation location;
+    // Owning module instance, excluding generate scopes. Needed to keep
+    // leaf-name clock checks from resolving into an unrelated parent module.
+    std::string module_path;
+    // Signals used in conditions guarding assignments to this FF. These are
+    // review clues, not proof that the capture enable is synchronized.
+    std::vector<std::string> capture_conditions;
+    // Declaring-scope path of the sequential timing event clock, when the
+    // AST exposes one. SVA generation uses this instead of a bare domain name.
+    std::string clock_path;
+    std::string declared_path; // AST variable path for emitted signal references
 };
 
 /// Synchronizer type
@@ -156,6 +187,17 @@ enum class ViolationCategory {
 };
 
 /// A single CDC crossing report entry
+struct ReqAckDataContract {
+    std::string instance_path;
+    bool src_to_dst = true;
+    uint32_t width = 0;
+};
+
+struct FifoTransferContract {
+    std::string instance_path;
+    bool write_pointer = true;
+};
+
 struct CrossingReport {
     std::string id;             // e.g., "VIOLATION-001"
     ViolationCategory category = ViolationCategory::Info;
@@ -171,7 +213,14 @@ struct CrossingReport {
     std::string relationship;   // asynchronous, divided, same_source, logically_exclusive, etc.
     std::string rationale;      // human-readable explanation for the classification
     std::optional<double> timing_basis_ns; // relevant timing period used for reasoning, if available
-    std::string waive_reason;   // non-empty when auto-waived (e.g., "sdc_false_path")
+    bool sdc_false_path = false;           // matching timing exception; never evidence of CDC safety
+    std::optional<double> sdc_max_delay_constraint_ns; // declared bound, never measured path delay
+    bool sdc_max_delay_datapath_only = false;
+    bool sdc_max_delay_ambiguous = false;
+    std::string waive_reason;                                   // reserved for explicit waiver provenance
+    std::vector<std::string> capture_conditions;                // destination FF control signals, if collected
+    std::optional<ReqAckDataContract> reqack_data_contract;     // checked primitive port/parameter signature
+    std::optional<FifoTransferContract> fifo_transfer_contract; // checked ready/valid port signature
 };
 
 // ─── Clock Database: owns all clock-related objects ───
@@ -184,6 +233,26 @@ struct ClockDatabase {
 
     // Lookup: hierarchical signal path → ClockNet
     std::unordered_map<std::string, ClockNet*> net_by_path;
+    // Structural root provenance, including known gates/dividers. This is
+    // metadata only: matching roots do not imply a safe CDC relationship.
+    std::unordered_map<std::string, ClockSource*> root_by_path;
+    // Directed direct-assignment and port aliases. The reset checker uses
+    // these to find a unique FF driver without a global same-leaf guess.
+    // This is not a complete reset tree.
+    std::unordered_map<std::string, std::vector<std::string>> directed_aliases;
+    // Reset-only one-bit inversion edges. These must not merge clock domains
+    // or propagate clock roots as transparent aliases.
+    std::unordered_map<std::string, std::vector<std::string>> reset_inversions;
+    // A scalar reset input fed by one constant-selected bit of an integral
+    // vector. Used only for reset-driver provenance, never clock lineage.
+    std::unordered_map<std::string, std::vector<std::string>> reset_selected_aliases;
+    // A reset-named integral struct field crosses a same-shaped module port.
+    // Project only an observed constant index during reset reporting; never
+    // merge these paths into the clock alias graph.
+    std::unordered_map<std::string, std::vector<std::string>> reset_indexed_field_aliases;
+    // Recognized two-input mux ports are conditional reset-route candidates,
+    // not transparent aliases or evidence of a synchronized reset.
+    std::unordered_map<std::string, ResetMuxInputs> reset_mux_inputs;
     // Lookup: canonical domain name → ClockDomain
     std::unordered_map<std::string, ClockDomain*> domain_by_name;
 
@@ -204,6 +273,7 @@ struct AnalysisResult {
     std::vector<std::unique_ptr<FFNode>> ff_nodes;
     std::vector<FFEdge> edges;
     std::vector<CrossingReport> crossings;
+    const slang::SourceManager* sourceManager = nullptr;
 
     [[nodiscard]] int violation_count() const;
     [[nodiscard]] int caution_count() const;

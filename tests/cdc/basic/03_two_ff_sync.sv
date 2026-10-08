@@ -27,7 +27,11 @@ module two_ff_sync (
             sync_ff2 <= 1'b0;
         end else begin
             sync_ff1 <= q_a;      // first sync stage
+`ifdef SVLENS_SVA_MUTATE
+            sync_ff2 <= ~sync_ff1; // deliberately break sampled stage transfer
+`else
             sync_ff2 <= sync_ff1; // second sync stage
+`endif
         end
     end
 

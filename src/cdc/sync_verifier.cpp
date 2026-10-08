@@ -1,12 +1,122 @@
 #include "sv-cdccheck/sync_verifier.h"
 
 #include <algorithm>
+#include <array>
 #include <unordered_map>
 #include <unordered_set>
 #include <cstdint>
 #include <cctype>
+#include <utility>
 
 namespace sv_cdccheck {
+
+namespace {
+
+using AliasPredecessors = std::unordered_map<std::string, std::vector<std::pair<std::string, bool>>>;
+
+struct ResolvedFFDriver {
+    const FFNode* ff;
+    bool inverted;
+};
+
+AliasPredecessors buildAliasPredecessors(const ClockDatabase& clock_db, bool includeResetInversions = false) {
+    AliasPredecessors predecessors;
+    for (const auto& [source, destinations] : clock_db.directed_aliases) {
+        for (const auto& dest : destinations)
+            predecessors[dest].emplace_back(source, false);
+    }
+    if (includeResetInversions) {
+        for (const auto& [source, destinations] : clock_db.reset_inversions) {
+            for (const auto& dest : destinations)
+                predecessors[dest].emplace_back(source, true);
+        }
+        for (const auto& [source, destinations] : clock_db.reset_selected_aliases) {
+            for (const auto& dest : destinations)
+                predecessors[dest].emplace_back(source, false);
+        }
+    }
+    return predecessors;
+}
+
+std::optional<ResolvedFFDriver>
+findUniqueFFDriver(const std::string& path, const std::unordered_map<std::string, const FFNode*>& ff_by_path,
+                   const AliasPredecessors& predecessors, const std::unordered_set<std::string>& ambiguous_ff_paths,
+                   const std::unordered_map<std::string, ResetMuxInputs>* reset_muxes = nullptr,
+                   const AliasPredecessors* indexed_field_predecessors = nullptr,
+                   std::unordered_set<std::string>* active_muxes = nullptr) {
+    std::unordered_set<std::string> localActiveMuxes;
+    if (!active_muxes)
+        active_muxes = &localActiveMuxes;
+    const FFNode* driver = nullptr;
+    std::optional<bool> driverInverted;
+    std::array<std::unordered_set<std::string>, 2> visited;
+    std::vector<std::pair<std::string, bool>> pending{{path, false}};
+    while (!pending.empty()) {
+        auto [current, inverted] = std::move(pending.back());
+        pending.pop_back();
+        if (!visited[static_cast<size_t>(inverted)].insert(current).second)
+            continue;
+        if (reset_muxes) {
+            if (auto aliases = predecessors.find(current); aliases != predecessors.end()) {
+                std::unordered_set<std::string> sources;
+                bool hasMuxSource = false;
+                for (const auto& [source, _] : aliases->second) {
+                    sources.insert(source);
+                    hasMuxSource |= reset_muxes->contains(source);
+                }
+                if (hasMuxSource && sources.size() > 1)
+                    return std::nullopt;
+            }
+        }
+        if (reset_muxes) {
+            if (auto mux = reset_muxes->find(current); mux != reset_muxes->end()) {
+                if (!mux->second.selected_input)
+                    return std::nullopt;
+                if (!active_muxes->insert(current).second)
+                    return std::nullopt;
+                const auto branch = findUniqueFFDriver(
+                    *mux->second.selected_input ? mux->second.input1 : mux->second.input0, ff_by_path, predecessors,
+                    ambiguous_ff_paths, reset_muxes, indexed_field_predecessors, active_muxes);
+                active_muxes->erase(current);
+                if (!branch)
+                    return std::nullopt;
+                const bool branchInverted = inverted != branch->inverted;
+                if (driver && (driver != branch->ff || driverInverted != branchInverted))
+                    return std::nullopt;
+                driver = branch->ff;
+                driverInverted = branchInverted;
+            }
+        }
+        if (ambiguous_ff_paths.contains(current))
+            return std::nullopt;
+        if (auto ff = ff_by_path.find(current); ff != ff_by_path.end()) {
+            if (driver && (driver != ff->second || driverInverted != inverted))
+                return std::nullopt;
+            driver = ff->second;
+            driverInverted = inverted;
+        }
+        if (auto aliases = predecessors.find(current); aliases != predecessors.end()) {
+            for (const auto& [source, edgeInverted] : aliases->second)
+                pending.emplace_back(source, inverted != edgeInverted);
+        }
+        if (indexed_field_predecessors && current.ends_with(']')) {
+            const auto bracket = current.rfind('[');
+            if (bracket != std::string::npos) {
+                const auto base = current.substr(0, bracket);
+                if (auto fields = indexed_field_predecessors->find(base); fields != indexed_field_predecessors->end()) {
+                    const auto suffix = current.substr(bracket);
+                    for (const auto& [source, edgeInverted] : fields->second)
+                        pending.emplace_back(source + suffix, inverted != edgeInverted);
+                }
+            }
+        }
+    }
+    if (!driver)
+        return std::nullopt;
+    return ResolvedFFDriver{driver, *driverInverted};
+}
+
+} // namespace
 
 SyncVerifier::SyncVerifier(std::vector<CrossingReport>& crossings,
                            const std::vector<std::unique_ptr<FFNode>>& ff_nodes,
@@ -205,31 +315,28 @@ void SyncVerifier::detectCombBeforeSync() {
 }
 
 void SyncVerifier::detectResetSyncIssues() {
-    // For each FF, check if its async reset originates from a different clock domain.
-    // If so, check whether that reset signal is properly synchronized (has a 2-FF
-    // sync chain in the crossing list).
-
-    // Build a set of source signals that have synced crossings, keyed by
-    // "source_signal|dest_domain_name" to account for which destination
-    // domain the sync is for.
-    std::unordered_set<std::string> synced_signals;
-    for (auto& c : crossings_) {
-        if (c.sync_type != SyncType::None && c.dest_domain) {
-            synced_signals.insert(c.source_signal + "|" +
-                                  c.dest_domain->canonical_name);
+    // A synchronized data path does not synchronize a separate async reset
+    // pin. Trace that reset backwards through direct aliases and simple
+    // one-bit inversions; require one FF driver and unambiguous polarity.
+    // Matching only a signal's leaf name is unsound.
+    const auto predecessors = clock_db_ ? buildAliasPredecessors(*clock_db_, true) : AliasPredecessors{};
+    AliasPredecessors indexedFieldPredecessors;
+    if (clock_db_) {
+        for (const auto& [source, destinations] : clock_db_->reset_indexed_field_aliases) {
+            for (const auto& dest : destinations)
+                indexedFieldPredecessors[dest].emplace_back(source, false);
         }
     }
-
-    // Build map keyed by leaf signal name for O(1) reset-source lookups.
-    // Key: leaf name (after last '.'), Value: list of FFNodes with that leaf name.
-    std::unordered_map<std::string, std::vector<const FFNode*>> ff_by_leaf;
-    for (auto& ff : ff_nodes_) {
-        std::string leaf = ff->hier_path;
-        auto dot_pos = leaf.rfind('.');
-        if (dot_pos != std::string::npos)
-            leaf = leaf.substr(dot_pos + 1);
-        ff_by_leaf[leaf].push_back(ff.get());
-    }
+    std::unordered_map<std::string, std::optional<ResolvedFFDriver>> reset_driver_cache;
+    auto findResetDriver = [&](const std::string& resetPath) -> std::optional<ResolvedFFDriver> {
+        if (auto cached = reset_driver_cache.find(resetPath); cached != reset_driver_cache.end())
+            return cached->second;
+        auto resolved =
+            findUniqueFFDriver(resetPath, ff_by_path_, predecessors, ambiguous_ff_paths_,
+                               clock_db_ ? &clock_db_->reset_mux_inputs : nullptr, &indexedFieldPredecessors);
+        reset_driver_cache.emplace(resetPath, resolved);
+        return resolved;
+    };
 
     // Build index for existing crossings: "source|dest" -> index
     std::unordered_map<std::string, size_t> crossing_index;
@@ -238,77 +345,55 @@ void SyncVerifier::detectResetSyncIssues() {
     }
 
     for (auto& ff : ff_nodes_) {
-        if (!ff->reset || !ff->reset->is_async || !ff->domain) continue;
-
-        // Find the FF that generates the reset signal using map-based lookups
-        const FFNode* reset_source_ff = nullptr;
-
-        // Try exact path match first
-        auto exact_it = ff_by_path_.find(ff->reset->hier_path);
-        if (exact_it != ff_by_path_.end()) {
-            const FFNode* candidate = exact_it->second;
-            if (candidate->domain && !candidate->domain->isSameDomain(*ff->domain)) {
-                reset_source_ff = candidate;
-            }
+        if (!ff->reset)
+            continue;
+        ff->reset->driver_ff_path.clear();
+        ff->reset->source_domain.clear();
+        ff->reset->driver_inverted.reset();
+        const auto resolution = findResetDriver(ff->reset->hier_path);
+        const FFNode* reset_source_ff = resolution ? resolution->ff : nullptr;
+        if (reset_source_ff && reset_source_ff->domain) {
+            ff->reset->driver_ff_path = reset_source_ff->hier_path;
+            ff->reset->source_domain = reset_source_ff->domain->canonical_name;
+            ff->reset->driver_inverted = resolution->inverted;
         }
+        if (!ff->reset->is_async || !ff->domain || !reset_source_ff || !reset_source_ff->domain ||
+            reset_source_ff->domain->isSameDomain(*ff->domain))
+            continue;
 
-        // Try leaf-name match if exact match failed
-        if (!reset_source_ff) {
-            std::string reset_leaf = ff->reset->hier_path;
-            auto dot_pos = reset_leaf.rfind('.');
-            if (dot_pos != std::string::npos)
-                reset_leaf = reset_leaf.substr(dot_pos + 1);
-
-            auto leaf_it = ff_by_leaf.find(reset_leaf);
-            if (leaf_it != ff_by_leaf.end()) {
-                for (auto* candidate : leaf_it->second) {
-                    if (candidate->domain && !candidate->domain->isSameDomain(*ff->domain)) {
-                        reset_source_ff = candidate;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (!reset_source_ff) continue;
-
-        // Check if there's already a synced crossing for this reset signal
-        // to this specific destination domain
-        std::string sync_key = reset_source_ff->hier_path + "|" +
-            (ff->domain ? ff->domain->canonical_name : "");
-        bool is_synced = synced_signals.count(sync_key) > 0;
-
-        if (!is_synced) {
-            // Check if we already have a crossing for this pair
-            std::string pair_key = reset_source_ff->hier_path + "|" + ff->hier_path;
-            auto cx_it = crossing_index.find(pair_key);
-            if (cx_it != crossing_index.end()) {
-                // Update existing crossing
-                auto& c = crossings_[cx_it->second];
-                c.category = ViolationCategory::Caution;
-                c.severity = Severity::High;
-                c.id = "CAUTION-" + std::to_string(++caution_counter_);
-                c.rule = "Ac_cdc06";
-                c.recommendation = "[Ac_cdc06] Async reset from different clock domain without "
-                    "reset synchronizer. Use async-assert, sync-deassert pattern.";
-            } else {
-                // Add a new crossing report for the reset issue
-                CrossingReport report;
-                report.source_domain = reset_source_ff->domain;
-                report.dest_domain = ff->domain;
-                report.source_signal = reset_source_ff->hier_path;
-                report.dest_signal = ff->hier_path;
-                report.sync_type = SyncType::None;
-                report.category = ViolationCategory::Caution;
-                report.severity = Severity::High;
-                report.id = "CAUTION-" + std::to_string(++caution_counter_);
-                report.rule = "Ac_cdc06";
-                report.recommendation = "[Ac_cdc06] Async reset from different clock domain without "
-                    "reset synchronizer. Use async-assert, sync-deassert pattern.";
-                // Update crossing_index for newly added crossing
-                crossing_index[pair_key] = crossings_.size();
-                crossings_.push_back(std::move(report));
-            }
+        const std::string pair_key = reset_source_ff->hier_path + "|" + ff->hier_path;
+        const std::string recommendation =
+            "[Ac_cdc06] FF-generated async reset crosses clock domains; verify whether a destination-domain "
+            "reset synchronizer protects deassertion and review timing. Use async-assert, sync-deassert where required.";
+        const std::string rationale =
+            "A unique FF driver reaches this asynchronous reset through a structurally resolved route "
+            "(possibly an indexed bit, fixed mux choice, or one-bit inversion); a separate data synchronizer "
+            "does not validate reset deassertion.";
+        auto cx_it = crossing_index.find(pair_key);
+        if (cx_it != crossing_index.end()) {
+            auto& c = crossings_[cx_it->second];
+            c.category = ViolationCategory::Caution;
+            c.severity = Severity::High;
+            c.id = "CAUTION-" + std::to_string(++caution_counter_);
+            c.sync_type = SyncType::None;
+            c.rule = "Ac_cdc06";
+            c.recommendation = recommendation;
+            c.rationale = rationale;
+        } else {
+            CrossingReport report;
+            report.source_domain = reset_source_ff->domain;
+            report.dest_domain = ff->domain;
+            report.source_signal = reset_source_ff->hier_path;
+            report.dest_signal = ff->hier_path;
+            report.sync_type = SyncType::None;
+            report.category = ViolationCategory::Caution;
+            report.severity = Severity::High;
+            report.id = "CAUTION-" + std::to_string(++caution_counter_);
+            report.rule = "Ac_cdc06";
+            report.recommendation = recommendation;
+            report.rationale = rationale;
+            crossing_index[pair_key] = crossings_.size();
+            crossings_.push_back(std::move(report));
         }
     }
 }
@@ -316,7 +401,10 @@ void SyncVerifier::detectResetSyncIssues() {
 void SyncVerifier::analyze() {
     // Build hash indexes for O(1) lookups
     ff_by_path_.clear();
+    ambiguous_ff_paths_.clear();
     for (auto& ff : ff_nodes_) {
+        if (ff_by_path_.contains(ff->hier_path))
+            ambiguous_ff_paths_.insert(ff->hier_path);
         ff_by_path_[ff->hier_path] = ff.get();
     }
     edges_from_.clear();
@@ -458,10 +546,13 @@ void SyncVerifier::analyze() {
     // Phase 9: Detect clock used as data [Ac_cdc09]
     detectClockAsData();
 
-    // Phase 10: Detect same signal crossing to multiple domains [Ac_cdc11]
+    // Phase 10: Detect registered data used as an undeclared clock [Ac_cdc10]
+    detectDataAsClock();
+
+    // Phase 11: Detect same signal crossing to multiple domains [Ac_cdc11]
     detectMultiDomainCrossing();
 
-    // Phase 11: Detect quasi-static signals [Ac_cdc12]
+    // Phase 12: Detect quasi-static signals [Ac_cdc12]
     detectQuasiStaticSignals();
 }
 
@@ -976,41 +1067,50 @@ void SyncVerifier::detectJohnsonCounter() {
 void SyncVerifier::detectClockAsData() {
     if (!clock_db_) return;
 
-    // Build a set of known clock signal names (source names and origin signals)
-    std::unordered_set<std::string> clock_names;
-    for (auto& src : clock_db_->sources) {
-        if (!src->name.empty()) clock_names.insert(src->name);
-        if (!src->origin_signal.empty()) clock_names.insert(src->origin_signal);
-    }
-    for (auto& net : clock_db_->nets) {
-        // Extract leaf name from hier_path
-        std::string leaf = net->hier_path;
-        auto dot = leaf.rfind('.');
-        if (dot != std::string::npos) leaf = leaf.substr(dot + 1);
-        clock_names.insert(leaf);
-    }
-
-    if (clock_names.empty()) return;
-
-    // Check all FFs: if any fanin signal is a known clock (other than its own), flag it
+    // A leaf name is not a clock identity: `d_i` can be a clock in one
+    // primitive and an ordinary data port in thousands of sibling flops.
+    // Resolve the nearest scoped clock net instead of matching names across
+    // unrelated instances. Unqualified root nets are only used by FFs in the
+    // top instance itself, where the net names represent top clock ports.
     for (auto& ff : ff_nodes_) {
-        // Determine the FF's own clock name to skip it
-        std::string own_clock;
-        if (ff->domain && ff->domain->source) {
-            own_clock = ff->domain->source->origin_signal;
-            if (own_clock.empty()) own_clock = ff->domain->source->name;
-        }
+        auto last_dot = ff->hier_path.rfind('.');
+        if (last_dot == std::string::npos)
+            continue;
+        const std::string ff_scope = ff->hier_path.substr(0, last_dot);
+        const std::string& module_scope = ff->module_path.empty() ? ff_scope : ff->module_path;
 
         for (auto& fanin : ff->fanin_signals) {
-            // Skip the FF's own clock (that's normal, not a data-path issue)
-            if (!own_clock.empty() && fanin == own_clock) continue;
-
-            if (clock_names.count(fanin) > 0) {
+            const ClockNet* clock_net = nullptr;
+            std::string scope = ff_scope;
+            while (!scope.empty()) {
+                auto it = clock_db_->net_by_path.find(scope + "." + fanin);
+                if (it != clock_db_->net_by_path.end()) {
+                    clock_net = it->second;
+                    break;
+                }
+                if (scope == module_scope)
+                    break;
+                auto dot = scope.rfind('.');
+                if (dot == std::string::npos)
+                    break;
+                scope.resize(dot);
+            }
+            if (!clock_net && module_scope.find('.') == std::string::npos) {
+                auto it = clock_db_->net_by_path.find(fanin);
+                if (it != clock_db_->net_by_path.end())
+                    clock_net = it->second;
+            }
+            // A toggle divider reads its own Q to compute the next Q. Once
+            // that Q is promoted to a generated clock, this self-feedback
+            // must not masquerade as another FF sampling a clock as data.
+            if (clock_net && clock_net->hier_path == ff->hier_path)
+                continue;
+            if (clock_net && clock_net->source && (!ff->domain || ff->domain->source != clock_net->source)) {
                 // Clock signal used as data input
                 CrossingReport report;
                 report.source_domain = nullptr;
                 report.dest_domain = ff->domain;
-                report.source_signal = fanin;
+                report.source_signal = clock_net->hier_path;
                 report.dest_signal = ff->hier_path;
                 report.sync_type = SyncType::None;
                 report.category = ViolationCategory::Caution;
@@ -1022,6 +1122,54 @@ void SyncVerifier::detectClockAsData() {
                 break; // one report per FF
             }
         }
+    }
+}
+
+void SyncVerifier::detectDataAsClock() {
+    if (!clock_db_)
+        return;
+
+    const auto predecessors = buildAliasPredecessors(*clock_db_);
+
+    for (const auto& clock : clock_db_->sources) {
+        // An explicitly modeled generated clock carries timing intent. This
+        // rule is for an inferred clock driven by a register's data output.
+        if (clock->type != ClockSource::Type::AutoDetected)
+            continue;
+
+        const std::string& origin = clock->origin_signal.empty() ? clock->name : clock->origin_signal;
+        if (origin.empty())
+            continue;
+
+        const auto resolution = findUniqueFFDriver(origin, ff_by_path_, predecessors, ambiguous_ff_paths_);
+        const FFNode* driver = resolution ? resolution->ff : nullptr;
+        if (!driver || !driver->domain || driver->domain->source == clock.get())
+            continue;
+
+        const FFNode* sink = nullptr;
+        for (const auto& ff : ff_nodes_) {
+            if (ff->domain && ff->domain->source == clock.get()) {
+                sink = ff.get();
+                break;
+            }
+        }
+        if (!sink)
+            continue;
+
+        CrossingReport report;
+        report.id = "CAUTION-" + std::to_string(++caution_counter_);
+        report.category = ViolationCategory::Caution;
+        report.severity = Severity::Medium;
+        report.source_signal = driver->hier_path;
+        report.dest_signal = sink->hier_path;
+        report.source_domain = driver->domain;
+        report.dest_domain = sink->domain;
+        report.rule = "Ac_cdc10";
+        report.recommendation = "[Ac_cdc10] Registered data is used as a clock; "
+                                "declare and constrain an intentional generated clock or use a clock enable";
+        report.rationale = "An auto-detected clock is driven by an FF output "
+                           "from another domain, with no generated-clock declaration.";
+        crossings_.push_back(std::move(report));
     }
 }
 

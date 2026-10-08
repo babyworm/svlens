@@ -13,7 +13,7 @@
 namespace fs = std::filesystem;
 using namespace sv_cdccheck;
 
-static std::unique_ptr<slang::ast::Compilation> compileSV(const std::string& sv_code) {
+static auto compileSV(const std::string& sv_code) {
     return sv_cdccheck::test::compileSV(sv_code, "test_fifo_depth");
 }
 

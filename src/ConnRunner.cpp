@@ -38,12 +38,13 @@ void connect::printConnUsage() {
         "  --check-convention      Enable naming convention checking\n"
         "  --check-clock-reset     Enable clock/reset topology analysis\n"
         "  --convention <file>     Custom convention rules (YAML, optional)\n"
+        "  --user-rules <file>     Register YAML name checkers\n"
         "  --expect <file>         Expected/forbidden connectivity spec (YAML)\n"
         "  --depth <n>             Hierarchy depth (default: unlimited, -1)\n\n"
         "Filtering:\n"
         "  --ignore-tie-off        Exclude ports tied to compile-time constants\n"
         "  --ignore-nc             Exclude ports named as no-connect / unused\n"
-        "  --waiver <file>         YAML waiver file\n\n"
+        "  --waiver <file>         YAML waiver file (source comments also supported)\n\n"
         "Tracing:\n"
         "  --trace <pattern>       Trace signal fan-out and fan-in (glob pattern)\n\n"
         "Comparison:\n"
@@ -129,6 +130,12 @@ connect::ConnCliOptions connect::parseConnArgs(int argc, const char* const* argv
             if (i + 1 >= argc) { fmt::print(stderr, "Error: --convention requires a value\n"); return opts; }
             opts.conventionFile = argv[++i];
             opts.checkConvention = true;
+        } else if (arg == "--user-rules") {
+            if (i + 1 >= argc) {
+                fmt::print(stderr, "Error: --user-rules requires a value\n");
+                return opts;
+            }
+            opts.userRulesFile = argv[++i];
         } else if (arg == "--expect") {
             if (i + 1 >= argc) { fmt::print(stderr, "Error: --expect requires a value\n"); return opts; }
             opts.expectFile = argv[++i];
@@ -213,16 +220,15 @@ int connect::runConnWithCompilation(slang::ast::Compilation& compilation,
 
     std::vector<connect::Issue> active;
     std::vector<connect::Issue> waived;
-    if (!opts.waiverFile.empty()) {
-        connect::WaiverFilter filter(opts.waiverFile);
-        auto result = filter.apply(issues);
-        active = std::move(result.active);
-        waived = std::move(result.waived);
-    } else {
-        active = std::move(issues);
-    }
+    connect::WaiverFilter filter;
+    if (!opts.waiverFile.empty())
+        filter = connect::WaiverFilter(opts.waiverFile);
+    auto waiverResult = filter.apply(issues, compilation.getSourceManager());
+    active = std::move(waiverResult.active);
+    waived = std::move(waiverResult.waived);
 
     connect::ReportData reportData{opts.topModule, std::move(graph), active, waived};
+    reportData.sourceManager = compilation.getSourceManager();
     connect::AnalysisEngine analysisEngine;
     reportData.analysis = analysisEngine.analyze(reportData);
 

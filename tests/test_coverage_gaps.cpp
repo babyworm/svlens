@@ -11,13 +11,15 @@
 
 #include <fstream>
 #include <filesystem>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 using namespace sv_cdccheck;
 
 static fs::path writeTempSdc(const std::string& content) {
     static int counter = 0;
-    auto path = fs::temp_directory_path() / ("test_gap_" + std::to_string(counter++) + ".sdc");
+    auto path = fs::temp_directory_path() /
+                ("test_gap_" + std::to_string(::getpid()) + "_" + std::to_string(counter++) + ".sdc");
     std::ofstream(path) << content;
     return path;
 }
@@ -280,7 +282,7 @@ TEST_CASE("GAP: Waiver template generates entries for violations", "[gap][report
     c.sync_type = SyncType::TwoFF;
     result.crossings.push_back(c);
 
-    auto waiver_path = fs::temp_directory_path() / "test_waiver.yaml";
+    auto waiver_path = fs::temp_directory_path() / ("svlens_gap_waiver_" + std::to_string(::getpid()) + ".yaml");
     ReportGenerator report(result);
     report.generateWaiverTemplate(waiver_path);
 

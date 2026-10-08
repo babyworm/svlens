@@ -7,7 +7,7 @@
 
 using namespace sv_cdccheck;
 
-static std::unique_ptr<slang::ast::Compilation> compileSV(const std::string& sv_code) {
+static auto compileSV(const std::string& sv_code) {
     return sv_cdccheck::test::compileSV(sv_code, "test_conn");
 }
 
@@ -228,7 +228,7 @@ TEST_CASE("CrossingDetector: syncreg primitive is downgraded to INFO", "[crossin
     CHECK(crossings[0].rationale.find("syncreg") != std::string::npos);
 }
 
-TEST_CASE("CrossingDetector: logically exclusive crossing is informational", "[crossing][exclusive]") {
+TEST_CASE("CrossingDetector: logically exclusive crossing requires mode review", "[crossing][exclusive]") {
     ClockDatabase db;
 
     auto srcA = std::make_unique<ClockSource>();
@@ -251,10 +251,10 @@ TEST_CASE("CrossingDetector: logically exclusive crossing is informational", "[c
     auto crossings = detector.getCrossings();
 
     REQUIRE(crossings.size() == 1);
-    CHECK(crossings[0].category == ViolationCategory::Info);
-    CHECK(crossings[0].severity == Severity::Info);
+    CHECK(crossings[0].category == ViolationCategory::Caution);
+    CHECK(crossings[0].severity == Severity::Medium);
     CHECK(crossings[0].relationship == "logically_exclusive");
-    CHECK(crossings[0].rationale.find("exclusive") != std::string::npos);
+    CHECK(crossings[0].rationale.find("mode") != std::string::npos);
 }
 
 TEST_CASE("CrossingDetector: divided crossing captures timing basis and rationale", "[crossing][divided]") {

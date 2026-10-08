@@ -7,17 +7,18 @@
 
 #include <string>
 #include <string_view>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace connect {
 
 class ConnectionExtractor {
 public:
-    ConnectionExtractor(slang::ast::Compilation& compilation,
-                        const std::string& topModule,
-                        int maxDepth = -1);
+    ConnectionExtractor(slang::ast::Compilation& compilation, const std::string& topModule, int maxDepth = -1,
+                        bool captureDeclarations = false);
 
     ConnectionGraph extract();
 
@@ -49,12 +50,33 @@ private:
     void processProceduralBlock(const slang::ast::ProceduralBlockSymbol& block,
                                 const std::string& scopePath);
 
-    void processProceduralStatement(const slang::ast::Statement& stmt,
-                                    const std::string& scopePath);
+    void processProceduralStatement(const slang::ast::Statement& stmt, const slang::ast::ProceduralBlockSymbol& owner,
+                                    const std::string& scopePath, bool combinational, bool exactSingleAssignment,
+                                    std::vector<std::string> guardKeys = {});
 
     void resolveConnections();
 
     static ResolvedExpr resolveExpr(const slang::ast::Expression* expr);
+    struct WireRange {
+        std::string baseKey;
+        int64_t left = 0;
+        int64_t right = 0;
+    };
+    static std::optional<WireRange> resolveWireRange(const slang::ast::Expression& expr, const std::string& scopePath,
+                                                     uint32_t portWidth);
+    struct BitFlowLink {
+        WireRange source;
+        WireRange dest;
+        uint32_t sourceOffset = 0;
+        uint32_t destOffset = 0;
+        uint32_t width = 0;
+        bool approximate = false;
+        bool interesting = false; // positional flow to surface, including exact procedural copies
+    };
+    bool recordBitFlow(const slang::ast::Expression& lhs, const slang::ast::Expression& rhs,
+                       const std::string& scopePath, bool approximate, bool forceInteresting = false);
+    static void collectDependencyKeys(const slang::ast::Expression& expr, const std::string& scopePath,
+                                      std::vector<std::string>& keys);
     void recordAlias(const std::string& lhsKey, const std::string& rhsKey, bool approximate);
 
     // Round 39 review: fill in StyleObservation::lineNumber/columnNumber
@@ -123,6 +145,7 @@ private:
     slang::ast::Compilation& compilation_;
     std::string topModule_;
     int maxDepth_;
+    bool captureDeclarations_;
     ConnectionGraph graph_;
 
     std::string findCanonical(const std::string& key);
@@ -134,6 +157,16 @@ private:
         ConnectionKind kind = ConnectionKind::Direct;
     };
     std::unordered_map<std::string, std::vector<NetBinding>> netMap_;
+    struct RangeBinding {
+        PortInfo port;
+        bool isDriver = false;
+        WireRange wire;
+        std::string originalKey;
+        std::optional<int64_t> portRight;
+        ConnectionKind kind = ConnectionKind::Direct;
+    };
+    std::vector<RangeBinding> rangeBindings_;
+    std::vector<BitFlowLink> bitFlowLinks_;
 
     // Round 39 US-39B: per-module sets accumulated during visitScope.
     // registered_q_bases_: base names of _q-suffixed always_ff NB-LHS.
@@ -147,6 +180,9 @@ private:
     // net alias map: key -> parent key (union-find without path compression)
     std::unordered_map<std::string, std::string> netAliases_;
     std::unordered_set<std::string> approximateAliases_;
+    // Directed signal dependencies from combinational procedural assignments.
+    // Unlike aliases, multiple mux inputs must not merge into one net.
+    std::vector<std::pair<std::string, std::string>> proceduralDependencies_;
 };
 
 } // namespace connect

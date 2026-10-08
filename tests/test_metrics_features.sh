@@ -349,5 +349,34 @@ assert len(nodes) > 0, 'should have nodes from LHS concat decomposition'
 " || { echo "FAIL: LHS concat unequal widths" >&2; exit 1; }
 echo "PASS: LHS concat unequal widths"
 
+# ============================================================
+# Test 22: shared intermediate has global fanout two in both cones
+# ============================================================
+"$SVLENS_BINARY" metrics tests/sv/metrics/fanout_shared.sv --top fanout_shared \
+    -o "$OUTDIR/fanout" >/dev/null 2>&1
+python3 -c "
+import json
+r = json.load(open('$OUTDIR/fanout/metrics_report.json'))
+roots = {root['root_id']: root for root in r['roots']}
+assert roots['y0']['max_fanout'] == 2, roots['y0']
+assert roots['y1']['max_fanout'] == 2, roots['y1']
+" || { echo "FAIL: fanout metric" >&2; exit 1; }
+echo "PASS: fanout metric"
+
+# ============================================================
+# Test 23: gate-cost proxy distinguishes wiring and operator classes
+# ============================================================
+"$SVLENS_BINARY" metrics tests/sv/metrics/gate_cost.sv --top gate_cost \
+    -o "$OUTDIR/gate_cost" >/dev/null 2>&1
+python3 -c "
+import json
+r = json.load(open('$OUTDIR/gate_cost/metrics_report.json'))
+roots = {root['root_id']: root for root in r['roots']}
+cost = lambda name: roots[name]['gate_cost_proxy']
+assert cost('y_wire') == 0, roots['y_wire']
+assert 0 < cost('y_and') < cost('y_add') < cost('y_mul'), roots
+" || { echo "FAIL: gate cost proxy" >&2; exit 1; }
+echo "PASS: gate cost proxy"
+
 echo ""
-echo "PASS: all 21 metrics feature tests"
+echo "PASS: all 23 metrics feature tests"

@@ -12,11 +12,12 @@
 #include <filesystem>
 #include <string>
 #include <sstream>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 using namespace sv_cdccheck;
 
-static std::unique_ptr<slang::ast::Compilation> compileSV(const std::string& sv_code) {
+static auto compileSV(const std::string& sv_code) {
     return sv_cdccheck::test::compileSV(sv_code, "test_phase4");
 }
 
@@ -193,7 +194,7 @@ waivers:
 }
 
 TEST_CASE("Phase4: waiver file loading", "[phase4][waiver]") {
-    auto path = fs::temp_directory_path() / "test_waiver.yaml";
+    auto path = fs::temp_directory_path() / ("svlens_phase4_waiver_" + std::to_string(::getpid()) + ".yaml");
     {
         std::ofstream f(path);
         f << "waivers:\n"
@@ -675,7 +676,7 @@ TEST_CASE("Phase4: markdown report includes WAIVED count", "[phase4][report]") {
     result.crossings.push_back(c);
 
     ReportGenerator gen(result);
-    auto path = fs::temp_directory_path() / "test_waived_md.md";
+    auto path = fs::temp_directory_path() / ("test_waived_md_" + std::to_string(::getpid()) + ".md");
     gen.generateMarkdown(path);
 
     std::ifstream f(path);

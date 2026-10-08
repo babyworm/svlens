@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <fstream>
 #include <filesystem>
+#include <unistd.h>
 #include "sv-cdccheck/sdc_parser.h"
 
 namespace fs = std::filesystem;
@@ -9,7 +10,8 @@ using namespace sv_cdccheck;
 // Helper: write a temp SDC file and return its path
 static fs::path writeTempSdc(const std::string& content) {
     static int counter = 0;
-    auto path = fs::temp_directory_path() / ("test_sdc_" + std::to_string(counter++) + ".sdc");
+    auto path = fs::temp_directory_path() /
+                ("test_sdc_" + std::to_string(::getpid()) + "_" + std::to_string(counter++) + ".sdc");
     std::ofstream(path) << content;
     return path;
 }
@@ -76,6 +78,39 @@ TEST_CASE("SDC parser: set_clock_groups physically_exclusive", "[sdc]") {
 
     REQUIRE(sdc.clock_groups.size() == 1);
     CHECK(sdc.clock_groups[0].type == SdcClockGroup::Type::Exclusive);
+}
+
+TEST_CASE("SDC parser: static get_clocks group selectors preserve clock lists", "[sdc][clock_groups]") {
+    auto path =
+        writeTempSdc("set_clock_groups -asynchronous -group [get_clocks {clk_a clk_b}] -group [get_clocks clk_c]\n"
+                     "set_clock_groups -logically_exclusive -group [get_clocks {clk_d}] -group {clk_e}\n"
+                     "set_clock_groups -asynchronous -group [get_clocks -include_generated_clocks {clk_a clk_b}] "
+                     "-group [get_clocks clk_c]\n");
+    auto sdc = SdcParser::parse(path);
+    fs::remove(path);
+
+    REQUIRE(sdc.clock_groups.size() == 3);
+    CHECK(sdc.skipped_clock_groups == 0);
+    REQUIRE(sdc.clock_groups[0].groups.size() == 2);
+    CHECK(sdc.clock_groups[0].groups[0] == std::vector<std::string>{"clk_a", "clk_b"});
+    CHECK(sdc.clock_groups[0].groups[1] == std::vector<std::string>{"clk_c"});
+    CHECK(sdc.clock_groups[1].type == SdcClockGroup::Type::LogicallyExclusive);
+    CHECK(sdc.clock_groups[1].groups[0] == std::vector<std::string>{"clk_d"});
+    CHECK(sdc.clock_groups[1].groups[1] == std::vector<std::string>{"clk_e"});
+    REQUIRE(sdc.clock_groups[2].include_generated.size() == 2);
+    CHECK(sdc.clock_groups[2].groups[0] == std::vector<std::string>{"clk_a", "clk_b"});
+    CHECK(sdc.clock_groups[2].include_generated[0]);
+    CHECK_FALSE(sdc.clock_groups[2].include_generated[1]);
+}
+
+TEST_CASE("SDC parser: unsupported group selectors cannot become partial groups", "[sdc][clock_groups]") {
+    auto path = writeTempSdc("set_clock_groups -asynchronous -group [get_clocks -regexp clk_a] "
+                             "-group [get_clocks clk_b]\n"
+                             "set_clock_groups -asynchronous -group [get_clocks {clk_*}] -group [get_clocks clk_b]\n");
+    auto sdc = SdcParser::parse(path);
+    fs::remove(path);
+    CHECK(sdc.clock_groups.empty());
+    CHECK(sdc.skipped_clock_groups == 2);
 }
 
 TEST_CASE("SDC parser: comments and blank lines ignored", "[sdc]") {

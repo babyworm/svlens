@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <fstream>
 #include <filesystem>
+#include <unistd.h>
 #include "sv-cdccheck/filelist_parser.h"
 
 namespace fs = std::filesystem;
@@ -9,7 +10,8 @@ using namespace sv_cdccheck;
 // Helper: write a temp file and return its path
 static fs::path writeTempFile(const std::string& content, const std::string& suffix = ".f") {
     static int counter = 0;
-    auto path = fs::temp_directory_path() / ("test_filelist_" + std::to_string(counter++) + suffix);
+    auto path = fs::temp_directory_path() /
+                ("test_filelist_" + std::to_string(::getpid()) + "_" + std::to_string(counter++) + suffix);
     std::ofstream(path) << content;
     return path;
 }

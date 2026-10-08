@@ -10,6 +10,11 @@ The runner is `tests/test_cdc_golden.sh` (invoked by ctest as the
 `integration_cdc_golden` test). It compares the actual svlens output
 against the golden values byte-equivalent and fails on any deviation.
 
+The optional `make test-sva-sim` target requires Verilator and executes
+generated SVA with three valid and three deliberately mutated RTL fixtures.
+It catches assertions that parse but never fire; it does not simulate the
+OpenTitan SoC or every SVA template.
+
 ## Pairing principle
 
 Every detection rule that fires on at least one fixture has both:
@@ -31,7 +36,7 @@ anyway) on every rule.
 | `Ac_cdc01` | single-stage destination FF (insufficient) | `14_single_ff_only` (1 VIOL) | `04_three_ff_sync` (1 INFO) |
 | `Ac_cdc02` | combinational logic before sync FF | `05_comb_before_sync` (1 CAUT) | `28_neg_ac_cdc02_clean_path` (1 INFO) |
 | `Ac_cdc03` | reconvergence (multiple bits, same domain pair) | `12_multi_crossing_mixed` (2 CAUT + 1 VIOL) | `29_neg_ac_cdc03_distinct_pairs` (Ac_cdc03 silent; fan-out CAUT fires instead) |
-| `Ac_cdc06` | reset CDC without 2-FF deassert chain | `19_missing_reset_sync` (1 CAUT) | `30_neg_ac_cdc06_synced_reset` (1 INFO) |
+| `Ac_cdc06` | FF-generated async reset crossing requiring deassertion review | `19_missing_reset_sync` (1 CAUT), `inverted_reset_alias` (runner CAUT) | `30_neg_ac_cdc06_synced_reset` (1 INFO); conditional/overwritten inversion unit tests stay unresolved |
 | `Ac_cdc11` | source signal crosses to multiple async domains | `20_fanout_mixed_sync` (1 VIOL + 1 CAUT) | `03_two_ff_sync` (1 INFO, single dest) |
 | `Ac_cdc04` | wide-bus crossing without gray code or handshake | `15_bus_cdc_no_gray` (1 CAUT) | `32_neg_ac_cdc04_single_bit` (1 INFO) |
 | `Ac_cdc05` | flop clock driven by combinational expression (raw mux without glitch-free primitive or SDC declaration) | `21_clock_mux` (1 VIOL) | `34_neg_ac_cdc05_safe_mux_cell` (registered safe cell via `--glitch-free-mux-cell`, 0/0/0), `35_neg_ac_cdc05_sdc_clock_mux` (SDC `create_generated_clock`, 0/0/0) |

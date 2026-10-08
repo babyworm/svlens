@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -13,6 +14,8 @@ struct ConeSummary {
     ValueRef root;
     uint32_t raw_node_count = 0;
     uint32_t logic_depth_est = 0;
+    uint32_t max_fanout = 0;
+    uint64_t gate_cost_proxy = 0;
     uint32_t unique_transform_count = 0;
     uint32_t repeated_lane_group_count = 0;
     uint32_t normalized_transform_count = 0;
@@ -47,6 +50,7 @@ private:
     const TransformGraph& graph_;
     int maxDepth_;
     std::unordered_set<std::string> ffQNames_;
+    std::unordered_map<std::string, uint32_t> consumersByValue_;
 };
 
 } // namespace metrics

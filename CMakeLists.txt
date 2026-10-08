@@ -50,12 +50,36 @@ if(NOT SVLENS_KEEP_SLANG_DEBUG)
             "if your slang was built Debug.")
     endif()
 endif()
+
+string(CONCAT _svlens_all_cxx_flags "${CMAKE_CXX_FLAGS}"
+    " ${CMAKE_CXX_FLAGS_DEBUG}" " ${CMAKE_CXX_FLAGS_RELEASE}"
+    " ${CMAKE_CXX_FLAGS_RELWITHDEBINFO}" " ${CMAKE_CXX_FLAGS_MINSIZEREL}")
+if(_svlens_all_cxx_flags MATCHES "fsanitize=address")
+    get_target_property(_svlens_slang_allocator_defs slang::slang INTERFACE_COMPILE_DEFINITIONS)
+    if(_svlens_slang_allocator_defs)
+        list(FIND _svlens_slang_allocator_defs "SLANG_USE_MIMALLOC" _svlens_mimalloc_index)
+        if(NOT _svlens_mimalloc_index EQUAL -1)
+            message(FATAL_ERROR
+                "AddressSanitizer cannot use this mimalloc-enabled slang install reliably. "
+                "Build slang in a separate prefix with scripts/setup-deps.sh --no-mimalloc, "
+                "then configure with that CMAKE_PREFIX_PATH and slang_DIR; "
+                "see docs/install.md#addresssanitizer-validation.")
+        endif()
+    endif()
+endif()
 # fmt: prefer slang's bundled copy; fall back to system install
 if(NOT TARGET slang::fmt)
     find_package(fmt REQUIRED)
     set(FMT_TARGET fmt::fmt)
 else()
     set(FMT_TARGET slang::fmt)
+endif()
+
+# slang v10 public headers call fmt::format through an indirect include. The
+# Xcode 26.6 runner with fmt 12.1 no longer exposes that declaration via
+# fmt/core.h, so include the already-required format header for consumers.
+if(APPLE)
+    add_compile_options(-include fmt/format.h)
 endif()
 
 option(SVLENS_FETCH_DEPS "Allow CMake to fetch missing third-party dependencies" ON)
@@ -158,6 +182,7 @@ add_library(svlens-conn-lib OBJECT
     src/ProtocolChecker.cpp
     src/SynthesizabilityChecker.cpp
     src/ConventionChecker.cpp
+    src/UserChecker.cpp
     src/CheckerRunner.cpp
     src/WaiverFilter.cpp
     src/JsonReport.cpp

@@ -8,6 +8,7 @@ targets:
     core: "lowrisc:ip:aes"
     core_file: "hw/ip/aes/aes.core"
     timeout_sec: 120
+    sva_probe: true
 
   - name: hmac
     level: L2
@@ -29,3 +30,15 @@ targets:
     core: "lowrisc:systems:top_earlgrey"
     core_file: "hw/top_earlgrey/top_earlgrey.core"
     timeout_sec: 600
+    period_sdc: "constraints/top_earlgrey_periods.sdc"
+    sva_probe: true
+    sample_annotations: "golden/top_earlgrey_connection_sample.yaml"
+    source_recall_scopes:
+      - top_earlgrey.u_aes
+      - top_earlgrey.u_spi_device
+      - top_earlgrey.u_hmac
+      - top_earlgrey.u_spi_host0
+      - top_earlgrey.u_usbdev
+      - top_earlgrey.u_rv_core_ibex
+      - top_earlgrey.u_pwrmgr_aon
+    source_recall_expected_sha256: "489f2ee89a2927b87654a85211290e57718a643de2ebcb77eba12248341026f3"

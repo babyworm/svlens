@@ -16,6 +16,7 @@ void MarkdownReportGenerator::generate(const ReportData& data, std::ostream& out
     out << fmt::format("| Errors | {} |\n", data.errorCount());
     out << fmt::format("| Warnings | {} |\n", data.warnCount());
     out << fmt::format("| Info | {} |\n", data.infoCount());
+    out << fmt::format("| Bit-flow gaps | {} |\n", data.graph.bitFlowGapCount);
     out << fmt::format("| Waived | {} |\n", static_cast<int>(data.waived.size()));
     out << "\n";
 

@@ -1,0 +1,6 @@
+checkers:
+  - id: USR-BAD
+    description: Invalid regex must fail
+    target: signal
+    forbidden: "("
+    severity: warning

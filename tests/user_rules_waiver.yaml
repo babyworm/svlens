@@ -1,0 +1,4 @@
+waivers:
+  - type: USR-001
+    pattern: "*"
+    reason: Existing module naming exception

@@ -31,14 +31,32 @@ FFClassifier::FFClassifier(slang::ast::Compilation& compilation,
 // Information extracted from one SignalEventControl
 struct EventInfo {
     std::string signal_name;
+    std::string signal_path;
     bool is_posedge = false;
     bool is_negedge = false;
 };
+
+static std::string eventSignalPath(const slang::ast::Expression& expr) {
+    using EK = slang::ast::ExpressionKind;
+    if (expr.kind == EK::NamedValue)
+        return expr.as<slang::ast::NamedValueExpression>().symbol.getHierarchicalPath();
+    if (expr.kind == EK::HierarchicalValue)
+        return expr.as<slang::ast::HierarchicalValueExpression>().symbol.getHierarchicalPath();
+    if (expr.kind == EK::MemberAccess) {
+        const auto& member = expr.as<slang::ast::MemberAccessExpression>();
+        const auto base = eventSignalPath(member.value());
+        return base.empty() ? std::string{} : base + "." + std::string(member.member.name);
+    }
+    if (expr.kind == EK::Conversion)
+        return eventSignalPath(expr.as<slang::ast::ConversionExpression>().operand());
+    return {};
+}
 
 // Parse a single SignalEventControl into EventInfo
 static EventInfo parseSignalEvent(const slang::ast::SignalEventControl& sec) {
     EventInfo info;
     info.signal_name = extractSignalName(sec.expr);
+    info.signal_path = eventSignalPath(sec.expr);
     info.is_posedge = (sec.edge == slang::ast::EdgeKind::PosEdge);
     info.is_negedge = (sec.edge == slang::ast::EdgeKind::NegEdge);
     return info;
@@ -65,8 +83,10 @@ static std::vector<EventInfo> extractEvents(const slang::ast::TimingControl& tim
 // Classify events into clock and reset(s)
 struct SensitivityInfo {
     std::string clock_name;
+    std::string clock_path;
     Edge clock_edge = Edge::Posedge;
     std::string reset_name;
+    std::string reset_path;
     bool reset_is_async = false;
     ResetSignal::Polarity reset_polarity = ResetSignal::Polarity::ActiveLow;
 };
@@ -95,11 +115,13 @@ static SensitivityInfo classifyEvents(const std::vector<EventInfo>& events,
         if (looks_like_clock && !looks_like_reset) {
             if (info.clock_name.empty()) {
                 info.clock_name = ev.signal_name;
+                info.clock_path = ev.signal_path;
                 info.clock_edge = ev.is_posedge ? Edge::Posedge : Edge::Negedge;
             }
         }
         else if (looks_like_reset && !looks_like_clock) {
             info.reset_name = ev.signal_name;
+            info.reset_path = ev.signal_path;
             info.reset_is_async = true; // in sensitivity list = async reset
             info.reset_polarity = ev.is_negedge ?
                 ResetSignal::Polarity::ActiveLow : ResetSignal::Polarity::ActiveHigh;
@@ -111,6 +133,7 @@ static SensitivityInfo classifyEvents(const std::vector<EventInfo>& events,
         for (auto& ev : events) {
             if (ev.is_posedge && !ClockTreeAnalyzer::isResetName(ev.signal_name)) {
                 info.clock_name = ev.signal_name;
+                info.clock_path = ev.signal_path;
                 info.clock_edge = Edge::Posedge;
                 break;
             }
@@ -120,6 +143,7 @@ static SensitivityInfo classifyEvents(const std::vector<EventInfo>& events,
     // Fallback: if still no clock, use first event
     if (info.clock_name.empty() && !events.empty()) {
         info.clock_name = events[0].signal_name;
+        info.clock_path = events[0].signal_path;
         info.clock_edge = events[0].is_posedge ? Edge::Posedge : Edge::Negedge;
     }
 
@@ -130,6 +154,9 @@ static SensitivityInfo classifyEvents(const std::vector<EventInfo>& events,
 struct FFAssignInfo {
     std::string lhs_name;
     std::vector<std::string> rhs_signals;
+    std::vector<std::string> guard_signals;
+    std::string declared_path;
+    int lhs_width = 0;
 };
 
 static bool hasSequentialEdgeEvent(const std::vector<EventInfo>& events) {
@@ -139,9 +166,8 @@ static bool hasSequentialEdgeEvent(const std::vector<EventInfo>& events) {
 }
 
 // Collect variable names assigned in a statement (the FF registers) with fanin info
-static void collectAssignedVars(const slang::ast::Statement& stmt,
-                                std::vector<std::string>& vars,
-                                std::vector<FFAssignInfo>& assign_infos) {
+static void collectAssignedVars(const slang::ast::Statement& stmt, std::vector<std::string>& vars,
+                                std::vector<FFAssignInfo>& assign_infos, const std::vector<std::string>& guards) {
     switch (stmt.kind) {
         case slang::ast::StatementKind::ExpressionStatement: {
             auto& exprStmt = stmt.as<slang::ast::ExpressionStatement>();
@@ -151,42 +177,52 @@ static void collectAssignedVars(const slang::ast::Statement& stmt,
                 // / fallback broadcast) is shared with collectAssignments
                 // in ast_utils.cpp -- both consumers need positional
                 // bit-aware matching for the ZipCPU 2-FF concat idiom.
-                splitAssignmentByLHS(
-                    expr.as<slang::ast::AssignmentExpression>(),
-                    [&vars, &assign_infos](std::string lhs_name,
-                                           std::vector<std::string> rhs_signals) {
-                        if (std::find(vars.begin(), vars.end(), lhs_name)
-                            == vars.end())
-                            vars.push_back(lhs_name);
-                        FFAssignInfo info;
-                        info.lhs_name = std::move(lhs_name);
-                        info.rhs_signals = std::move(rhs_signals);
-                        assign_infos.push_back(std::move(info));
-                    });
+                const auto& assignment = expr.as<slang::ast::AssignmentExpression>();
+                const auto& lhs = assignment.left();
+                const bool directMember =
+                    lhs.kind == slang::ast::ExpressionKind::MemberAccess && lhs.type && lhs.type->isIntegral();
+                const std::string memberPath = directMember ? eventSignalPath(lhs) : std::string{};
+                const int memberWidth = directMember ? static_cast<int>(lhs.type->getBitWidth()) : 0;
+                splitAssignmentByLHS(assignment, [&vars, &assign_infos, &guards, &memberPath, memberWidth](
+                                                     std::string lhs_name, std::vector<std::string> rhs_signals) {
+                    if (std::find(vars.begin(), vars.end(), lhs_name) == vars.end())
+                        vars.push_back(lhs_name);
+                    FFAssignInfo info;
+                    info.lhs_name = std::move(lhs_name);
+                    info.rhs_signals = std::move(rhs_signals);
+                    info.guard_signals = guards;
+                    info.declared_path = memberPath;
+                    info.lhs_width = memberWidth;
+                    assign_infos.push_back(std::move(info));
+                });
             }
             break;
         }
         case slang::ast::StatementKind::Timed: {
             auto& timed = stmt.as<slang::ast::TimedStatement>();
-            collectAssignedVars(timed.stmt, vars, assign_infos);
+            collectAssignedVars(timed.stmt, vars, assign_infos, guards);
             break;
         }
         case slang::ast::StatementKind::Block: {
             auto& block = stmt.as<slang::ast::BlockStatement>();
-            collectAssignedVars(block.body, vars, assign_infos);
+            collectAssignedVars(block.body, vars, assign_infos, guards);
             break;
         }
         case slang::ast::StatementKind::List: {
             auto& list = stmt.as<slang::ast::StatementList>();
             for (auto* child : list.list)
-                if (child) collectAssignedVars(*child, vars, assign_infos);
+                if (child)
+                    collectAssignedVars(*child, vars, assign_infos, guards);
             break;
         }
         case slang::ast::StatementKind::Conditional: {
             auto& cond = stmt.as<slang::ast::ConditionalStatement>();
-            collectAssignedVars(cond.ifTrue, vars, assign_infos);
+            auto conditionalGuards = guards;
+            for (const auto& condition : cond.conditions)
+                collectReferencedSignals(*condition.expr, conditionalGuards);
+            collectAssignedVars(cond.ifTrue, vars, assign_infos, conditionalGuards);
             if (cond.ifFalse)
-                collectAssignedVars(*cond.ifFalse, vars, assign_infos);
+                collectAssignedVars(*cond.ifFalse, vars, assign_infos, conditionalGuards);
             break;
         }
         default: break;
@@ -202,12 +238,9 @@ static void processInstance(const slang::ast::InstanceSymbol& inst,
                             std::vector<LatchWarning>& latch_warnings,
                             std::vector<FFClassificationError>& errors);
 
-static void processMembers(const slang::ast::Scope& scope,
-                           const std::string& inst_path,
-                           const std::string& primitive_name,
-                           ClockDatabase& clock_db,
-                           std::vector<std::unique_ptr<FFNode>>& ff_nodes,
-                           std::vector<LatchWarning>& latch_warnings,
+static void processMembers(const slang::ast::Scope& scope, const std::string& inst_path, const std::string& module_path,
+                           const std::string& primitive_name, ClockDatabase& clock_db,
+                           std::vector<std::unique_ptr<FFNode>>& ff_nodes, std::vector<LatchWarning>& latch_warnings,
                            std::vector<FFClassificationError>& errors);
 
 // Walk an instance and extract FFs from always_ff blocks
@@ -221,16 +254,13 @@ static void processInstance(const slang::ast::InstanceSymbol& inst,
     std::string inst_path = prefix.empty() ?
         std::string(inst.name) : prefix + "." + std::string(inst.name);
 
-    processMembers(inst.body, inst_path, primitive_name, clock_db, ff_nodes, latch_warnings, errors);
+    processMembers(inst.body, inst_path, inst_path, primitive_name, clock_db, ff_nodes, latch_warnings, errors);
 }
 
 // Walk members of any scope (InstanceBody, GenerateBlock, etc.)
-static void processMembers(const slang::ast::Scope& scope,
-                           const std::string& inst_path,
-                           const std::string& primitive_name,
-                           ClockDatabase& clock_db,
-                           std::vector<std::unique_ptr<FFNode>>& ff_nodes,
-                           std::vector<LatchWarning>& latch_warnings,
+static void processMembers(const slang::ast::Scope& scope, const std::string& inst_path, const std::string& module_path,
+                           const std::string& primitive_name, ClockDatabase& clock_db,
+                           std::vector<std::unique_ptr<FFNode>>& ff_nodes, std::vector<LatchWarning>& latch_warnings,
                            std::vector<FFClassificationError>& errors) {
     for (auto& member : scope.members()) {
         if (member.kind == slang::ast::SymbolKind::ProceduralBlock) {
@@ -288,63 +318,88 @@ static void processMembers(const slang::ast::Scope& scope,
             // Find or create the domain for this clock
             ClockDomain* domain = nullptr;
 
-            // 1) Direct match: source name or origin_signal matches the clock name
-            for (auto& src : clock_db.sources) {
-                if (src->origin_signal == sens.clock_name ||
-                    src->name == sens.clock_name) {
-                    domain = clock_db.findOrCreateDomain(src.get(), sens.clock_edge);
-                    break;
-                }
-            }
-
-            // 2) Clock net lookup: the clock may have been propagated through
+            // 1) Clock net lookup: the clock may have been propagated through
             //    port connections with a different name (e.g., proc_clk <- sys_clk).
             //    Search clock nets by matching instance + clock name patterns,
             //    walking ALL ancestor scopes -- needed when the FF lives inside
             //    a deep generate block (`u_sub.gen_blk[1].i_sync`) but the
             //    propagated ClockNet lives on the enclosing instance scope
             //    (`u_sub.clk_i`).
-            if (!domain) {
-                std::vector<std::string> candidate_paths;
-                candidate_paths.push_back(inst_path + "." + sens.clock_name);
-                std::string inst_leaf = inst_path;
-                auto dot_pos = inst_leaf.rfind('.');
-                if (dot_pos != std::string::npos)
-                    candidate_paths.push_back(
-                        inst_leaf.substr(dot_pos + 1) + "." + sens.clock_name);
-                candidate_paths.push_back(sens.clock_name);
-                // Ancestor walk: try every prefix of inst_path with the
-                // clock name suffix appended. This is what unblocks
-                // genvar-wrapped synchronizers in pulp/cdc_fifo_gray.
-                std::string ancestor = inst_path;
-                while (true) {
-                    auto pos = ancestor.rfind('.');
-                    if (pos == std::string::npos) break;
-                    ancestor = ancestor.substr(0, pos);
-                    candidate_paths.push_back(ancestor + "." + sens.clock_name);
+            std::vector<std::string> candidate_paths;
+            candidate_paths.push_back(inst_path + "." + sens.clock_name);
+            // Ancestor walk: try every prefix of inst_path with the
+            // clock name suffix appended. This is what unblocks
+            // genvar-wrapped synchronizers in pulp/cdc_fifo_gray. An
+            // unqualified `clk_i` may be a different physical source, so
+            // global name matching belongs after this scoped walk.
+            std::string ancestor = inst_path;
+            while (true) {
+                auto pos = ancestor.rfind('.');
+                if (pos == std::string::npos)
+                    break;
+                ancestor = ancestor.substr(0, pos);
+                candidate_paths.push_back(ancestor + "." + sens.clock_name);
+            }
+            // An explicitly declared generated clock overrides a propagated
+            // master net only at its scoped target. A generated source named
+            // `clk_i` in a sibling instance must not preempt this FF's net.
+            for (auto& src : clock_db.sources) {
+                if (src->type == ClockSource::Type::Generated &&
+                    std::find(candidate_paths.begin(), candidate_paths.end(), src->origin_signal) !=
+                        candidate_paths.end()) {
+                    domain = clock_db.findOrCreateDomain(src.get(), sens.clock_edge);
+                    break;
                 }
-                // Use clock_db.net_by_path hash (O(1) per candidate)
-                // instead of a linear scan over clock_db.nets. The
-                // ancestor walk is itself O(D) where D is hierarchy
-                // depth, so total cost stays O(D) instead of the
-                // previous O(D * N_nets). (Code-reviewer Round 12 #1.)
-                for (auto& cp : candidate_paths) {
-                    auto net_it = clock_db.net_by_path.find(cp);
-                    if (net_it != clock_db.net_by_path.end()) {
-                        domain = clock_db.findOrCreateDomain(
-                            net_it->second->source, sens.clock_edge);
+            }
+            // Use clock_db.net_by_path hash (O(1) per candidate)
+            // instead of a linear scan over clock_db.nets. The
+            // ancestor walk is itself O(D) where D is hierarchy
+            // depth, so total cost stays O(D) instead of the
+            // previous O(D * N_nets). (Code-reviewer Round 12 #1.)
+            for (auto& cp : candidate_paths) {
+                if (domain)
+                    break;
+                auto net_it = clock_db.net_by_path.find(cp);
+                if (net_it != clock_db.net_by_path.end()) {
+                    domain = clock_db.findOrCreateDomain(net_it->second->source, sens.clock_edge);
+                    break;
+                }
+            }
+
+            // 2) Reuse an inferred clock already attached to this exact
+            // declaration (other FFs in the same module may share it).
+            if (!domain && !sens.clock_path.empty()) {
+                for (auto& src : clock_db.sources) {
+                    if (src->origin_signal == sens.clock_path) {
+                        domain = clock_db.findOrCreateDomain(src.get(), sens.clock_edge);
                         break;
                     }
                 }
             }
 
-            // 3) If clock not found in db, create an auto-detected source
+            // 3) Only fall back to a global source name when no scoped net
+            // or exact inferred origin exists. A child `clk_i` can be wired
+            // to a different parent clock even when the top has a `clk_i`.
+            // A qualified auto-detected origin belongs to one instance;
+            // matching its leaf globally merges unrelated data clocks.
+            if (!domain) {
+                for (auto& src : clock_db.sources) {
+                    const bool scoped_auto = src->type == ClockSource::Type::AutoDetected &&
+                                             src->origin_signal.find('.') != std::string::npos;
+                    if (src->origin_signal == sens.clock_name || (!scoped_auto && src->name == sens.clock_name)) {
+                        domain = clock_db.findOrCreateDomain(src.get(), sens.clock_edge);
+                        break;
+                    }
+                }
+            }
+
+            // 4) If clock not found in db, create an auto-detected source
             if (!domain) {
                 auto src = std::make_unique<ClockSource>();
                 src->id = "auto_ff_" + sens.clock_name;
                 src->name = sens.clock_name;
                 src->type = ClockSource::Type::AutoDetected;
-                src->origin_signal = sens.clock_name;
+                src->origin_signal = sens.clock_path.empty() ? inst_path + "." + sens.clock_name : sens.clock_path;
                 auto* src_ptr = clock_db.addSource(std::move(src));
                 domain = clock_db.findOrCreateDomain(src_ptr, sens.clock_edge);
             }
@@ -354,6 +409,7 @@ static void processMembers(const slang::ast::Scope& scope,
             if (!sens.reset_name.empty()) {
                 auto reset = std::make_unique<ResetSignal>();
                 reset->hier_path = inst_path + "." + sens.reset_name;
+                reset->declared_path = sens.reset_path;
                 reset->is_async = sens.reset_is_async;
                 reset->polarity = sens.reset_polarity;
                 reset_ptr = reset.get();
@@ -365,7 +421,7 @@ static void processMembers(const slang::ast::Scope& scope,
             std::vector<std::string> assigned_vars;
             std::vector<FFAssignInfo> assign_infos;
             if (inner_stmt)
-                collectAssignedVars(*inner_stmt, assigned_vars, assign_infos);
+                collectAssignedVars(*inner_stmt, assigned_vars, assign_infos, {});
 
             if (assigned_vars.empty()) {
                 // Fallback: create a single FF node for the entire block.
@@ -383,17 +439,23 @@ static void processMembers(const slang::ast::Scope& scope,
                 ff->hier_path = inst_path + ".__always_ff_" +
                     std::to_string(ff_nodes.size());
                 ff->domain = domain;
+                ff->clock_path = sens.clock_path;
                 ff->reset = reset_ptr;
                 ff->primitive_name = primitive_name;
+                ff->module_path = module_path;
                 ff->fanin_populated = true;
+                ff->location = block.location;
                 ff_nodes.push_back(std::move(ff));
             } else {
                 for (auto& var_name : assigned_vars) {
                     auto ff = std::make_unique<FFNode>();
                     ff->hier_path = inst_path + "." + var_name;
                     ff->domain = domain;
+                    ff->clock_path = sens.clock_path;
                     ff->reset = reset_ptr;
                     ff->primitive_name = primitive_name;
+                    ff->module_path = module_path;
+                    ff->location = block.location;
 
                     // Look up the slang VariableSymbol for `var_name` in
                     // the enclosing scope so we can record the bit width.
@@ -403,11 +465,22 @@ static void processMembers(const slang::ast::Scope& scope,
                         if (sm.kind != slang::ast::SymbolKind::Variable) continue;
                         if (std::string(sm.name) != var_name) continue;
                         auto& var = sm.as<slang::ast::VariableSymbol>();
+                        ff->location = var.location;
+                        ff->declared_path = var.getHierarchicalPath();
                         auto& type = var.getType();
                         if (type.isIntegral()) {
                             ff->width = static_cast<int>(type.getBitWidth());
                         }
                         break;
+                    }
+                    if (ff->declared_path.empty()) {
+                        for (const auto& ai : assign_infos) {
+                            if (ai.lhs_name == var_name && !ai.declared_path.empty()) {
+                                ff->declared_path = ai.declared_path;
+                                ff->width = ai.lhs_width;
+                                break;
+                            }
+                        }
                     }
 
                     // Populate fanin_signals from all assignments to this variable
@@ -419,6 +492,11 @@ static void processMembers(const slang::ast::Scope& scope,
                                               rhs) == ff->fanin_signals.end()) {
                                     ff->fanin_signals.push_back(rhs);
                                 }
+                            }
+                            for (const auto& guard : ai.guard_signals) {
+                                if (std::find(ff->capture_conditions.begin(), ff->capture_conditions.end(), guard) ==
+                                    ff->capture_conditions.end())
+                                    ff->capture_conditions.push_back(guard);
                             }
                         }
                     }
@@ -506,6 +584,8 @@ static void processMembers(const slang::ast::Scope& scope,
                 ff->hier_path = child_path;
                 ff->domain = domain;
                 ff->primitive_name = def_name;
+                ff->module_path = child_path;
+                ff->location = child_inst.location;
                 ff_nodes.push_back(std::move(ff));
             } else {
                 // Recurse into child instances (non-library cells)
@@ -522,7 +602,7 @@ static void processMembers(const slang::ast::Scope& scope,
                 std::string gen_path = inst_path;
                 if (!gen_name.empty())
                     gen_path = inst_path + "." + gen_name;
-                processMembers(gen, gen_path, primitive_name, clock_db, ff_nodes, latch_warnings, errors);
+                processMembers(gen, gen_path, module_path, primitive_name, clock_db, ff_nodes, latch_warnings, errors);
             }
         }
 
@@ -534,8 +614,8 @@ static void processMembers(const slang::ast::Scope& scope,
                     if (entry_name.empty())
                         entry_name = std::string(arr.name);
                     std::string entry_path = inst_path + "." + entry_name;
-                    processMembers(*entry, entry_path, primitive_name, clock_db, ff_nodes,
-                                   latch_warnings, errors);
+                    processMembers(*entry, entry_path, module_path, primitive_name, clock_db, ff_nodes, latch_warnings,
+                                   errors);
                 }
             }
         }

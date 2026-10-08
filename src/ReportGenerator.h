@@ -6,6 +6,10 @@
 #include <ostream>
 #include <vector>
 
+namespace slang {
+class SourceManager;
+}
+
 namespace connect {
 
 struct ReportData {
@@ -14,6 +18,7 @@ struct ReportData {
     std::vector<Issue> active;
     std::vector<Issue> waived;
     std::optional<AnalysisResult> analysis; // populated when AnalysisEngine is run
+    const slang::SourceManager* sourceManager = nullptr;
 
     int errorCount() const {
         int n = 0;

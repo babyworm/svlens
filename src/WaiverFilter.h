@@ -3,6 +3,10 @@
 #include <string>
 #include <vector>
 
+namespace slang {
+class SourceManager;
+}
+
 namespace connect {
 class WaiverFilter {
 public:
@@ -14,7 +18,7 @@ public:
         std::vector<Issue> waived;
     };
 
-    WaiverResult apply(const std::vector<Issue>& issues) const;
+    WaiverResult apply(const std::vector<Issue>& issues, const slang::SourceManager* sourceManager = nullptr) const;
 
 private:
     struct WaiverRule {

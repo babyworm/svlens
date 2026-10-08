@@ -107,7 +107,7 @@ static AnalysisResult makeResultWithCrossings() {
     return result;
 }
 
-static std::unique_ptr<slang::ast::Compilation> compileSV(const std::string& sv_code) {
+static auto compileSV(const std::string& sv_code) {
     return sv_cdccheck::test::compileSV(sv_code, "test_remaining");
 }
 
@@ -475,7 +475,7 @@ TEST_CASE("Future: Handshake synchronizer detection", "[.future][sync][handshake
 
 // ─── Task 5: SDC output generation ───
 
-TEST_CASE("SDC report: waived crossing produces set_false_path", "[report][sdc]") {
+TEST_CASE("SDC report: waived crossing does not create a timing exception", "[report][sdc]") {
     auto result = makeResultWithCrossings();
     ReportGenerator gen(result);
 
@@ -487,12 +487,12 @@ TEST_CASE("SDC report: waived crossing produces set_false_path", "[report][sdc]"
                          std::istreambuf_iterator<char>());
     fs::remove(path);
 
-    CHECK(content.find("set_false_path") != std::string::npos);
+    CHECK(content.find("set_false_path") == std::string::npos);
     CHECK(content.find("WAIVED") != std::string::npos);
     CHECK(content.find("top.u_a.q_status") != std::string::npos);
 }
 
-TEST_CASE("SDC report: synced crossing produces set_max_delay", "[report][sdc]") {
+TEST_CASE("SDC report: synced crossing offers review-only max-delay candidate", "[report][sdc]") {
     auto result = makeResultWithCrossings();
     ReportGenerator gen(result);
 
@@ -505,10 +505,12 @@ TEST_CASE("SDC report: synced crossing produces set_max_delay", "[report][sdc]")
     fs::remove(path);
 
     CHECK(content.find("set_max_delay") != std::string::npos);
+    CHECK(content.find("\nset_max_delay") == std::string::npos);
+    CHECK(content.find("# REVIEW: set_max_delay") != std::string::npos);
     CHECK(content.find("SYNCED") != std::string::npos);
 }
 
-TEST_CASE("SDC report: violation crossing produces false_path with WARNING", "[report][sdc]") {
+TEST_CASE("SDC report: violation never emits an executable false path", "[report][sdc]") {
     auto result = makeResultWithCrossings();
     ReportGenerator gen(result);
 
@@ -521,6 +523,7 @@ TEST_CASE("SDC report: violation crossing produces false_path with WARNING", "[r
     fs::remove(path);
 
     CHECK(content.find("# WARNING: unsynchronized crossing") != std::string::npos);
+    CHECK(content.find("set_false_path") == std::string::npos);
     CHECK(content.find("VIOLATION") != std::string::npos);
 }
 
@@ -554,6 +557,7 @@ TEST_CASE("SDC report: empty result produces valid header", "[report][sdc]") {
 
     CHECK(content.find("Auto-generated CDC constraints") != std::string::npos);
     CHECK(content.find("0 crossing(s)") != std::string::npos);
+    CHECK(content.find("No executable timing constraints") != std::string::npos);
 }
 
 // ─── Task 6: Markdown report — FF count per domain ───

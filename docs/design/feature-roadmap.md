@@ -5,8 +5,8 @@ CDC / metrics surface area. Each item is sized as an independent PR (or PR
 series) and includes the data flow, API surface, and tests required to ship.
 Items are ordered by expected impact on real-world adoption.
 
-Status legend: `proposed` (no work started), `scoped` (interface fixed, work
-ready to begin), `in-progress`, `landed`.
+Status legend: `proposed` (no work started), `partial` (a narrower capability
+exists), `scoped` (interface fixed, work ready to begin), `in-progress`, `landed`.
 
 ---
 
@@ -103,91 +103,183 @@ external coverage table.
 
 ## Track D: Analysis depth
 
-### D1. CDC SVA assertion auto-generation -- `proposed`
+### D1. CDC SVA assertion auto-generation -- `partial`
 
-**Why**: today CDC analysis emits `cdc_constraints.sdc` (timing helpers).
-Adding `cdc_assertions.sva` lets simulation verify the same crossings the
-static check identified, closing the loop between structural CDC and
-dynamic verification.
+**Current**: `--emit-sva <path>` writes a cover property for an unsynchronized
+violation when its source path is safe to use as an SVA expression. An
+unambiguous 2FF/3FF chain emits a sampled stage-transfer `assert property`
+only if adjacent receiving FF widths agree and no non-reset capture guard is
+observed. Enabled receiving stages remain documentation-only. A generated
+assertion has an optional `sva_assertion_id` link in JSON when the SVA file is written.
+A `prim_fifo_async` Gray pointer with verified source FF, width, clock, reset,
+and destination shape emits the primitive's one-bit transition property.
+When its relevant one-bit ready/valid and clock/reset ports are also connected,
+it emits a source-clock no-step-without-transfer pointer assertion. When
+multiple properties exist, `sva_assertion_ids` links their labels. Verified
+`prim_sync_reqack` request paths can emit the primitive's destination
+ACK-requires-REQ contract after the destination reset alias is checked. A
+fully connected `prim_sync_reqack_data` instance with checked port widths,
+directions, and parameters (`DataReg=0`) can emit its direction-specific
+source-clock data-hold contract. Other handshake/FIFO protocol patterns
+produce comments. SVA signal/reset paths use
+AST declaration scopes and stage clocks use the FF timing event, so emitted
+properties can be elaborated alongside the design top (including generated
+instances) instead of relying on unqualified domain names.
+Pinned OpenTitan AES and full-SoC probes compare classifications before/after
+SVA emission, link every emitted assert label to JSON, and elaborate the SVA
+with the RTL. They do not simulate or prove those properties.
+An optional local Verilator fixture run checks pass/fail execution of 2FF,
+FIFO no-step, and SRC-to-DST data-hold properties; it does not exercise the
+full SoC or the DST-to-SRC `[*2]` hold property.
 
-**Output schema**: a new artifact `cdc_assertions.sva` written next to
-`cdc_report.json`. Each crossing produces:
+**Why**: generic handshake and FIFO protocol properties need temporal
+assumptions before they can be emitted safely. The narrow Gray assertion
+checks only pointer encoding; the no-step assertion checks pointer gating,
+not FIFO full/empty logic. Stage transfer does not prove metastability
+resolution. The ACK and data-hold properties check caller contracts, not
+liveness or protocol safety.
 
-```systemverilog
-// CDC-001: src_clk -> dst_clk via top.u_sync.q1/q2
-property p_cdc_001_2ff_sync;
-    @(posedge dst_clk) disable iff (!rst_n)
-        $stable(top.u_sync.q1) || top.u_sync.q1 == $past(top.u_sync.d);
-endproperty
-a_cdc_001: assert property (p_cdc_001_2ff_sync);
-```
-
-For each synchronizer style svlens recognizes, generate the corresponding
-property template. Unrecognized crossings emit `cover property` only.
+**Next output scope**: extend the current optional SVA artifact beyond these
+primitive-specific contracts with validated handshake/FIFO protocol assertions
+and link each generated property to the crossing.
 
 **API**:
 
-- New CLI flag `--sva` writes `cdc_assertions.sva`.
-- `--sva-style {2ff,3ff,handshake,fifo}` overrides per-crossing detection.
-- New JSON field `cdc_report.json:crossings[].sva_assertion_id` cross-links
-  the report to the generated assertion identifier.
+- Extend the existing `--emit-sva` output with validated handshake/FIFO
+  protocol templates beyond the primitive Gray-pointer and ACK contract
+  properties.
+- A style selector may be added if its assumptions can be checked explicitly.
+- Preserve `cdc_report.json:crossings[].sva_assertion_id` as the primary label
+  and `sva_assertion_ids` when a crossing emits multiple properties.
 
 **Files to add / modify**:
 
-- `src/cdc/sva_generator.{h,cpp}` -- new module, takes `CdcReport` and
-  emits SVA file content.
-- `src/CdcRunner.cpp` -- wire `--sva` into the writer.
-- `tests/test_sva_generator.cpp` -- snapshot tests against fixtures in
-  `tests/cdc/sva/`.
-- `docs/schema/cdc_report.md` -- document the new optional field.
+- `src/cdc/report_generator.cpp` -- extend the current SVA writer.
+- `tests/test_cdc_report_generator.cpp` and `tests/test_cdc_runner.cpp` --
+  fixture-backed property and JSON-link tests.
+- `docs/schema/cdc_report.md` -- define any additional assertion IDs.
 
-**Risk**: SVA hierarchical references depend on the full instance path; we
-already capture this in the report. Risk is in the synchronizer-pattern
-detection getting confused by mixed-style code; the `--sva-style` override
-is the escape hatch.
+**Risk**: a structurally recognized synchronizer does not itself prove that a
+particular temporal assertion is sound. Validate reset, clock, and sampling
+assumptions for each style; a selector must not bypass these checks.
 
 ---
 
-### D2. Interface / modport semantic deepening -- `proposed`
+### D2. Interface / modport semantic deepening -- `partial`
 
-**Why**: README currently flags interface/modport handling as "partial"
-under the _Current implementation limits_ / _Connectivity mode_ section
-of `README.md`. Real SoC designs lean heavily on bus interfaces, so this
-is the largest gap blocking adoption.
+**Current**: `ConnectionExtractor` emits per-modport-signal ports and edges.
+When slang exposes the underlying signal, it also emits a direct edge used by
+width checking; the approximate edge is retained. Simple `always_comb` and
+legacy `always @*` if/case/ternary glue create directed approximate
+dependencies, including modport member inputs. For whole-interface ports,
+direct member reads and writes create direction-aware approximate edges.
+Simple direct constant bit/part selects of integral members also produce
+overlap-only ordinal bit ranges across whole-interface and modport ports;
+two direct slice-rewiring stages between distinct interface instances preserve
+source/destination bit correspondence. Constant member selects nested inside
+computed expressions and procedural guards retain their selected input ranges
+as approximate evidence; unsupported expressions stay whole-member may-flow.
+Equal-width ternary arms with resolved source ranges now emit positional
+approximate may-flow through direct or multi-stage assignments; a known
+constant condition selects one arm, including whole-interface member-use
+inference. Other computed expressions remain limited.
+Generated if/for scopes are visited for directly used whole-interface members;
+procedural and continuous aliases use the referenced signal's declaring scope
+and skip uninstantiated branches. Fixtures now include AXI-lite-style
+multi-channel modports, nested whole-interface forwarding, two-element
+parameterized interface arrays (including genvar-indexed lanes), and isolated
+generated lanes. These are small RTL probes, not an accuracy measurement on
+an AXI SoC.
+A pinned 20-row OpenTitan SoC connection sample has 20 source-backed
+confirmations, including an independently checked buffer bit index. It is a narrow audit with
+correlated generated-register rows, not a whole-design precision/recall value
+or a substitute for an AXI/modport SoC corpus.
+An independent AST probe enumerates 358 scalar or whole-width one-dimensional
+vector sibling-port paths across seven pinned SoC IP scopes and checks all
+358 in the conn report (vector width capped at 4,096 bits). This includes 355
+shared-net paths and three uniquely driven one-stage continuous aliases. It
+bounds recall for these direct path shapes only; bit-lane correspondence,
+interfaces, sliced/converted buses, procedural glue, and other scopes still
+need their own source-derived frames.
 
-**Approach**: extend `ConnectionExtractor` to walk
-`InterfaceInstanceSymbol` and `ModportSymbol` from slang's AST, producing
-per-modport-signal edges instead of opaque interface ports.
+**Why**: branch-sensitive mux/decoder glue, legal interface-array composition,
+deep forwarding, and nontrivial bit-range dataflow still need precise signal-level
+validation on representative SoC patterns.
+
+Direct port connections to overlapping constant ranges or elements of the
+same flat vector, plus constant-indexed integral unpacked-array elements and
+nested constant-indexed packed-array elements/bits and whole packed-array ports
+(including packed fields inside constant-indexed unpacked elements),
+now emit the overlapping ordinal source/destination bit
+intervals. Indexed `+:` / `-:` part-selects use their elaborated base and
+width, including generated banks and interface members; runtime starts retain
+range-free approximate may-flow. A bounded (up to 4,096 bits)
+bit-flow graph also follows nested/unequal-width positional concatenations,
+constant holes, simple aliases, and guarded `always_comb` assignments across
+multiple direct stages. A sole unconditional blocking `always_comb` copy or
+constant select now retains direct ordinal lanes; conditional, overwritten,
+compound, and legacy `always @*` assignments remain approximate. Guarded
+`if/case` copies with resolved integral source and destination also carry
+positional approximate lanes; coarse dependencies remain for paths through
+unsupported later casts. Compile-time-known `if`, `case`, `casez`, and `casex`
+visit only the selected branch, including whole-interface member use. Runtime
+selectors remain conservative. Simple implicit integral extension/truncation and
+explicit size casts of one resolved source map retained low bits; signed
+extension maps the source sign bit to each high bit. Unsigned concatenations
+inside size casts also map their retained operand lanes. Arithmetic or conditional RHS leaves become
+target-lane-specific approximate dependencies. Runtime element reads and
+combinational procedural writes now add range-free approximate edges to structurally bound candidate
+elements with compatible fixed indices and member names. This is a may-flow
+relation, not proof of the selected lane or branch reachability. Width-changing
+type casts that also change signedness, casts changing two-state/four-state
+representation, computed width conversions, nonintegral array elements, and
+arbitrary computed-output or branch-sensitive whole-interface bit-range forwarding
+remain incomplete.
+The pinned slang v10 rejects nonconstant interface-instance array selection
+(`buses[select_i].data`) during elaboration, before connection extraction.
+That form is an elaboration boundary in this toolchain, not a missing extracted edge; static
+and genvar-selected interface lanes remain the supported benchmarked forms.
+When a whole unpacked-array port feeds one constant-indexed element, the
+aggregate port keeps a conservative dependency alongside the exact element
+bit-flow link; the HMAC socket-to-register path is a benchmark reference for
+this case.
+
+**Approach**: deepen the existing member-edge extraction and model
+procedural dependencies with source and destination bit ranges and branch
+conditions. Validate against paired positive/negative fixtures before
+claiming complete interface coverage.
 
 **Files to modify**:
 
-- `src/ConnectionExtractor.cpp` -- new visitor for interface symbols.
-- `src/InterfaceGrouper.cpp` -- already exists; deepen to consume the new
-  per-signal edges and group them back at report time.
-- `tests/sv/conn/interfaces/*.sv` -- new fixtures: AXI-lite-style modport,
-  multi-modport interface, parameterized interface array.
+- `src/ConnectionExtractor.cpp` -- extend existing member and alias handling.
+- `src/InterfaceGrouper.cpp` -- preserve grouping while consuming more precise
+  per-signal edges.
+- `tests/sv/*.sv` -- extend paired AXI/modport, forwarding, and interface-array
+  fixtures beyond the small fixed-index cases already present.
 
-**Risk**: parameterized interfaces (parametric interface arrays) need
-careful handling; start with non-parametric, gate parametric behind a
-flag.
+**Risk**: fixed two-element and genvar-indexed arrays are covered, but
+dynamic-selector precision in integral arrays and deeper generated
+forwarding still need careful matching.
+Keep unsupported forms explicit until paired fixtures validate them.
 
 ---
 
-### D3. Metrics extension -- `proposed`
+### D3. Metrics extension -- `partial`
 
 Three sub-features, each independently shippable:
 
-#### D3a. Fanout metric
+#### D3a. Fanout metric -- `landed`
 
-Add `fanout` field per FF-D-rooted cone in `metrics_report.json`. Already
-trivial given `TransformExtractor` tracks reverse edges; needs a forward
-edge map per signal node.
+`max_fanout` now reports the largest number of distinct transform consumers
+of any signal touched by a cone, across the extracted graph. It is available
+for output and FF-D roots; it is not physical electrical fanout.
 
-#### D3b. Estimated gate-count proxy
+#### D3b. Estimated gate-count proxy -- `partial`
 
-Sum the operator complexity (multipliers, comparators, muxes weighted)
-into a single `estimated_gate_count` field. Calibration against a small
-synthesis run should land alongside.
+`gate_cost_proxy` now sums width-aware weights for extracted operators.
+Wiring costs zero; arithmetic, comparisons, muxes, and shifts have increasing
+weights. It is an uncalibrated complexity proxy, not a synthesized gate count.
+Calibration against a representative synthesis flow remains open.
 
 #### D3c. Video-pipeline-aware metrics
 
@@ -201,13 +293,16 @@ to avoid false positives in non-video designs.
 
 ---
 
-### D4. Plugin / YAML checker registration -- `proposed`
+### D4. Plugin / YAML checker registration -- `partial`
 
-**Why**: every team wants different convention rules. Today
-`ConventionChecker` is hard-coded; allow YAML-defined rules so the
-toolchain can be customized without forking.
+**Current**: `--user-rules` registers YAML name-pattern checkers for modules,
+instances, internal signals, and ports. Rules carry IDs and severity, appear
+in JSON, and can be waived by ID. Invalid regexes fail visibly. Arbitrary
+AST/plugin checkers are not supported.
 
-**Schema sketch** (`checkers.yaml`):
+**Why**: teams may need custom checks beyond name patterns without forking.
+
+**Current schema** (`checkers.yaml`):
 
 ```yaml
 checkers:
@@ -223,22 +318,24 @@ checkers:
     severity: error
 ```
 
-**Files to add**:
+**Files for future plugin expansion**:
 
-- `src/UserCheckerLoader.{h,cpp}` -- parse YAML, build
-  `std::vector<CustomChecker>`.
-- `src/CheckerRunner.cpp` -- run user checkers in the standard pipeline.
-- `tests/test_user_checker.cpp` -- golden YAML + violation fixtures.
+- `src/UserChecker.{h,cpp}` -- extend the existing loader/checker surface
+  only after defining a safe AST query contract.
+- `tests/test_user_rules.sh` -- add paired checks for new targets.
 
-**Risk**: pattern matching needs a clear glob vs. regex contract; the
-schema explicitly names `pattern` (regex) vs. existing `pattern` (glob)
-fields used elsewhere -- pick one and document loudly.
+**Risk**: name rules use whole-name ECMAScript regex matching while conn
+waivers use glob paths. Keep these contracts distinct in documentation.
 
 ---
 
 ## Track F: Distribution / integration
 
-### F1. Python bindings (pybind11) -- `proposed`
+### F1. Python bindings (pybind11) -- `partial`
+
+**Current**: `python/svlens` provides installable CLI-backed `conn`, `cdc`,
+`metrics`, and `all_modes` functions returning parsed JSON. It does not embed
+the C++ analyzer or expose in-process pybind11 objects.
 
 **Why**: EDA scripting is overwhelmingly Python. A `pip install svlens`
 that exposes the analysis modes as functions is the highest-leverage
@@ -279,7 +376,12 @@ slang build. Solve by linking slang statically into the Python module.
 
 ---
 
-### F2. VSCode extension scaffolding -- `proposed`
+### F2. VSCode extension scaffolding -- `partial`
+
+**Current**: a dependency-free JavaScript extension runs conn and CDC on
+demand. Source-backed conn issues and CDC crossings become editor diagnostics;
+location-free crossings remain in the Output channel. Marketplace publishing
+and a CDC tree view remain open.
 
 **Why**: surfacing svlens results inline in editor is a strong
 onboarding moment. slang already has an LSP, so we can wrap that and
@@ -306,34 +408,35 @@ managed outside this repo; the workflow has to run against a token.
 
 ---
 
-### F3. Interactive HTML dashboard upgrade -- `proposed`
+### F3. Interactive HTML dashboard upgrade -- `partial`
 
-**Why**: today `connect_report.html` is a static table. A dynamic D3.js
-viewer (collapsible hierarchy, signal trace highlighting) makes large-SoC
-results actually navigable.
+**Current**: `connect_report.html` embeds its JSON and an interactive graph
+with search, module focus, and port expansion. `cdc_report.html` provides
+module/category filters and a selected crossing trace. The conn graph does
+not present a full signal trace path or coordinated cross-mode navigation.
+
+**Why**: large-SoC reports still need explicit trace paths and coordinated
+navigation across connectivity and CDC results.
 
 **Approach**:
 
-- Migrate `src/HtmlReport.cpp` to emit a single self-contained HTML
-  file with:
-  - D3.js bundle inlined (vendored under `assets/d3.v7.min.js`).
-  - Force-directed graph for the connectivity matrix.
+- Extend the existing self-contained conn HTML template with:
   - Click-to-trace: clicking a node opens the trace path on the right
     pane.
   - Filter-by-module dropdown driven by hierarchy data.
+- Link conn and CDC HTML findings when they share an exact signal path.
 - Existing schema reused; the HTML is purely presentation.
 
 **Files to modify / add**:
 
-- `src/HtmlReport.cpp` -- emit new template.
-- `assets/d3.v7.min.js`, `assets/dashboard.js`, `assets/dashboard.css`
-  -- inlined at build time (CMake `configure_file` or a small generator
-  script).
+- `src/html_template.h` and `src/HtmlReport.cpp` -- extend the current conn
+  template and its embedded data.
+- `src/cdc/cdc_html_template.h` -- extend the CDC presentation as needed.
 - `tests/test_html_report.cpp` -- snapshot tests covering deterministic
-  parts of the output (data sections, not D3 internals).
+  parts of the output (data sections, not graph renderer internals).
 
-**Risk**: keeping the HTML self-contained (no CDN) means embedding ~100KB
-of D3 in every report. Acceptable for offline / on-prem CI.
+**Risk**: trace navigation needs bounded rendering on large graphs and stable
+links between related report records.
 
 ---
 
@@ -341,14 +444,17 @@ of D3 in every report. Acceptable for offline / on-prem CI.
 
 A reasonable PR order, each independently mergeable:
 
-1. **D1 (SVA generation)** -- highest impact, smallest surface change.
-2. **F1 (Python bindings)** -- biggest adoption multiplier; can land
-   alongside D1.
-3. **D2 (interface/modport deepening)** -- closes the largest stated gap.
+1. **D2 (interface/modport and procedural dataflow)** -- validate and close
+   the most visible SoC connectivity gap.
+2. **CDC classification and OpenTitan benchmark evidence** -- add timing and
+   data-stability checks, then publish reproducible accuracy numbers.
+3. **D1 (SVA assertions)** -- define sound templates and report links.
 4. **D3a-c (metrics extensions)** -- ship sub-features individually.
-5. **D4 (custom YAML checkers)** -- needs schema review with users first.
-6. **F3 (HTML dashboard)** -- nice-to-have, low blocker risk.
-7. **F2 (VSCode extension)** -- requires marketplace setup; defer.
+5. **F1 (Python bindings)** -- add a scripting surface after report semantics
+   are stable.
+6. **D4 (custom YAML checkers)** -- needs schema review with users first.
+7. **F3 (HTML trace views)** -- build on the existing conn graph.
+8. **F2 (VSCode extension)** -- requires marketplace setup; defer.
 
 Each PR should land its design notes inline (this document is intentionally
 high-level) and update CONTRIBUTING.md if the build / test workflow shifts.

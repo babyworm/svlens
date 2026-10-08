@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sv-cdccheck/types.h"
+#include <unordered_set>
 
 namespace sv_cdccheck {
 
@@ -87,6 +88,9 @@ private:
     /// Post-processing: detect clock signal used as data input [Ac_cdc09]
     void detectClockAsData();
 
+    /// Post-processing: detect an FF output used as an undeclared clock [Ac_cdc10]
+    void detectDataAsClock();
+
     /// Post-processing: detect same signal crossing to multiple domains [Ac_cdc11]
     void detectMultiDomainCrossing();
 
@@ -99,6 +103,7 @@ private:
 
     /// Precomputed indexes built at the start of analyze()
     std::unordered_map<std::string, const FFNode*> ff_by_path_;
+    std::unordered_set<std::string> ambiguous_ff_paths_;
     std::unordered_map<const FFNode*, std::vector<const FFEdge*>> edges_from_;
 };
 

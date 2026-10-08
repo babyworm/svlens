@@ -4,6 +4,7 @@
 #include "ClockResetAnalyzer.h"
 #include "ConnectionExtractor.h"
 #include "ConventionChecker.h"
+#include "UserChecker.h"
 #include "CsvReport.h"
 #include "DanglingChecker.h"
 #include "DotReport.h"
@@ -34,7 +35,7 @@ namespace connect {
 bool buildConnectionGraph(slang::ast::Compilation& compilation,
                           const ConnCliOptions& opts,
                           ConnectionGraph& graph) {
-    ConnectionExtractor extractor(compilation, opts.topModule, opts.depth);
+    ConnectionExtractor extractor(compilation, opts.topModule, opts.depth, !opts.userRulesFile.empty());
     graph = extractor.extract();
 
     if (graph.allPorts.empty()) {
@@ -64,6 +65,8 @@ std::vector<Issue> runConnCheckers(const ConnCliOptions& opts,
             : loadConventionRules(opts.conventionFile);
         runner.addChecker(std::make_unique<ConventionChecker>(rules));
     }
+    if (!opts.userRulesFile.empty())
+        runner.addChecker(std::make_unique<UserChecker>(loadUserRules(opts.userRulesFile)));
     if (!opts.expectFile.empty())
         runner.addChecker(std::make_unique<ExpectChecker>(opts.expectFile));
 

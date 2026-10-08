@@ -1,15 +1,66 @@
 #include "ConeAnalyzer.h"
 
 #include <algorithm>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 
 namespace metrics {
 
+namespace {
+
+uint64_t gateCostProxy(const TransformNode& node) {
+    const uint64_t width = std::min<uint64_t>(std::max<uint32_t>(node.bit_width, 1), 1'000'000);
+    switch (node.op_kind) {
+    case TransformNode::Alias:
+    case TransformNode::Slice:
+    case TransformNode::Concat:
+    case TransformNode::Replicate:
+    case TransformNode::Cast:
+    case TransformNode::UnknownOp:
+        return 0;
+    case TransformNode::Mux:
+    case TransformNode::Compare:
+        return 3 * width;
+    case TransformNode::Unary:
+        if (node.op_detail == "plus" || node.op_detail.starts_with("call:"))
+            return 0;
+        return node.op_detail == "negate" ? 3 * width : width;
+    case TransformNode::Binary:
+        if (node.op_detail == "mul")
+            return 2 * width * width;
+        if (node.op_detail == "div" || node.op_detail == "mod" || node.op_detail == "power")
+            return 8 * width * width;
+        if (node.op_detail == "add" || node.op_detail == "sub")
+            return 5 * width;
+        if (node.op_detail == "and" || node.op_detail == "or")
+            return width;
+        if (node.op_detail == "xor" || node.op_detail == "xnor")
+            return 2 * width;
+        if (node.op_detail.find("shift") != std::string::npos) {
+            uint64_t stages = 0;
+            for (uint64_t span = 1; span < width; span *= 2)
+                ++stages;
+            return 3 * width * std::max<uint64_t>(stages, 1);
+        }
+        return 2 * width;
+    }
+    return 0;
+}
+
+} // namespace
+
 ConeAnalyzer::ConeAnalyzer(const TransformGraph& graph, int maxDepth)
     : graph_(graph), maxDepth_(maxDepth) {
     for (auto& ff : graph_.flip_flops)
         ffQNames_.insert(ff.q_ref.canonical());
+    for (const auto& node : graph_.nodes) {
+        std::unordered_set<std::string> uniqueInputs;
+        for (const auto& input : node.inputs)
+            uniqueInputs.insert(input.canonical());
+        for (const auto& key : uniqueInputs)
+            ++consumersByValue_[key];
+    }
 }
 
 ConeSummary ConeAnalyzer::analyzeCone(const ValueRef& root) {
@@ -39,6 +90,13 @@ ConeSummary ConeAnalyzer::analyzeCone(const ValueRef& root) {
     for (auto nodeId : summary.cone_nodes) {
         auto& node = graph_.nodes[nodeId];
         uniqueSigs.insert(node.signature());
+        const auto cost = gateCostProxy(node);
+        summary.gate_cost_proxy = cost > std::numeric_limits<uint64_t>::max() - summary.gate_cost_proxy
+                                      ? std::numeric_limits<uint64_t>::max()
+                                      : summary.gate_cost_proxy + cost;
+        summary.max_fanout = std::max(summary.max_fanout, consumersByValue_[node.output.canonical()]);
+        for (const auto& input : node.inputs)
+            summary.max_fanout = std::max(summary.max_fanout, consumersByValue_[input.canonical()]);
     }
     summary.unique_transform_count = static_cast<uint32_t>(uniqueSigs.size());
 

@@ -15,6 +15,8 @@
 #include <slang/ast/expressions/OperatorExpressions.h>
 #include <slang/ast/expressions/SelectExpressions.h>
 #include <slang/ast/Statement.h>
+#include <slang/ast/EvalContext.h>
+#include <slang/ast/SemanticFacts.h>
 #include <slang/ast/statements/ConditionalStatements.h>
 #include <slang/ast/statements/LoopStatements.h>
 #include <slang/ast/statements/MiscStatements.h>
@@ -29,8 +31,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <functional>
+#include <set>
 #include <span>
+#include <string_view>
+#include <tuple>
 
 namespace connect {
 
@@ -41,6 +47,43 @@ void appendUnique(std::vector<std::string>& dest, const std::vector<std::string>
         if (std::find(dest.begin(), dest.end(), value) == dest.end())
             dest.push_back(value);
     }
+}
+
+bool hasDynamicIndex(std::string_view key) {
+    return key.find("[?]") != std::string_view::npos;
+}
+
+// Compare a dynamic selection with an existing bound net. A whole-array or
+// whole-element key may end before later selectors; different fields and
+// different constant indices cannot meet. The '?' marker comes only from
+// resolveExpr's nonconstant element selector.
+bool dynamicPathMayOverlap(std::string_view pattern, std::string_view bound) {
+    size_t i = 0;
+    size_t j = 0;
+    while (i < pattern.size() && j < bound.size()) {
+        if (pattern[i] == '[' && bound[j] == '[') {
+            const auto patternEnd = pattern.find(']', i + 1);
+            const auto boundEnd = bound.find(']', j + 1);
+            if (patternEnd == std::string_view::npos || boundEnd == std::string_view::npos)
+                return false;
+            const auto patternIndex = pattern.substr(i + 1, patternEnd - i - 1);
+            const auto boundIndex = bound.substr(j + 1, boundEnd - j - 1);
+            if (patternIndex != "?" && patternIndex != boundIndex)
+                return false;
+            i = patternEnd + 1;
+            j = boundEnd + 1;
+        } else if (pattern[i] == bound[j]) {
+            ++i;
+            ++j;
+        } else {
+            return false;
+        }
+    }
+    if (i == pattern.size() && j == bound.size())
+        return true;
+    if (i == pattern.size())
+        return bound[j] == '[' || bound[j] == '.';
+    return pattern[i] == '[' || pattern[i] == '.';
 }
 
 bool isConstantOnly(const slang::ast::Expression* expr) {
@@ -84,6 +127,70 @@ bool isConstantZero(const slang::ast::Expression* expr) {
     }
 
     return false;
+}
+
+bool hasNonIdentityConversion(const slang::ast::Expression& expr) {
+    bool changesRepresentation = false;
+    auto visitor = slang::ast::makeVisitor([&](auto& self, const slang::ast::ConversionExpression& conversion) {
+        if (!conversion.type || !conversion.operand().type ||
+            conversion.type->getBitWidth() != conversion.operand().type->getBitWidth() ||
+            conversion.type->isFourState() != conversion.operand().type->isFourState())
+            changesRepresentation = true;
+        self.visitDefault(conversion);
+    });
+    expr.visit(visitor);
+    return changesRepresentation;
+}
+
+bool isSingleUnconditionalAssignment(const slang::ast::Statement& stmt) {
+    using SK = slang::ast::StatementKind;
+    switch (stmt.kind) {
+    case SK::ExpressionStatement: {
+        const auto& expr = stmt.as<slang::ast::ExpressionStatement>().expr;
+        if (expr.kind != slang::ast::ExpressionKind::Assignment)
+            return false;
+        const auto& assignment = expr.as<slang::ast::AssignmentExpression>();
+        return assignment.isBlocking() && !assignment.isCompound() && !assignment.isLValueArg() &&
+               !assignment.timingControl;
+    }
+    case SK::Block:
+        return isSingleUnconditionalAssignment(stmt.as<slang::ast::BlockStatement>().body);
+    case SK::List: {
+        const slang::ast::Statement* only = nullptr;
+        for (const auto* child : stmt.as<slang::ast::StatementList>().list) {
+            if (!child)
+                continue;
+            if (only)
+                return false;
+            only = child;
+        }
+        return only && isSingleUnconditionalAssignment(*only);
+    }
+    default:
+        return false;
+    }
+}
+
+std::optional<bool> knownIfBranch(const slang::ast::ConditionalStatement& statement) {
+    if (statement.conditions.size() != 1 || statement.conditions.front().pattern)
+        return std::nullopt;
+    const auto* value = statement.conditions.front().expr->getConstant();
+    if (!value || !*value)
+        return std::nullopt;
+    return value->isTrue();
+}
+
+std::optional<const slang::ast::Statement*> knownCaseBranch(const slang::ast::CaseStatement& statement,
+                                                            const slang::ast::Symbol& owner) {
+    if (statement.condition == slang::ast::CaseStatementCondition::Inside)
+        return std::nullopt;
+    if (const auto* selector = statement.expr.getConstant(); selector && !*selector)
+        return std::nullopt;
+    slang::ast::EvalContext context(owner);
+    const auto [branch, known] = statement.getKnownBranch(context);
+    if (!known)
+        return std::nullopt;
+    return branch;
 }
 
 // Peel a (possibly multi-dimensional) ElementSelect chain down to its
@@ -195,12 +302,305 @@ slang::ast::ArgumentDirection inferInterfaceDirection(const slang::ast::PortConn
     return slang::ast::ArgumentDirection::InOut;
 }
 
+struct InterfaceUsage {
+    bool read = false;
+    bool written = false;
+    bool unknownRead = false;
+    bool unknownWrite = false;
+    std::vector<std::pair<int64_t, int64_t>> readRanges;
+    std::vector<std::pair<int64_t, int64_t>> writeRanges;
+    std::vector<std::pair<int64_t, int64_t>> approximateReadRanges;
+    std::vector<std::pair<int64_t, int64_t>> approximateWriteRanges;
+};
+
+struct InterfaceMemberRange {
+    const slang::ast::Symbol* member = nullptr;
+    int64_t left = 0;
+    int64_t right = 0;
+};
+
+// Slang keeps indexed part-select operands as (base, width), not (left, right).
+// Resolve their actual bounds only when both operands are elaboration-time
+// constants and the entire interval lies within the selected packed range.
+std::optional<std::pair<int64_t, int64_t>> constantRangeSelectBounds(const slang::ast::RangeSelectExpression& select) {
+    if (!select.type || !select.value().type || !select.value().type->isIntegral() ||
+        !select.value().type->hasFixedRange())
+        return std::nullopt;
+    const auto* first = select.left().getConstant();
+    const auto* second = select.right().getConstant();
+    if (!first || !second || !*first || !*second || !first->isInteger() || !second->isInteger())
+        return std::nullopt;
+    const auto firstValue = first->integer().as<int64_t>();
+    const auto secondValue = second->integer().as<int64_t>();
+    if (!firstValue || !secondValue)
+        return std::nullopt;
+
+    const auto declared = select.value().type->getFixedRange();
+    int64_t left = *firstValue;
+    int64_t right = *secondValue;
+    if (select.getSelectionKind() != slang::ast::RangeSelectionKind::Simple) {
+        if (right <= 0 || static_cast<uint64_t>(right) != select.type->getBitWidth() || left < declared.lower() ||
+            left > declared.upper())
+            return std::nullopt;
+        const int64_t span = right - 1;
+        int64_t low = left;
+        int64_t high = left;
+        if (select.getSelectionKind() == slang::ast::RangeSelectionKind::IndexedUp) {
+            if (span > static_cast<int64_t>(declared.upper()) - left)
+                return std::nullopt;
+            high += span;
+        } else {
+            if (span > left - static_cast<int64_t>(declared.lower()))
+                return std::nullopt;
+            low -= span;
+        }
+        left = declared.left >= declared.right ? high : low;
+        right = declared.left >= declared.right ? low : high;
+    }
+    if (std::min(left, right) < declared.lower() || std::max(left, right) > declared.upper() ||
+        static_cast<uint64_t>(std::max(left, right) - std::min(left, right)) + 1 != select.type->getBitWidth())
+        return std::nullopt;
+    return std::pair{left, right};
+}
+
+// Only a direct constant bit/part select of one integral interface member
+// proves which lanes were accessed. Complex expressions stay whole-member
+// may-flow; their subexpressions cannot be treated as positional wiring.
+std::optional<InterfaceMemberRange> directInterfaceMemberRange(const slang::ast::Expression& expr) {
+    using EK = slang::ast::ExpressionKind;
+    const slang::ast::Expression* current = &expr;
+    while (current->kind == EK::Conversion)
+        current = &current->as<slang::ast::ConversionExpression>().operand();
+
+    const slang::ast::Expression* value = nullptr;
+    int64_t left = 0;
+    int64_t right = 0;
+    if (current->kind == EK::RangeSelect) {
+        const auto& select = current->as<slang::ast::RangeSelectExpression>();
+        const auto bounds = constantRangeSelectBounds(select);
+        if (!bounds)
+            return std::nullopt;
+        std::tie(left, right) = *bounds;
+        value = &select.value();
+    } else if (current->kind == EK::ElementSelect) {
+        const auto& select = current->as<slang::ast::ElementSelectExpression>();
+        const auto* index = select.selector().getConstant();
+        if (!index || !*index || !index->isInteger())
+            return std::nullopt;
+        const auto indexValue = index->integer().as<int64_t>();
+        if (!indexValue)
+            return std::nullopt;
+        left = right = *indexValue;
+        value = &select.value();
+    } else {
+        return std::nullopt;
+    }
+
+    while (value->kind == EK::Conversion)
+        value = &value->as<slang::ast::ConversionExpression>().operand();
+    const slang::ast::Symbol* member = nullptr;
+    if (value->kind == EK::MemberAccess)
+        member = &value->as<slang::ast::MemberAccessExpression>().member;
+    else if (value->kind == EK::NamedValue)
+        member = &value->as<slang::ast::NamedValueExpression>().symbol;
+    else if (value->kind == EK::HierarchicalValue)
+        member = &value->as<slang::ast::HierarchicalValueExpression>().symbol;
+    if (!member || (member->kind != slang::ast::SymbolKind::Net && member->kind != slang::ast::SymbolKind::Variable))
+        return std::nullopt;
+    const auto& type = member->as<slang::ast::ValueSymbol>().getType();
+    if (!type.isIntegral() || !type.hasFixedRange() || type.getFixedRange().fullWidth() != type.getBitWidth())
+        return std::nullopt;
+    const auto declared = type.getFixedRange();
+    if (std::min(left, right) < declared.lower() || std::max(left, right) > declared.upper())
+        return std::nullopt;
+    return InterfaceMemberRange{member, left, right};
+}
+
+// Whole-interface ports have no declared modport direction. Infer a member's
+// local use from the child's elaborated assignments and control expressions.
+// Unused members are omitted, avoiding fabricated links across the bundle.
+std::unordered_map<const slang::ast::Symbol*, InterfaceUsage>
+scanInterfaceUsage(const slang::ast::InstanceSymbol& child, const slang::ast::InstanceSymbol& iface) {
+    std::unordered_map<const slang::ast::Symbol*, InterfaceUsage> usage;
+    for (const auto& member : iface.body.members()) {
+        if (member.kind == slang::ast::SymbolKind::Net || member.kind == slang::ast::SymbolKind::Variable)
+            usage.emplace(&member, InterfaceUsage{});
+    }
+
+    auto mark = [&](const slang::ast::Symbol& symbol, bool write,
+                    std::optional<std::pair<int64_t, int64_t>> range = std::nullopt, bool approximate = false) {
+        if (auto it = usage.find(&symbol); it != usage.end()) {
+            if (write) {
+                it->second.written = true;
+                if (range) {
+                    if (approximate)
+                        it->second.approximateWriteRanges.push_back(*range);
+                    else
+                        it->second.writeRanges.push_back(*range);
+                } else {
+                    it->second.unknownWrite = true;
+                }
+            } else {
+                it->second.read = true;
+                if (range) {
+                    if (approximate)
+                        it->second.approximateReadRanges.push_back(*range);
+                    else
+                        it->second.readRanges.push_back(*range);
+                } else {
+                    it->second.unknownRead = true;
+                }
+            }
+        }
+    };
+    auto markSelected = [&](const slang::ast::Expression& selected, bool write) {
+        if (const auto range = directInterfaceMemberRange(selected); range && usage.contains(range->member)) {
+            mark(*range->member, write, std::pair{range->left, range->right}, true);
+            return true;
+        }
+        return false;
+    };
+    auto visitRefs = [&](const slang::ast::Expression& expr, bool write) {
+        auto refs = slang::ast::makeVisitor(
+            [&](auto&, const slang::ast::NamedValueExpression& ref) { mark(ref.symbol, write); },
+            [&](auto&, const slang::ast::HierarchicalValueExpression& ref) { mark(ref.symbol, write); },
+            [&](auto&, const slang::ast::ArbitrarySymbolExpression& ref) { mark(*ref.symbol, write); },
+            [&](auto& self, const slang::ast::ConditionalExpression& ref) {
+                if (const auto* known = ref.knownSide())
+                    known->visit(self);
+                else
+                    self.visitDefault(ref);
+            },
+            [&](auto& self, const slang::ast::RangeSelectExpression& ref) {
+                if (!markSelected(ref, write))
+                    self.visitDefault(ref);
+            },
+            [&](auto& self, const slang::ast::ElementSelectExpression& ref) {
+                if (!markSelected(ref, write))
+                    self.visitDefault(ref);
+            },
+            [&](auto& self, const slang::ast::MemberAccessExpression& ref) {
+                mark(ref.member, write);
+                self.visitDefault(ref);
+            });
+        expr.visit(refs);
+    };
+    auto scanSide = [&](const slang::ast::Expression& expr, bool write) {
+        if (const auto selected = directInterfaceMemberRange(expr); selected && usage.contains(selected->member)) {
+            mark(*selected->member, write, std::pair{selected->left, selected->right});
+            return;
+        }
+        visitRefs(expr, write);
+    };
+    auto scanAssignment = [&](const slang::ast::AssignmentExpression& assignment) {
+        scanSide(assignment.left(), true);
+        scanSide(assignment.right(), false);
+    };
+
+    auto scanScope = [&](auto&& self, const slang::ast::Scope& scope) -> void {
+        for (const auto& member : scope.members()) {
+            if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
+                const auto& expr = member.as<slang::ast::ContinuousAssignSymbol>().getAssignment();
+                if (expr.kind == slang::ast::ExpressionKind::Assignment)
+                    scanAssignment(expr.as<slang::ast::AssignmentExpression>());
+            } else if (member.kind == slang::ast::SymbolKind::ProceduralBlock) {
+                const auto& block = member.as<slang::ast::ProceduralBlockSymbol>();
+                auto visitor = slang::ast::makeVisitor(
+                    [&](auto&, const slang::ast::AssignmentExpression& assignment) { scanAssignment(assignment); },
+                    [&](auto& self, const slang::ast::ConditionalStatement& statement) {
+                        if (const auto known = knownIfBranch(statement)) {
+                            if (*known)
+                                statement.ifTrue.visit(self);
+                            else if (statement.ifFalse)
+                                statement.ifFalse->visit(self);
+                        } else {
+                            self.visitDefault(statement);
+                        }
+                    },
+                    [&](auto& self, const slang::ast::CaseStatement& statement) {
+                        if (const auto known = knownCaseBranch(statement, block)) {
+                            if (*known)
+                                (*known)->visit(self);
+                        } else {
+                            self.visitDefault(statement);
+                        }
+                    },
+                    [&](auto& self, const slang::ast::ConditionalExpression& ref) {
+                        if (const auto* known = ref.knownSide())
+                            known->visit(self);
+                        else
+                            self.visitDefault(ref);
+                    },
+                    [&](auto& self, const slang::ast::RangeSelectExpression& ref) {
+                        if (!markSelected(ref, false))
+                            self.visitDefault(ref);
+                    },
+                    [&](auto& self, const slang::ast::ElementSelectExpression& ref) {
+                        if (!markSelected(ref, false))
+                            self.visitDefault(ref);
+                    },
+                    [&](auto&, const slang::ast::HierarchicalValueExpression& ref) { mark(ref.symbol, false); },
+                    [&](auto&, const slang::ast::NamedValueExpression& ref) { mark(ref.symbol, false); },
+                    [&](auto& self, const slang::ast::MemberAccessExpression& ref) {
+                        mark(ref.member, false);
+                        self.visitDefault(ref);
+                    });
+                block.getBody().visit(visitor);
+            } else if (member.kind == slang::ast::SymbolKind::GenerateBlock) {
+                const auto& block = member.as<slang::ast::GenerateBlockSymbol>();
+                if (!block.isUninstantiated)
+                    self(self, block);
+            } else if (member.kind == slang::ast::SymbolKind::GenerateBlockArray) {
+                const auto& array = member.as<slang::ast::GenerateBlockArraySymbol>();
+                for (const auto* entry : array.entries) {
+                    if (entry && !entry->isUninstantiated)
+                        self(self, *entry);
+                }
+            }
+        }
+    };
+    scanScope(scanScope, child.body);
+    return usage;
+}
+
+const slang::ast::Symbol* namedBaseSymbol(const slang::ast::Expression& expr) {
+    using EK = slang::ast::ExpressionKind;
+    switch (expr.kind) {
+    case EK::NamedValue:
+        return &expr.as<slang::ast::NamedValueExpression>().symbol;
+    case EK::MemberAccess:
+        return namedBaseSymbol(expr.as<slang::ast::MemberAccessExpression>().value());
+    case EK::ElementSelect:
+        return namedBaseSymbol(expr.as<slang::ast::ElementSelectExpression>().value());
+    case EK::RangeSelect:
+        return namedBaseSymbol(expr.as<slang::ast::RangeSelectExpression>().value());
+    case EK::Conversion:
+        return namedBaseSymbol(expr.as<slang::ast::ConversionExpression>().operand());
+    case EK::Assignment:
+        return namedBaseSymbol(expr.as<slang::ast::AssignmentExpression>().left());
+    default:
+        return nullptr;
+    }
+}
+
+std::string netKeyForExpression(const slang::ast::Expression& expr, const std::string& name, bool absolute,
+                                const std::string& scopePath) {
+    if (absolute)
+        return name;
+    if (const auto* symbol = namedBaseSymbol(expr)) {
+        const auto declaredPath = symbol->getHierarchicalPath();
+        if (const auto dot = declaredPath.rfind('.'); dot != std::string::npos)
+            return declaredPath.substr(0, dot) + "::" + name;
+    }
+    return scopePath + "::" + name;
+}
+
 } // namespace
 
-ConnectionExtractor::ConnectionExtractor(slang::ast::Compilation& compilation,
-                                         const std::string& topModule,
-                                         int maxDepth)
-    : compilation_(compilation), topModule_(topModule), maxDepth_(maxDepth) {}
+ConnectionExtractor::ConnectionExtractor(slang::ast::Compilation& compilation, const std::string& topModule,
+                                         int maxDepth, bool captureDeclarations)
+    : compilation_(compilation), topModule_(topModule), maxDepth_(maxDepth), captureDeclarations_(captureDeclarations) {
+}
 
 // Round 33 deslop: shared helper for the modport-rendezvous logic
 // used by HierarchicalValue and ArbitrarySymbol cases. Returns the
@@ -226,6 +626,12 @@ ConnectionExtractor::ResolvedExpr ConnectionExtractor::resolveExpr(
     switch (expr->kind) {
         case slang::ast::ExpressionKind::NamedValue: {
             auto& named = expr->as<slang::ast::NamedValueExpression>();
+            if (named.symbol.kind == slang::ast::SymbolKind::EnumValue ||
+                named.symbol.kind == slang::ast::SymbolKind::Parameter ||
+                named.symbol.kind == slang::ast::SymbolKind::TypeParameter) {
+                result.tieOff = true;
+                return result;
+            }
             result.netNames.push_back(std::string(named.symbol.name));
             return result;
         }
@@ -290,6 +696,13 @@ ConnectionExtractor::ResolvedExpr ConnectionExtractor::resolveExpr(
             if (auto* constant = sel.right().getConstant(); constant && *constant)
                 right = constant->toString();
 
+            if (left == "?" || right == "?") {
+                result.approximate = true;
+                for (auto& name : result.netNames)
+                    name += "[?]";
+                return result;
+            }
+
             for (auto& name : result.netNames)
                 name += "[" + left + ":" + right + "]";
             return result;
@@ -301,6 +714,9 @@ ConnectionExtractor::ResolvedExpr ConnectionExtractor::resolveExpr(
             std::string index = "?";
             if (auto* constant = sel.selector().getConstant(); constant && *constant)
                 index = constant->toString();
+
+            if (index == "?")
+                result.approximate = true;
 
             for (auto& name : result.netNames)
                 name += "[" + index + "]";
@@ -381,12 +797,427 @@ ConnectionExtractor::ResolvedExpr ConnectionExtractor::resolveExpr(
     }
 }
 
+// A member can be rooted in a constant unpacked-array element such as
+// `bank[0].payload`. Its bracketed key names one storage object. A packed
+// select or variable index in that path cannot be treated the same way.
+static bool hasConcreteUnpackedMemberPath(const slang::ast::Expression& expr) {
+    using EK = slang::ast::ExpressionKind;
+    if (expr.kind == EK::NamedValue)
+        return true;
+    if (expr.kind == EK::Conversion)
+        return hasConcreteUnpackedMemberPath(expr.as<slang::ast::ConversionExpression>().operand());
+    if (expr.kind == EK::MemberAccess)
+        return hasConcreteUnpackedMemberPath(expr.as<slang::ast::MemberAccessExpression>().value());
+    if (expr.kind != EK::ElementSelect)
+        return false;
+    const auto& select = expr.as<slang::ast::ElementSelectExpression>();
+    if (!select.value().type || !select.value().type->isUnpackedArray() || !select.value().type->hasFixedRange())
+        return false;
+    const auto* constant = select.selector().getConstant();
+    if (!constant || !*constant || !constant->isInteger())
+        return false;
+    const auto index = constant->integer().as<int64_t>();
+    if (!index)
+        return false;
+    const auto range = select.value().type->getFixedRange();
+    return *index >= range.lower() && *index <= range.upper() && hasConcreteUnpackedMemberPath(select.value());
+}
+
+std::optional<ConnectionExtractor::WireRange> ConnectionExtractor::resolveWireRange(const slang::ast::Expression& expr,
+                                                                                    const std::string& scopePath,
+                                                                                    uint32_t portWidth) {
+    using EK = slang::ast::ExpressionKind;
+    const slang::ast::Expression* current = &expr;
+    while (current->kind == EK::Conversion || current->kind == EK::Assignment) {
+        if (current->kind == EK::Conversion)
+            current = &current->as<slang::ast::ConversionExpression>().operand();
+        else
+            current = &current->as<slang::ast::AssignmentExpression>().left();
+    }
+    if (portWidth == 0)
+        return std::nullopt;
+
+    const slang::ast::Expression* base = current;
+    int64_t left = 0;
+    int64_t right = 0;
+    if (current->kind == EK::RangeSelect) {
+        const auto& select = current->as<slang::ast::RangeSelectExpression>();
+        const auto bounds = constantRangeSelectBounds(select);
+        if (!bounds || current->type->getBitWidth() != portWidth)
+            return std::nullopt;
+        std::tie(left, right) = *bounds;
+        base = &select.value();
+    } else if (current->kind == EK::ElementSelect) {
+        const auto& select = current->as<slang::ast::ElementSelectExpression>();
+        const auto* index = select.selector().getConstant();
+        if (!index || !*index || !index->isInteger())
+            return std::nullopt;
+        const auto value = index->integer().as<int64_t>();
+        if (!value)
+            return std::nullopt;
+        // A constant element of an unpacked array is a distinct packed
+        // signal, not one bit of the array's flat storage. Use its indexed
+        // key and the selected element's own declared range.
+        if (!select.value().type->isIntegral()) {
+            if (!current->type->isIntegral() || !current->type->hasFixedRange() ||
+                current->type->getBitWidth() != portWidth)
+                return std::nullopt;
+            const auto resolved = resolveExpr(current);
+            if (resolved.approximate || resolved.tieOff || resolved.netNames.size() != 1)
+                return std::nullopt;
+            const auto range = current->type->getFixedRange();
+            const bool flatPackedArray = current->type->isPackedArray() && range.fullWidth() != portWidth;
+            if (range.fullWidth() != portWidth && !flatPackedArray)
+                return std::nullopt;
+            return WireRange{netKeyForExpression(*current, resolved.netNames.front(), resolved.is_absolute, scopePath),
+                             flatPackedArray ? static_cast<int64_t>(portWidth) - 1 : range.left,
+                             flatPackedArray ? 0 : range.right};
+        }
+        if (select.value().type && select.value().type->isPackedArray()) {
+            // Each packed dimension contributes an ordinal offset from its
+            // declared right bound. Walk all constant selects so
+            // lanes[outer][inner] maps back to the one root packed wire.
+            const slang::ast::Expression* packedBase = current;
+            uint64_t offset = 0;
+            while (packedBase->kind == EK::ElementSelect) {
+                const auto& element = packedBase->as<slang::ast::ElementSelectExpression>();
+                const auto* selector = element.selector().getConstant();
+                if (!selector || !*selector || !selector->isInteger() || !packedBase->type || !element.value().type ||
+                    !element.value().type->hasFixedRange())
+                    return std::nullopt;
+                // Unpacked dimensions select distinct storage objects, not
+                // bit positions in one packed wire. Keep their indexed key
+                // as the base for the packed offset accumulated so far.
+                if (element.value().type->isUnpackedArray())
+                    break;
+                if (!element.value().type->isPackedArray())
+                    return std::nullopt;
+                const auto indexValue = selector->integer().as<int64_t>();
+                if (!indexValue)
+                    return std::nullopt;
+                const auto dimension = element.value().type->getFixedRange();
+                const uint64_t elementWidth = packedBase->type->getBitWidth();
+                if (*indexValue < dimension.lower() || *indexValue > dimension.upper() ||
+                    static_cast<uint64_t>(dimension.fullWidth()) * elementWidth != element.value().type->getBitWidth())
+                    return std::nullopt;
+                offset += static_cast<uint64_t>(std::abs(*indexValue - dimension.right)) * elementWidth;
+                packedBase = &element.value();
+            }
+            const slang::ast::Expression* owner = packedBase;
+            while (owner->kind == EK::ElementSelect) {
+                const auto& element = owner->as<slang::ast::ElementSelectExpression>();
+                const auto* selector = element.selector().getConstant();
+                if (!element.value().type || !element.value().type->isUnpackedArray() ||
+                    !element.value().type->hasFixedRange() || !selector || !*selector || !selector->isInteger())
+                    return std::nullopt;
+                const auto indexValue = selector->integer().as<int64_t>();
+                if (!indexValue)
+                    return std::nullopt;
+                const auto dimension = element.value().type->getFixedRange();
+                if (*indexValue < dimension.lower() || *indexValue > dimension.upper())
+                    return std::nullopt;
+                owner = &element.value();
+            }
+            if ((owner->kind != EK::NamedValue && owner->kind != EK::MemberAccess) || !packedBase->type ||
+                !packedBase->type->isIntegral() || current->type->getBitWidth() != portWidth ||
+                offset + portWidth > packedBase->type->getBitWidth())
+                return std::nullopt;
+            const auto resolved = resolveExpr(packedBase);
+            if (resolved.approximate || resolved.tieOff || resolved.netNames.size() != 1 ||
+                (resolved.netNames.front().find('[') != std::string::npos &&
+                 !hasConcreteUnpackedMemberPath(*packedBase)))
+                return std::nullopt;
+            return WireRange{
+                netKeyForExpression(*packedBase, resolved.netNames.front(), resolved.is_absolute, scopePath),
+                static_cast<int64_t>(offset + portWidth - 1), static_cast<int64_t>(offset)};
+        }
+        if (portWidth != 1)
+            return std::nullopt;
+        left = right = *value;
+        base = &select.value();
+    } else {
+        if (current->kind != EK::NamedValue && current->kind != EK::MemberAccess &&
+            current->kind != EK::HierarchicalValue)
+            return std::nullopt;
+    }
+    if (!base->type || !base->type->isIntegral() || !base->type->hasFixedRange())
+        return std::nullopt;
+    const auto declared = base->type->getFixedRange();
+    const bool flatPackedArray = base->type->isPackedArray() && declared.fullWidth() != base->type->getBitWidth();
+    if (declared.fullWidth() != base->type->getBitWidth() && !flatPackedArray)
+        return std::nullopt;
+    if (flatPackedArray && (current->kind == EK::RangeSelect || current->kind == EK::ElementSelect))
+        return std::nullopt;
+    if ((current->kind == EK::RangeSelect || current->kind == EK::ElementSelect) &&
+        (std::min(left, right) < declared.lower() || std::max(left, right) > declared.upper()))
+        return std::nullopt;
+    if (current->kind != EK::RangeSelect && current->kind != EK::ElementSelect) {
+        if (base->type->getBitWidth() != portWidth)
+            return std::nullopt;
+        left = flatPackedArray ? static_cast<int64_t>(portWidth) - 1 : declared.left;
+        right = flatPackedArray ? 0 : declared.right;
+    }
+    if (base->kind == EK::HierarchicalValue) {
+        const auto& symbol = base->as<slang::ast::HierarchicalValueExpression>().symbol;
+        auto path = modportInternalAbsPath(symbol);
+        if (path.empty())
+            path = symbol.getHierarchicalPath();
+        if (path.empty())
+            return std::nullopt;
+        return WireRange{std::move(path), left, right};
+    }
+    const auto resolved = resolveExpr(base);
+    if (resolved.approximate || resolved.tieOff || resolved.netNames.size() != 1 ||
+        (resolved.netNames.front().find('[') != std::string::npos && !hasConcreteUnpackedMemberPath(*base)))
+        return std::nullopt;
+    return WireRange{netKeyForExpression(*base, resolved.netNames.front(), resolved.is_absolute, scopePath), left,
+                     right};
+}
+
+bool ConnectionExtractor::recordBitFlow(const slang::ast::Expression& lhs, const slang::ast::Expression& rhs,
+                                        const std::string& scopePath, bool approximate, bool forceInteresting) {
+    constexpr uint32_t kMaxMappedWidth = 4096;
+    constexpr size_t kMaxGapExamples = 32;
+    bool relevant = false;
+    auto visitor = slang::ast::makeVisitor(
+        [&](auto& self, const slang::ast::ConcatenationExpression& expr) {
+            relevant = true;
+            self.visitDefault(expr);
+        },
+        [&](auto& self, const slang::ast::RangeSelectExpression& expr) {
+            relevant = true;
+            self.visitDefault(expr);
+        },
+        [&](auto& self, const slang::ast::ElementSelectExpression& expr) {
+            relevant = true;
+            self.visitDefault(expr);
+        });
+    lhs.visit(visitor);
+    rhs.visit(visitor);
+    const uint32_t lhsWidth = lhs.type ? lhs.type->getBitWidth() : 0;
+    const uint32_t rhsWidth = rhs.type ? rhs.type->getBitWidth() : 0;
+    bool gapRecorded = false;
+    auto recordGap = [&](std::string_view reason) {
+        if (!relevant || gapRecorded || isConstantOnly(&rhs))
+            return;
+        gapRecorded = true;
+        ++graph_.bitFlowGapCount;
+        const size_t reasonCount = ++graph_.bitFlowGapReasons[std::string(reason)];
+        if (reasonCount <= 4 && graph_.bitFlowGaps.size() < kMaxGapExamples)
+            graph_.bitFlowGaps.push_back({scopePath, std::string(reason), lhs.sourceRange.start(), lhsWidth, rhsWidth});
+    };
+    if (!lhs.type || !rhs.type) {
+        recordGap("missing_type");
+        return false;
+    }
+    if (lhsWidth == 0 || lhsWidth != rhsWidth) {
+        recordGap("width_mismatch");
+        return false;
+    }
+    if (lhsWidth > kMaxMappedWidth) {
+        recordGap("width_limit");
+        return false;
+    }
+
+    struct Part {
+        std::optional<WireRange> wire;
+        const slang::ast::Expression* expr = nullptr;
+        uint32_t offset = 0;
+        uint32_t width = 0;
+        bool selected = false;
+        bool approximate = false;
+    };
+    bool widthChangingConversion = false;
+    bool stateChangingConversion = false;
+    bool mappedWidthConversion = false;
+    bool mappedConditional = false;
+    auto flatten = [&](auto&& self, const slang::ast::Expression& expr, uint32_t offset, std::vector<Part>& parts,
+                       bool sourceSide) -> bool {
+        using EK = slang::ast::ExpressionKind;
+        const slang::ast::Expression* current = &expr;
+        while (current->kind == EK::Conversion) {
+            const auto& conversion = current->as<slang::ast::ConversionExpression>();
+            const auto& operand = conversion.operand();
+            if (!operand.type || !current->type) {
+                widthChangingConversion = true;
+                return false;
+            }
+            const auto fromWidth = operand.type->getBitWidth();
+            const auto toWidth = current->type->getBitWidth();
+            if (operand.type->isFourState() != current->type->isFourState()) {
+                stateChangingConversion = true;
+                return false;
+            }
+            if (fromWidth != toWidth) {
+                const bool simpleOperand = operand.kind == EK::NamedValue || operand.kind == EK::HierarchicalValue ||
+                                           operand.kind == EK::MemberAccess || operand.kind == EK::RangeSelect ||
+                                           operand.kind == EK::ElementSelect;
+                const bool unsignedConcat = operand.kind == EK::Concatenation && !operand.type->isSigned();
+                const bool implicit = conversion.conversionKind == slang::ast::ConversionKind::Implicit ||
+                                      conversion.conversionKind == slang::ast::ConversionKind::Propagated;
+                // An explicit size cast preserves the operand's signedness;
+                // type/sign casts that change it are not positional width mapping.
+                const bool explicitSize = conversion.conversionKind == slang::ast::ConversionKind::Explicit &&
+                                          operand.type->isSigned() == current->type->isSigned();
+                if (!sourceSide || (!implicit && !explicitSize) || (!simpleOperand && !unsignedConcat) ||
+                    fromWidth == 0 || toWidth == 0 || fromWidth > kMaxMappedWidth || !operand.type->isIntegral() ||
+                    !current->type->isIntegral() || operand.type->isFourState() != current->type->isFourState()) {
+                    widthChangingConversion = true;
+                    return false;
+                }
+                const uint32_t copiedWidth = std::min(fromWidth, toWidth);
+                if (unsignedConcat) {
+                    std::vector<Part> operands;
+                    if (!self(self, operand, 0, operands, true)) {
+                        widthChangingConversion = true;
+                        return false;
+                    }
+                    for (auto& part : operands) {
+                        if (part.offset >= copiedWidth)
+                            continue;
+                        part.width = std::min(part.width, copiedWidth - part.offset);
+                        part.offset += offset;
+                        parts.push_back(std::move(part));
+                    }
+                    mappedWidthConversion = true;
+                    return true;
+                }
+                auto wire = resolveWireRange(operand, scopePath, fromWidth);
+                if (!wire) {
+                    widthChangingConversion = true;
+                    return false;
+                }
+                parts.push_back({*wire, &operand, offset, copiedWidth, false});
+                if (operand.type->isSigned() && toWidth > fromWidth) {
+                    WireRange signBit{wire->baseKey, wire->left, wire->left};
+                    for (uint32_t bit = fromWidth; bit < toWidth; ++bit)
+                        parts.push_back({signBit, &operand, offset + bit, 1, false});
+                }
+                mappedWidthConversion = true;
+                return true;
+            }
+            current = &operand;
+        }
+        if (!current->type || current->type->getBitWidth() == 0)
+            return false;
+        if (current->kind == EK::ConditionalOp) {
+            if (!sourceSide)
+                return false;
+            const auto& conditional = current->as<slang::ast::ConditionalExpression>();
+            if (const auto* known = conditional.knownSide())
+                return self(self, *known, offset, parts, sourceSide);
+            if (!conditional.left().type || !conditional.right().type ||
+                conditional.left().type->getBitWidth() != current->type->getBitWidth() ||
+                conditional.right().type->getBitWidth() != current->type->getBitWidth())
+                return false;
+            mappedConditional = true;
+            const size_t leftStart = parts.size();
+            if (!self(self, conditional.left(), offset, parts, sourceSide))
+                return false;
+            for (size_t i = leftStart; i < parts.size(); ++i)
+                parts[i].approximate = true;
+            const size_t rightStart = parts.size();
+            if (!self(self, conditional.right(), offset, parts, sourceSide))
+                return false;
+            for (size_t i = rightStart; i < parts.size(); ++i)
+                parts[i].approximate = true;
+            return true;
+        }
+        if (current->kind == EK::Concatenation) {
+            const auto operands = current->as<slang::ast::ConcatenationExpression>().operands();
+            uint32_t childOffset = offset;
+            for (size_t i = operands.size(); i > 0; --i) {
+                const auto* operand = operands[i - 1];
+                if (!operand || !operand->type || !self(self, *operand, childOffset, parts, sourceSide))
+                    return false;
+                childOffset += operand->type->getBitWidth();
+            }
+            return true;
+        }
+        const auto width = current->type->getBitWidth();
+        parts.push_back({resolveWireRange(*current, scopePath, width), current, offset, width,
+                         current->kind == EK::RangeSelect || current->kind == EK::ElementSelect});
+        return true;
+    };
+
+    std::vector<Part> targets;
+    std::vector<Part> sources;
+    if (!flatten(flatten, lhs, 0, targets, false) || !flatten(flatten, rhs, 0, sources, true)) {
+        recordGap(stateChangingConversion   ? "state_changing_conversion"
+                  : widthChangingConversion ? "width_changing_conversion"
+                                            : "unflattenable_expression");
+        return false;
+    }
+    bool interesting = forceInteresting || mappedWidthConversion || mappedConditional || targets.size() > 1 ||
+                       sources.size() > 1 || lhs.kind == slang::ast::ExpressionKind::Concatenation ||
+                       rhs.kind == slang::ast::ExpressionKind::Concatenation;
+    for (const auto& part : targets)
+        interesting |= part.selected;
+    for (const auto& part : sources)
+        interesting |= part.selected;
+
+    bool emitted = false;
+    for (const auto& target : targets) {
+        if (!target.wire) {
+            recordGap("unresolved_destination_range");
+            continue;
+        }
+        for (const auto& source : sources) {
+            const auto low = std::max(target.offset, source.offset);
+            const auto high = std::min(target.offset + target.width, source.offset + source.width);
+            if (low >= high)
+                continue;
+            if (!source.wire) {
+                std::vector<std::string> refs;
+                if (source.expr)
+                    collectDependencyKeys(*source.expr, scopePath, refs);
+                // An unsized literal can lack a cached constant value even
+                // though it has no signal dependency. Do not count tie-offs
+                // as missing source connectivity.
+                if (!refs.empty()) {
+                    recordGap(source.selected ? "unresolved_source_range" : "nonstructural_source");
+                }
+                if (interesting && !target.selected) {
+                    for (const auto& ref : refs) {
+                        if (ref != target.wire->baseKey)
+                            proceduralDependencies_.emplace_back(ref, target.wire->baseKey);
+                    }
+                    emitted |= !refs.empty();
+                }
+                continue;
+            }
+            bitFlowLinks_.push_back({*source.wire, *target.wire, low - source.offset, low - target.offset, high - low,
+                                     approximate || source.approximate, interesting});
+            // A whole unpacked-array port binds at the array key, while an
+            // exact element link uses its indexed key. Keep the coarse array
+            // dependency so an aggregate port driver is not disconnected
+            // when one of its elements is copied into a scalar signal.
+            if (source.expr && source.expr->kind == slang::ast::ExpressionKind::ElementSelect) {
+                const auto& select = source.expr->as<slang::ast::ElementSelectExpression>();
+                if (!select.value().type->isIntegral()) {
+                    std::vector<std::string> refs;
+                    collectDependencyKeys(select.value(), scopePath, refs);
+                    for (const auto& ref : refs) {
+                        if (ref != target.wire->baseKey)
+                            proceduralDependencies_.emplace_back(ref, target.wire->baseKey);
+                    }
+                }
+            }
+            emitted = true;
+        }
+    }
+    return emitted;
+}
+
 ConnectionGraph ConnectionExtractor::extract() {
     graph_ = ConnectionGraph{};
     graph_.topModule = topModule_;
     netMap_.clear();
+    rangeBindings_.clear();
+    bitFlowLinks_.clear();
     netAliases_.clear();
     approximateAliases_.clear();
+    proceduralDependencies_.clear();
 
     auto& root = compilation_.getRoot();
 
@@ -449,6 +1280,10 @@ void ConnectionExtractor::visitInstance(const slang::ast::InstanceSymbol& instan
     // Respect maxDepth: instanceDepth is 0-based for top
     if (maxDepth_ >= 0 && static_cast<int>(instance.instanceDepth) > maxDepth_)
         return;
+
+    if (captureDeclarations_)
+        graph_.modules.push_back(
+            {parentPath, std::string(instance.getDefinition().name), instance.getDefinition().location});
 
     // Round 39 US-39B: save and reset the per-module _q/_d buckets so
     // each module instance has an isolated view. After visitScope
@@ -525,6 +1360,9 @@ void ConnectionExtractor::visitInstance(const slang::ast::InstanceSymbol& instan
 void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
                                       const std::string& scopePath) {
     for (auto& member : scope.members()) {
+        if (captureDeclarations_ &&
+            (member.kind == slang::ast::SymbolKind::Net || member.kind == slang::ast::SymbolKind::Variable))
+            graph_.signals.push_back({scopePath, std::string(member.name), member.location});
         switch (member.kind) {
             case slang::ast::SymbolKind::Instance:
                 processChildInstance(member.as<slang::ast::InstanceSymbol>(), scopePath);
@@ -625,6 +1463,8 @@ void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
             }
             case slang::ast::SymbolKind::GenerateBlock: {
                 auto& genBlock = member.as<slang::ast::GenerateBlockSymbol>();
+                if (genBlock.isUninstantiated)
+                    break;
                 // Round 38 US-38C: lowRISC requires explicit
                 // generate-block names. Slang auto-synthesizes
                 // "genblk<N>" when the user omits the `: name`
@@ -682,6 +1522,8 @@ void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
                 for (auto& elem : genArray.members()) {
                     if (elem.kind == slang::ast::SymbolKind::GenerateBlock) {
                         auto& block = elem.as<slang::ast::GenerateBlockSymbol>();
+                        if (block.isUninstantiated)
+                            continue;
                         // Build indexed scope: parent.genblk[N]
                         std::string idxStr = block.arrayIndex
                             ? block.arrayIndex->toString()
@@ -701,6 +1543,8 @@ void ConnectionExtractor::visitScope(const slang::ast::Scope& scope,
 void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol& childInst,
                                                 const std::string& scopePath) {
     std::string childPath = scopePath + "." + std::string(childInst.name);
+    if (captureDeclarations_)
+        graph_.instances.push_back({scopePath, std::string(childInst.name), childInst.location});
 
     // Process port connections for the child instance
     auto portConns = childInst.getPortConnections();
@@ -789,9 +1633,78 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
                         emit(scopePath + "::" + ifaceInstName + "." +
                                  std::string(modportPort.name),
                              ConnectionKind::Approximate);
-                        if (modportPort.internalSymbol)
+                        if (modportPort.internalSymbol) {
                             emit(modportPort.internalSymbol->getHierarchicalPath(),
                                  ConnectionKind::Direct);
+                            const auto& memberType =
+                                modportPort.internalSymbol->as<slang::ast::ValueSymbol>().getType();
+                            if (memberType.isIntegral() && memberType.hasFixedRange() &&
+                                memberType.getFixedRange().fullWidth() == signalPort.width) {
+                                const auto range = memberType.getFixedRange();
+                                auto bindRange = [&](bool isDriver) {
+                                    rangeBindings_.push_back(
+                                        {signalPort, isDriver,
+                                         WireRange{modportPort.internalSymbol->getHierarchicalPath(), range.left,
+                                                   range.right},
+                                         signalPort.fullPath(), range.right, ConnectionKind::Direct});
+                                };
+                                if (signalPort.direction == slang::ast::ArgumentDirection::InOut) {
+                                    bindRange(true);
+                                    bindRange(false);
+                                } else {
+                                    bindRange(signalPort.direction == slang::ast::ArgumentDirection::Out);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (ifaceSym && ifaceSym->kind == slang::ast::SymbolKind::Instance) {
+                const auto& iface = ifaceSym->as<slang::ast::InstanceSymbol>();
+                const auto usage = scanInterfaceUsage(childInst, iface);
+                for (const auto& member : iface.body.members()) {
+                    const auto it = usage.find(&member);
+                    if (it == usage.end() || (!it->second.read && !it->second.written))
+                        continue;
+
+                    PortInfo signalPort;
+                    signalPort.instancePath = childPath;
+                    signalPort.portName = std::string(portSym.name) + "." + std::string(member.name);
+                    signalPort.location = member.location;
+                    signalPort.direction = it->second.read && it->second.written ? slang::ast::ArgumentDirection::InOut
+                                           : it->second.written                  ? slang::ast::ArgumentDirection::Out
+                                                                                 : slang::ast::ArgumentDirection::In;
+                    const auto& type = member.as<slang::ast::ValueSymbol>().getType();
+                    signalPort.width = type.getBitWidth();
+                    signalPort.isSigned = type.isSigned();
+                    graph_.allPorts.push_back(signalPort);
+                    graph_.connectedPorts.insert(signalPort.fullPath());
+
+                    if (type.isIntegral() && type.hasFixedRange() &&
+                        type.getFixedRange().fullWidth() == signalPort.width) {
+                        const auto declared = type.getFixedRange();
+                        auto bindRange = [&](bool isDriver, int64_t left, int64_t right, ConnectionKind kind) {
+                            rangeBindings_.push_back({signalPort, isDriver,
+                                                      WireRange{member.getHierarchicalPath(), left, right},
+                                                      signalPort.fullPath(), declared.right, kind});
+                        };
+                        if (it->second.unknownWrite)
+                            bindRange(true, declared.left, declared.right, ConnectionKind::Approximate);
+                        if (it->second.unknownRead)
+                            bindRange(false, declared.left, declared.right, ConnectionKind::Approximate);
+                        for (const auto& [left, right] : it->second.writeRanges)
+                            bindRange(true, left, right, ConnectionKind::Direct);
+                        for (const auto& [left, right] : it->second.readRanges)
+                            bindRange(false, left, right, ConnectionKind::Direct);
+                        for (const auto& [left, right] : it->second.approximateWriteRanges)
+                            bindRange(true, left, right, ConnectionKind::Approximate);
+                        for (const auto& [left, right] : it->second.approximateReadRanges)
+                            bindRange(false, left, right, ConnectionKind::Approximate);
+                    } else {
+                        auto& bindings = netMap_[member.getHierarchicalPath()];
+                        if (it->second.written)
+                            bindings.push_back({signalPort, true, ConnectionKind::Approximate});
+                        if (it->second.read)
+                            bindings.push_back({signalPort, false, ConnectionKind::Approximate});
                     }
                 }
             }
@@ -823,9 +1736,20 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
             : ConnectionKind::Direct;
 
         for (const auto& netName : resolved.netNames) {
-            std::string netKey = resolved.is_absolute
-                ? netName
-                : (scopePath + "::" + netName);
+            std::string netKey = netKeyForExpression(*expr, netName, resolved.is_absolute, scopePath);
+
+            if (portSym.kind == slang::ast::SymbolKind::Port && kind == ConnectionKind::Direct &&
+                resolved.netNames.size() == 1) {
+                if (auto wireRange = resolveWireRange(*expr, scopePath, pinfo.width)) {
+                    if (pinfo.direction == slang::ast::ArgumentDirection::InOut) {
+                        rangeBindings_.push_back({pinfo, true, *wireRange, netKey});
+                        rangeBindings_.push_back({pinfo, false, *wireRange, netKey});
+                    } else {
+                        const bool isDriver = pinfo.direction == slang::ast::ArgumentDirection::Out;
+                        rangeBindings_.push_back({pinfo, isDriver, *wireRange, netKey});
+                    }
+                }
+            }
 
             if (pinfo.direction == slang::ast::ArgumentDirection::InOut) {
                 netMap_[netKey].push_back({pinfo, true, kind});   // driver
@@ -855,14 +1779,19 @@ void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAs
     // unpacked-array element-select read on its RHS (run before the
     // element-select early-return below).
     collectArrayCombReads(&assign.right());
+    const bool hasConcat = assign.left().kind == slang::ast::ExpressionKind::Concatenation ||
+                           assign.right().kind == slang::ast::ExpressionKind::Concatenation;
+    const bool mappedBitFlow = recordBitFlow(assign.left(), assign.right(), scopePath, false);
+    if (hasConcat)
+        return;
     auto lhs = resolveExpr(&assign.left());
     auto rhs = resolveExpr(&assign.right());
     if (lhs.approximate || rhs.approximate ||
         lhs.netNames.size() != 1 || rhs.netNames.size() != 1)
         return;
 
-    std::string lhsKey = scopePath + "::" + lhs.netNames.front();
-    std::string rhsKey = scopePath + "::" + rhs.netNames.front();
+    std::string lhsKey = netKeyForExpression(assign.left(), lhs.netNames.front(), lhs.is_absolute, scopePath);
+    std::string rhsKey = netKeyForExpression(assign.right(), rhs.netNames.front(), rhs.is_absolute, scopePath);
 
     if (lhsKey == rhsKey)
         return;
@@ -878,6 +1807,20 @@ void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAs
         collectDBaseFromLeaf(leaf);
     }
 
+    if (hasNonIdentityConversion(assign.right())) {
+        // Width- or state-changing casts are not whole-net aliases. Exact mapped bits
+        // already have bit-flow links; unsupported forms keep only a coarse
+        // may-dependency rather than inventing a direct full-width wire.
+        if (!mappedBitFlow) {
+            std::vector<std::string> refs;
+            collectDependencyKeys(assign.right(), scopePath, refs);
+            for (const auto& ref : refs) {
+                if (ref != lhsKey)
+                    proceduralDependencies_.emplace_back(ref, lhsKey);
+            }
+        }
+        return;
+    }
     recordAlias(lhsKey, rhsKey, false);
 }
 
@@ -895,6 +1838,7 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
     // b)), or neither. Clocked blocks contribute array-write facts;
     // combinational blocks contribute array-read facts. The verdict is
     // computed per array symbol at the end of visitInstance.
+    bool combinational;
     {
         using slang::ast::ProceduralBlockKind;
         using slang::ast::TimingControlKind;
@@ -934,6 +1878,7 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
             // throughout the combinational body.
             collectArrayCombReadsInStatement(block.getBody());
         }
+        combinational = isComb;
     }
 
     // Round 38 US-38A: lowRISC requires `always_ff` for sequential
@@ -1290,7 +2235,9 @@ void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlo
         scanIncompleteCombAssignments(block, scopePath);
     }
 
-    processProceduralStatement(block.getBody(), scopePath);
+    processProceduralStatement(block.getBody(), block, scopePath, combinational,
+                               block.procedureKind == slang::ast::ProceduralBlockKind::AlwaysComb &&
+                                   isSingleUnconditionalAssignment(block.getBody()));
 }
 
 void ConnectionExtractor::scanIncompleteCombAssignments(const slang::ast::ProceduralBlockSymbol& block,
@@ -1408,8 +2355,37 @@ void ConnectionExtractor::scanIncompleteCombAssignments(const slang::ast::Proced
     }
 }
 
+void ConnectionExtractor::collectDependencyKeys(const slang::ast::Expression& expr, const std::string& scopePath,
+                                                std::vector<std::string>& keys) {
+    auto add = [&](const slang::ast::Expression& ref) {
+        const auto resolved = resolveExpr(&ref);
+        for (const auto& name : resolved.netNames) {
+            const std::string key = netKeyForExpression(ref, name, resolved.is_absolute, scopePath);
+            if (std::find(keys.begin(), keys.end(), key) == keys.end())
+                keys.push_back(key);
+        }
+    };
+    const auto selected = resolveExpr(&expr);
+    if (std::any_of(selected.netNames.begin(), selected.netNames.end(),
+                    [](const std::string& name) { return hasDynamicIndex(name); }))
+        add(expr);
+    auto visitor = slang::ast::makeVisitor(
+        [&](auto&, const slang::ast::NamedValueExpression& ref) {
+            if (ref.symbol.kind != slang::ast::SymbolKind::Parameter &&
+                ref.symbol.kind != slang::ast::SymbolKind::TypeParameter &&
+                ref.symbol.kind != slang::ast::SymbolKind::EnumValue)
+                add(ref);
+        },
+        [&](auto&, const slang::ast::HierarchicalValueExpression& ref) { add(ref); },
+        [&](auto&, const slang::ast::ArbitrarySymbolExpression& ref) { add(ref); },
+        [&](auto&, const slang::ast::MemberAccessExpression& ref) { add(ref); });
+    expr.visit(visitor);
+}
+
 void ConnectionExtractor::processProceduralStatement(const slang::ast::Statement& stmt,
-                                                     const std::string& scopePath) {
+                                                     const slang::ast::ProceduralBlockSymbol& owner,
+                                                     const std::string& scopePath, bool combinational,
+                                                     bool exactSingleAssignment, std::vector<std::string> guardKeys) {
     using SK = slang::ast::StatementKind;
 
     switch (stmt.kind) {
@@ -1420,40 +2396,98 @@ void ConnectionExtractor::processProceduralStatement(const slang::ast::Statement
                 return;
 
             auto& assign = expr.as<slang::ast::AssignmentExpression>();
+            if (combinational) {
+                const bool hasConcat = assign.left().kind == slang::ast::ExpressionKind::Concatenation ||
+                                       assign.right().kind == slang::ast::ExpressionKind::Concatenation;
+                const auto lhsWidth = assign.left().type ? assign.left().type->getBitWidth() : 0;
+                const auto rhsWidth = assign.right().type ? assign.right().type->getBitWidth() : 0;
+                const bool positionalCandidate =
+                    assign.isBlocking() && !assign.isCompound() && !assign.isLValueArg() && !assign.timingControl &&
+                    lhsWidth > 0 && lhsWidth == rhsWidth && !hasNonIdentityConversion(assign.left()) &&
+                    !hasNonIdentityConversion(assign.right()) && resolveWireRange(assign.left(), scopePath, lhsWidth) &&
+                    resolveWireRange(assign.right(), scopePath, rhsWidth);
+                const bool directCandidate = exactSingleAssignment && positionalCandidate;
+                bool mappedPositional = false;
+                if (positionalCandidate)
+                    mappedPositional = recordBitFlow(assign.left(), assign.right(), scopePath, !directCandidate, true);
+                else
+                    recordBitFlow(assign.left(), assign.right(), scopePath, true);
+                if (mappedPositional && directCandidate)
+                    return;
+                if (hasConcat) {
+                    std::vector<std::string> targets;
+                    collectDependencyKeys(assign.left(), scopePath, targets);
+                    for (const auto& guard : guardKeys) {
+                        for (const auto& dest : targets) {
+                            if (guard != dest)
+                                proceduralDependencies_.emplace_back(guard, dest);
+                        }
+                    }
+                    return;
+                }
+            }
             auto lhs = resolveExpr(&assign.left());
+            if (combinational) {
+                if (lhs.tieOff || lhs.netNames.size() != 1)
+                    return;
+                const std::string dest =
+                    netKeyForExpression(assign.left(), lhs.netNames.front(), lhs.is_absolute, scopePath);
+                // Keep the coarse dependency for transitive paths that the
+                // bounded bit-flow graph cannot follow through later casts.
+                collectDependencyKeys(assign.right(), scopePath, guardKeys);
+                for (const auto& source : guardKeys) {
+                    if (source != dest)
+                        proceduralDependencies_.emplace_back(source, dest);
+                }
+                return;
+            }
             auto rhs = resolveExpr(&assign.right());
             if (lhs.tieOff || rhs.tieOff ||
                 lhs.netNames.size() != 1 || rhs.netNames.size() != 1)
                 return;
 
-            recordAlias(scopePath + "::" + lhs.netNames.front(),
-                        scopePath + "::" + rhs.netNames.front(),
-                        true);
+            recordAlias(netKeyForExpression(assign.left(), lhs.netNames.front(), lhs.is_absolute, scopePath),
+                        netKeyForExpression(assign.right(), rhs.netNames.front(), rhs.is_absolute, scopePath), true);
             return;
         }
         case SK::Timed: {
             auto& timed = stmt.as<slang::ast::TimedStatement>();
-            processProceduralStatement(timed.stmt, scopePath);
+            processProceduralStatement(timed.stmt, owner, scopePath, combinational, exactSingleAssignment, guardKeys);
             return;
         }
         case SK::Block: {
             auto& block = stmt.as<slang::ast::BlockStatement>();
-            processProceduralStatement(block.body, scopePath);
+            processProceduralStatement(block.body, owner, scopePath, combinational, exactSingleAssignment, guardKeys);
             return;
         }
         case SK::List: {
             auto& list = stmt.as<slang::ast::StatementList>();
             for (auto* child : list.list) {
                 if (child)
-                    processProceduralStatement(*child, scopePath);
+                    processProceduralStatement(*child, owner, scopePath, combinational, exactSingleAssignment,
+                                               guardKeys);
             }
             return;
         }
         case SK::Conditional: {
             auto& cond = stmt.as<slang::ast::ConditionalStatement>();
-            processProceduralStatement(cond.ifTrue, scopePath);
+            if (const auto known = knownIfBranch(cond)) {
+                if (*known)
+                    processProceduralStatement(cond.ifTrue, owner, scopePath, combinational, exactSingleAssignment,
+                                               guardKeys);
+                else if (cond.ifFalse)
+                    processProceduralStatement(*cond.ifFalse, owner, scopePath, combinational, exactSingleAssignment,
+                                               guardKeys);
+                return;
+            }
+            if (combinational) {
+                for (const auto& condition : cond.conditions)
+                    collectDependencyKeys(*condition.expr, scopePath, guardKeys);
+            }
+            processProceduralStatement(cond.ifTrue, owner, scopePath, combinational, exactSingleAssignment, guardKeys);
             if (cond.ifFalse)
-                processProceduralStatement(*cond.ifFalse, scopePath);
+                processProceduralStatement(*cond.ifFalse, owner, scopePath, combinational, exactSingleAssignment,
+                                           guardKeys);
             return;
         }
         case SK::Case: {
@@ -1482,13 +2516,29 @@ void ConnectionExtractor::processProceduralStatement(const slang::ast::Statement
                              "(lowRISC requires it for synthesis safety)";
                 graph_.styleObservations.push_back(std::move(obs));
             }
+            if (const auto known = knownCaseBranch(cs, owner)) {
+                if (*known)
+                    processProceduralStatement(**known, owner, scopePath, combinational, exactSingleAssignment,
+                                               guardKeys);
+                return;
+            }
             // Recurse into each branch's body.
+            if (combinational)
+                collectDependencyKeys(cs.expr, scopePath, guardKeys);
             for (const auto& g : cs.items) {
-                if (g.stmt)
-                    processProceduralStatement(*g.stmt, scopePath);
+                if (g.stmt) {
+                    auto itemKeys = guardKeys;
+                    if (combinational) {
+                        for (const auto* itemExpr : g.expressions)
+                            collectDependencyKeys(*itemExpr, scopePath, itemKeys);
+                    }
+                    processProceduralStatement(*g.stmt, owner, scopePath, combinational, exactSingleAssignment,
+                                               itemKeys);
+                }
             }
             if (cs.defaultCase)
-                processProceduralStatement(*cs.defaultCase, scopePath);
+                processProceduralStatement(*cs.defaultCase, owner, scopePath, combinational, exactSingleAssignment,
+                                           guardKeys);
             return;
         }
         default:
@@ -1537,6 +2587,60 @@ void ConnectionExtractor::resolveConnections() {
             canonicalGroups[canon].push_back(&b);
     }
 
+    std::vector<std::string> boundKeys;
+    boundKeys.reserve(netMap_.size());
+    for (const auto& [key, _] : netMap_)
+        boundKeys.push_back(key);
+    std::sort(boundKeys.begin(), boundKeys.end());
+    std::unordered_map<std::string, std::vector<std::string>> dynamicMatches;
+    auto matchingBoundKeys = [&](const std::string& pattern) -> const std::vector<std::string>& {
+        auto [entry, inserted] = dynamicMatches.try_emplace(pattern);
+        if (!inserted || !hasDynamicIndex(pattern))
+            return entry->second;
+        auto& matches = entry->second;
+        const std::string prefix = pattern.substr(0, pattern.find("[?]"));
+        for (auto it = std::lower_bound(boundKeys.begin(), boundKeys.end(), prefix);
+             it != boundKeys.end() && it->starts_with(prefix); ++it) {
+            if (!hasDynamicIndex(*it) && dynamicPathMayOverlap(pattern, *it))
+                matches.push_back(*it);
+        }
+        const auto scopeEnd = prefix.rfind("::");
+        const size_t signalStart = scopeEnd == std::string::npos ? 0 : scopeEnd + 2;
+        for (size_t pos = prefix.size(); pos > signalStart; --pos) {
+            if (prefix[pos - 1] != '[' && prefix[pos - 1] != '.')
+                continue;
+            const std::string ancestor = prefix.substr(0, pos - 1);
+            if (std::binary_search(boundKeys.begin(), boundKeys.end(), ancestor) &&
+                dynamicPathMayOverlap(pattern, ancestor))
+                matches.push_back(ancestor);
+        }
+        std::sort(matches.begin(), matches.end());
+        matches.erase(std::unique(matches.begin(), matches.end()), matches.end());
+        return matches;
+    };
+
+    std::unordered_map<std::string, std::vector<std::string>> dependencySources;
+    for (const auto& [source, dest] : proceduralDependencies_) {
+        std::vector<std::string> sources{source};
+        std::vector<std::string> destinations{dest};
+        if (hasDynamicIndex(source)) {
+            const auto& matches = matchingBoundKeys(source);
+            sources.insert(sources.end(), matches.begin(), matches.end());
+        }
+        if (hasDynamicIndex(dest)) {
+            const auto& matches = matchingBoundKeys(dest);
+            destinations.insert(destinations.end(), matches.begin(), matches.end());
+        }
+        for (const auto& expandedDest : destinations) {
+            const auto destCanon = findCanonical(expandedDest);
+            for (const auto& expandedSource : sources) {
+                const auto sourceCanon = findCanonical(expandedSource);
+                if (sourceCanon != destCanon)
+                    dependencySources[destCanon].push_back(sourceCanon);
+            }
+        }
+    }
+
     for (auto& [canon, bindings] : canonicalGroups) {
         // Collect drivers and loads
         std::vector<const NetBinding*> drivers;
@@ -1564,7 +2668,238 @@ void ConnectionExtractor::resolveConnections() {
                 graph_.connections.push_back(conn);
             }
         }
+
+        // Follow combinational data dependencies toward this net's loads.
+        // Each source is visited once so reconvergent mux branches and loops
+        // do not duplicate edges or turn input nets into aliases.
+        std::unordered_set<std::string> visited{canon};
+        std::vector<std::string> pending = dependencySources[canon];
+        while (!pending.empty()) {
+            std::string source = std::move(pending.back());
+            pending.pop_back();
+            if (!visited.insert(source).second)
+                continue;
+            if (auto group = canonicalGroups.find(source); group != canonicalGroups.end()) {
+                for (auto* driver : group->second) {
+                    if (!driver->isDriver)
+                        continue;
+                    for (auto* load : loads)
+                        graph_.connections.push_back({driver->port, load->port, ConnectionKind::Approximate});
+                }
+            }
+            if (auto sources = dependencySources.find(source); sources != dependencySources.end())
+                pending.insert(pending.end(), sources->second.begin(), sources->second.end());
+        }
     }
+
+    // A runtime selector may name any connected element in its declaration
+    // scope. Pair only keys that agree on fixed indices and member names;
+    // keep the result approximate because the chosen lane is data-dependent.
+    std::set<std::pair<std::string, std::string>> approximatePairs;
+    for (const auto& conn : graph_.connections) {
+        if (conn.kind == ConnectionKind::Approximate)
+            approximatePairs.emplace(conn.source.fullPath(), conn.dest.fullPath());
+    }
+    auto appendDynamic = [&](const NetBinding* driver, const NetBinding* load) {
+        if (!driver || !load || driver->port.fullPath() == load->port.fullPath())
+            return;
+        const auto pair = std::pair{driver->port.fullPath(), load->port.fullPath()};
+        if (approximatePairs.insert(pair).second)
+            graph_.connections.push_back({driver->port, load->port, ConnectionKind::Approximate});
+    };
+    for (const auto& dynamicKey : boundKeys) {
+        if (!hasDynamicIndex(dynamicKey))
+            continue;
+        const auto dynamicGroup = canonicalGroups.find(findCanonical(dynamicKey));
+        if (dynamicGroup == canonicalGroups.end())
+            continue;
+        for (const auto& concreteKey : matchingBoundKeys(dynamicKey)) {
+            const auto concreteGroup = canonicalGroups.find(findCanonical(concreteKey));
+            if (concreteGroup == canonicalGroups.end() || concreteGroup == dynamicGroup)
+                continue;
+            for (const auto* dynamicBinding : dynamicGroup->second) {
+                for (const auto* concreteBinding : concreteGroup->second) {
+                    if (dynamicBinding->isDriver && !concreteBinding->isDriver)
+                        appendDynamic(dynamicBinding, concreteBinding);
+                    if (concreteBinding->isDriver && !dynamicBinding->isDriver)
+                        appendDynamic(concreteBinding, dynamicBinding);
+                }
+            }
+        }
+    }
+
+    // Exact constant slices of the same declared vector can overlap without
+    // sharing an identical textual key (`bus` versus `bus[3:0]`). Preserve
+    // the overlapped ordinal bits of each port. Complex expressions and
+    // width-changing connections never enter rangeBindings_.
+    std::unordered_map<std::string, std::vector<const RangeBinding*>> rangesByNet;
+    for (const auto& binding : rangeBindings_)
+        rangesByNet[binding.wire.baseKey].push_back(&binding);
+    for (const auto& [_, bindings] : rangesByNet) {
+        for (const auto* driver : bindings) {
+            if (!driver->isDriver)
+                continue;
+            for (const auto* load : bindings) {
+                if (load->isDriver || driver->originalKey == load->originalKey ||
+                    driver->port.fullPath() == load->port.fullPath())
+                    continue;
+                const int64_t low = std::max(std::min(driver->wire.left, driver->wire.right),
+                                             std::min(load->wire.left, load->wire.right));
+                const int64_t high = std::min(std::max(driver->wire.left, driver->wire.right),
+                                              std::max(load->wire.left, load->wire.right));
+                if (low > high)
+                    continue;
+                auto portBits = [low, high](const RangeBinding& binding) {
+                    const auto right = binding.portRight.value_or(binding.wire.right);
+                    const auto first = std::abs(low - right);
+                    const auto last = std::abs(high - right);
+                    return BitRange{std::min(first, last), std::max(first, last)};
+                };
+                Connection conn;
+                conn.source = driver->port;
+                conn.dest = load->port;
+                conn.kind = driver->kind == ConnectionKind::Approximate || load->kind == ConnectionKind::Approximate
+                                ? ConnectionKind::Approximate
+                                : ConnectionKind::Direct;
+                conn.sourceBits = portBits(*driver);
+                conn.destBits = portBits(*load);
+                graph_.connections.push_back(std::move(conn));
+            }
+        }
+    }
+
+    struct BitNode {
+        std::string key;
+        int64_t bit = 0;
+        bool operator==(const BitNode&) const = default;
+    };
+    struct BitNodeHash {
+        size_t operator()(const BitNode& node) const {
+            return std::hash<std::string>{}(node.key) ^ (std::hash<int64_t>{}(node.bit) << 1);
+        }
+    };
+    struct BitEdge {
+        BitNode dest;
+        bool approximate = false;
+        bool interesting = false;
+    };
+    std::unordered_map<BitNode, std::vector<BitEdge>, BitNodeHash> bitEdges;
+    auto wireBit = [](const WireRange& range, uint32_t offset) {
+        return range.right + (range.left >= range.right ? static_cast<int64_t>(offset) : -static_cast<int64_t>(offset));
+    };
+    for (const auto& link : bitFlowLinks_) {
+        for (uint32_t i = 0; i < link.width; ++i) {
+            BitNode source{link.source.baseKey, wireBit(link.source, link.sourceOffset + i)};
+            BitNode dest{link.dest.baseKey, wireBit(link.dest, link.destOffset + i)};
+            bitEdges[std::move(source)].push_back({std::move(dest), link.approximate, link.interesting});
+        }
+    }
+
+    struct BitConnection {
+        const RangeBinding* source = nullptr;
+        const RangeBinding* dest = nullptr;
+        int64_t sourceBit = 0;
+        int64_t destBit = 0;
+        bool approximate = false;
+    };
+    std::vector<BitConnection> bitConnections;
+    auto covers = [](const RangeBinding& binding, int64_t bit) {
+        return bit >= std::min(binding.wire.left, binding.wire.right) &&
+               bit <= std::max(binding.wire.left, binding.wire.right);
+    };
+    for (const auto& [start, edges] : bitEdges) {
+        auto drivers = rangesByNet.find(start.key);
+        if (drivers == rangesByNet.end())
+            continue;
+        for (const auto* driver : drivers->second) {
+            if (!driver->isDriver || !covers(*driver, start.bit))
+                continue;
+            const int64_t sourceBit = std::abs(start.bit - driver->portRight.value_or(driver->wire.right));
+            struct State {
+                BitNode node;
+                bool approximate = false;
+                bool interesting = false;
+            };
+            std::vector<State> pending;
+            for (const auto& edge : edges)
+                pending.push_back({edge.dest, edge.approximate, edge.interesting});
+            std::unordered_map<BitNode, uint8_t, BitNodeHash> visited;
+            while (!pending.empty()) {
+                State state = std::move(pending.back());
+                pending.pop_back();
+                const uint8_t flag = static_cast<uint8_t>(
+                    1u << (static_cast<unsigned>(state.approximate) * 2u + static_cast<unsigned>(state.interesting)));
+                if (visited[state.node] & flag)
+                    continue;
+                visited[state.node] |= flag;
+                if (state.interesting) {
+                    if (auto loads = rangesByNet.find(state.node.key); loads != rangesByNet.end()) {
+                        for (const auto* load : loads->second) {
+                            if (load->isDriver || !covers(*load, state.node.bit) ||
+                                driver->port.fullPath() == load->port.fullPath())
+                                continue;
+                            bitConnections.push_back(
+                                {driver, load, sourceBit,
+                                 std::abs(state.node.bit - load->portRight.value_or(load->wire.right)),
+                                 state.approximate || driver->kind == ConnectionKind::Approximate ||
+                                     load->kind == ConnectionKind::Approximate});
+                        }
+                    }
+                }
+                if (auto next = bitEdges.find(state.node); next != bitEdges.end()) {
+                    for (const auto& edge : next->second) {
+                        pending.push_back(
+                            {edge.dest, state.approximate || edge.approximate, state.interesting || edge.interesting});
+                    }
+                }
+            }
+        }
+    }
+
+    auto sortKey = [](const BitConnection& connection) {
+        return std::tuple{connection.source->port.fullPath(), connection.dest->port.fullPath(), connection.approximate,
+                          connection.sourceBit, connection.destBit};
+    };
+    std::sort(bitConnections.begin(), bitConnections.end(),
+              [&](const auto& a, const auto& b) { return sortKey(a) < sortKey(b); });
+    bitConnections.erase(std::unique(bitConnections.begin(), bitConnections.end(),
+                                     [&](const auto& a, const auto& b) { return sortKey(a) == sortKey(b); }),
+                         bitConnections.end());
+    for (size_t i = 0; i < bitConnections.size();) {
+        size_t end = i + 1;
+        while (end < bitConnections.size() &&
+               bitConnections[end].source->port.fullPath() == bitConnections[i].source->port.fullPath() &&
+               bitConnections[end].dest->port.fullPath() == bitConnections[i].dest->port.fullPath() &&
+               bitConnections[end].approximate == bitConnections[i].approximate &&
+               bitConnections[end].sourceBit == bitConnections[end - 1].sourceBit + 1 &&
+               bitConnections[end].destBit == bitConnections[end - 1].destBit + 1)
+            ++end;
+        Connection conn;
+        conn.source = bitConnections[i].source->port;
+        conn.dest = bitConnections[i].dest->port;
+        conn.kind = bitConnections[i].approximate ? ConnectionKind::Approximate : ConnectionKind::Direct;
+        conn.sourceBits = BitRange{bitConnections[i].sourceBit, bitConnections[end - 1].sourceBit};
+        conn.destBits = BitRange{bitConnections[i].destBit, bitConnections[end - 1].destBit};
+        graph_.connections.push_back(std::move(conn));
+        i = end;
+    }
+
+    // A full-width exact row subsumes a coarse direct row for the same
+    // endpoints. Keep partial exact rows and approximate rows: they can
+    // describe additional flow not covered by the precise mapping.
+    std::set<std::pair<std::string, std::string>> fullyMappedPairs;
+    for (const auto& conn : graph_.connections) {
+        if (conn.kind != ConnectionKind::Direct || !conn.sourceBits || !conn.destBits || conn.source.width == 0 ||
+            conn.dest.width == 0)
+            continue;
+        if (conn.sourceBits->low == 0 && conn.sourceBits->high == static_cast<int64_t>(conn.source.width) - 1 &&
+            conn.destBits->low == 0 && conn.destBits->high == static_cast<int64_t>(conn.dest.width) - 1)
+            fullyMappedPairs.emplace(conn.source.fullPath(), conn.dest.fullPath());
+    }
+    std::erase_if(graph_.connections, [&](const Connection& conn) {
+        return conn.kind == ConnectionKind::Direct && !conn.sourceBits && !conn.destBits &&
+               fullyMappedPairs.contains({conn.source.fullPath(), conn.dest.fullPath()});
+    });
 }
 
 void ConnectionExtractor::populateLineColumn(StyleObservation& obs) const {

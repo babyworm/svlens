@@ -5,8 +5,57 @@
 #include "sv-cdccheck/connectivity.h"
 #include "sv-cdccheck/crossing_detector.h"
 #include "sv-cdccheck/sync_verifier.h"
+#include <algorithm>
 
 using namespace sv_cdccheck;
+
+TEST_CASE("CDC SyncVerifier: registered data used as an undeclared clock is Ac_cdc10", "[cdc][cdc10]") {
+    ClockDatabase db;
+    auto source = std::make_unique<ClockSource>();
+    source->name = "src_clk";
+    source->origin_signal = "src_clk";
+    auto* sourceClock = db.addSource(std::move(source));
+    auto* sourceDomain = db.findOrCreateDomain(sourceClock, Edge::Posedge);
+
+    auto dataClock = std::make_unique<ClockSource>();
+    dataClock->name = "data_pulse";
+    dataClock->origin_signal = "top.data_pulse";
+    auto* dataClockPtr = db.addSource(std::move(dataClock));
+    auto* dataDomain = db.findOrCreateDomain(dataClockPtr, Edge::Posedge);
+
+    std::vector<std::unique_ptr<FFNode>> nodes;
+    auto driver = std::make_unique<FFNode>();
+    driver->hier_path = "top.data_pulse";
+    driver->domain = sourceDomain;
+    nodes.push_back(std::move(driver));
+    auto sink = std::make_unique<FFNode>();
+    sink->hier_path = "top.sampled_q";
+    sink->domain = dataDomain;
+    nodes.push_back(std::move(sink));
+
+    std::vector<CrossingReport> crossings;
+    std::vector<FFEdge> edges;
+    SyncVerifier verifier(crossings, nodes, edges, &db);
+    verifier.analyze();
+
+    bool found = false;
+    for (const auto& crossing : crossings) {
+        if (crossing.rule == "Ac_cdc10") {
+            found = true;
+            CHECK(crossing.source_signal == "top.data_pulse");
+            CHECK(crossing.dest_signal == "top.sampled_q");
+            CHECK(crossing.category == ViolationCategory::Caution);
+        }
+    }
+    CHECK(found);
+
+    dataClockPtr->type = ClockSource::Type::Generated;
+    crossings.clear();
+    SyncVerifier declaredVerifier(crossings, nodes, edges, &db);
+    declaredVerifier.analyze();
+    for (const auto& crossing : crossings)
+        CHECK(crossing.rule != "Ac_cdc10");
+}
 
 struct FullPipeline {
     ClockDatabase db;
@@ -29,10 +78,880 @@ struct FullPipeline {
         detector.analyze();
         crossings = detector.getCrossings();
 
-        SyncVerifier verifier(crossings, classifier->getFFNodes(), edges);
+        SyncVerifier verifier(crossings, classifier->getFFNodes(), edges, &db);
         verifier.analyze();
     }
 };
+
+TEST_CASE("CDC Ac_cdc06: exact registered reset source in another domain is reported", "[cdc][cdc06][reset]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module exact_reset_source(input logic clk_a, clk_b, rst_n, d_i, output logic q_o);
+            logic rst_sync_n;
+            always_ff @(posedge clk_a or negedge rst_n)
+                if (!rst_n) rst_sync_n <= 1'b0;
+                else rst_sync_n <= 1'b1;
+            always_ff @(posedge clk_b or negedge rst_sync_n)
+                if (!rst_sync_n) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+    )",
+                                                    "exact_reset_source");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    bool found = false;
+    for (const auto& crossing : pipeline.crossings)
+        found |= crossing.rule == "Ac_cdc06" && crossing.source_signal == "exact_reset_source.rst_sync_n" &&
+                 crossing.dest_signal == "exact_reset_source.q_o";
+    CHECK(found);
+    for (const auto& ff : pipeline.classifier->getFFNodes()) {
+        if (ff->hier_path == "exact_reset_source.q_o") {
+            REQUIRE(ff->reset);
+            REQUIRE(ff->reset->driver_inverted);
+            CHECK_FALSE(*ff->reset->driver_inverted);
+        }
+    }
+}
+
+TEST_CASE("CDC Ac_cdc06: contradictory direct and inverted reset aliases stay unresolved",
+          "[cdc][cdc06][reset][ambiguous]") {
+    ClockDatabase db;
+    auto sourceClock = std::make_unique<ClockSource>();
+    sourceClock->name = "clk_a";
+    auto* sourceDomain = db.findOrCreateDomain(db.addSource(std::move(sourceClock)), Edge::Posedge);
+    auto destClock = std::make_unique<ClockSource>();
+    destClock->name = "clk_b";
+    auto* destDomain = db.findOrCreateDomain(db.addSource(std::move(destClock)), Edge::Posedge);
+    db.directed_aliases["top.reset_q"] = {"top.reset_hi"};
+    db.reset_inversions["top.reset_q"] = {"top.reset_hi"};
+
+    ResetSignal reset;
+    reset.hier_path = "top.reset_hi";
+    reset.is_async = true;
+    auto driver = std::make_unique<FFNode>();
+    driver->hier_path = "top.reset_q";
+    driver->domain = sourceDomain;
+    auto sink = std::make_unique<FFNode>();
+    sink->hier_path = "top.q_o";
+    sink->domain = destDomain;
+    sink->reset = &reset;
+    std::vector<std::unique_ptr<FFNode>> nodes;
+    nodes.push_back(std::move(driver));
+    nodes.push_back(std::move(sink));
+    std::vector<CrossingReport> crossings;
+    std::vector<FFEdge> edges;
+    SyncVerifier verifier(crossings, nodes, edges, &db);
+    verifier.analyze();
+
+    CHECK(reset.driver_ff_path.empty());
+    for (const auto& crossing : crossings)
+        CHECK(crossing.rule != "Ac_cdc06");
+}
+
+TEST_CASE("CDC Ac_cdc06: conditional mux ancestry vetoes an otherwise unique FF guess", "[cdc][cdc06][reset][mux]") {
+    ClockDatabase db;
+    auto sourceClock = std::make_unique<ClockSource>();
+    sourceClock->name = "clk_a";
+    auto* sourceDomain = db.findOrCreateDomain(db.addSource(std::move(sourceClock)), Edge::Posedge);
+    auto destClock = std::make_unique<ClockSource>();
+    destClock->name = "clk_b";
+    auto* destDomain = db.findOrCreateDomain(db.addSource(std::move(destClock)), Edge::Posedge);
+    db.directed_aliases["top.reset_q"] = {"top.reset_n"};
+    db.directed_aliases["top.u_mux.clk_o"] = {"top.reset_n"};
+    db.reset_mux_inputs["top.u_mux.clk_o"] = ResetMuxInputs{"top.u_mux.clk0_i", "top.u_mux.clk1_i", "top.u_mux.sel_i"};
+
+    ResetSignal reset;
+    reset.hier_path = "top.reset_n";
+    reset.is_async = true;
+    auto driver = std::make_unique<FFNode>();
+    driver->hier_path = "top.reset_q";
+    driver->domain = sourceDomain;
+    auto sink = std::make_unique<FFNode>();
+    sink->hier_path = "top.q_o";
+    sink->domain = destDomain;
+    sink->reset = &reset;
+    std::vector<std::unique_ptr<FFNode>> nodes;
+    nodes.push_back(std::move(driver));
+    nodes.push_back(std::move(sink));
+    std::vector<CrossingReport> crossings;
+    std::vector<FFEdge> edges;
+    SyncVerifier verifier(crossings, nodes, edges, &db);
+    verifier.analyze();
+
+    CHECK(reset.driver_ff_path.empty());
+    for (const auto& crossing : crossings)
+        CHECK(crossing.rule != "Ac_cdc06");
+
+    // A fixed scan choice is still not a unique FF route if a second driver
+    // reaches the reset beside the mux output.
+    db.reset_mux_inputs["top.u_mux.clk_o"].selected_input = true;
+    crossings.clear();
+    SyncVerifier fixedButMultiplyDriven(crossings, nodes, edges, &db);
+    fixedButMultiplyDriven.analyze();
+    CHECK(reset.driver_ff_path.empty());
+    for (const auto& crossing : crossings)
+        CHECK(crossing.rule != "Ac_cdc06");
+
+    // One alias hop between the mux and convergence must not hide the
+    // selected external reset branch from the FF-driver check.
+    db.directed_aliases["top.u_mux.clk_o"] = {"top.route_mid"};
+    db.directed_aliases["top.route_mid"] = {"top.reset_n"};
+    crossings.clear();
+    SyncVerifier indirectCompetition(crossings, nodes, edges, &db);
+    indirectCompetition.analyze();
+    CHECK(reset.driver_ff_path.empty());
+    for (const auto& crossing : crossings)
+        CHECK(crossing.rule != "Ac_cdc06");
+    db.directed_aliases.erase("top.route_mid");
+    db.reset_mux_inputs["top.u_mux.clk_o"].selected_input.reset();
+
+    // The mux may also sit behind one indexed reset-struct field port.
+    db.directed_aliases.erase("top.u_mux.clk_o");
+    db.reset_selected_aliases["top.u_mux.clk_o"] = {"top.u_box.rst_bus[0]"};
+    db.reset_indexed_field_aliases["top.u_box.rst_bus"] = {"top.rst_bus"};
+    db.reset_selected_aliases["top.rst_bus[0]"] = {"top.reset_n"};
+    crossings.clear();
+    SyncVerifier projectedVerifier(crossings, nodes, edges, &db);
+    projectedVerifier.analyze();
+    CHECK(reset.driver_ff_path.empty());
+    for (const auto& crossing : crossings)
+        CHECK(crossing.rule != "Ac_cdc06");
+
+    db.reset_mux_inputs["top.u_mux.clk_o"].selected_input = false;
+    db.directed_aliases["top.u_mux.clk_o"] = {"top.u_mux.clk0_i"};
+    crossings.clear();
+    SyncVerifier cyclicFixedMux(crossings, nodes, edges, &db);
+    cyclicFixedMux.analyze();
+    CHECK(reset.driver_ff_path.empty());
+    for (const auto& crossing : crossings)
+        CHECK(crossing.rule != "Ac_cdc06");
+}
+
+TEST_CASE("CDC Ac_cdc06: one-bit inverted reset alias retains its registered driver", "[cdc][cdc06][reset]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module inverted_reset_top(input logic clk_a, clk_b, rst_n, d_i, output logic q_o);
+            logic reset_q, reset_hi;
+            always_ff @(posedge clk_a or negedge rst_n)
+                if (!rst_n) reset_q <= 1'b0;
+                else reset_q <= 1'b1;
+            assign reset_hi = ~reset_q;
+            always_ff @(posedge clk_b or posedge reset_hi)
+                if (reset_hi) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+    )",
+                                                    "inverted_reset_top");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    REQUIRE(pipeline.db.reset_inversions.contains("inverted_reset_top.reset_q"));
+    CHECK(pipeline.db.reset_inversions.at("inverted_reset_top.reset_q") ==
+          std::vector<std::string>{"inverted_reset_top.reset_hi"});
+    CHECK_FALSE(pipeline.db.directed_aliases.contains("inverted_reset_top.reset_q"));
+    bool found = false;
+    for (const auto& crossing : pipeline.crossings)
+        found |= crossing.rule == "Ac_cdc06" && crossing.source_signal == "inverted_reset_top.reset_q" &&
+                 crossing.dest_signal == "inverted_reset_top.q_o";
+    CHECK(found);
+    for (const auto& ff : pipeline.classifier->getFFNodes()) {
+        if (ff->hier_path == "inverted_reset_top.q_o") {
+            REQUIRE(ff->reset);
+            CHECK(ff->reset->driver_ff_path == "inverted_reset_top.reset_q");
+            REQUIRE(ff->reset->driver_inverted);
+            CHECK(*ff->reset->driver_inverted);
+        }
+    }
+}
+
+TEST_CASE("CDC Ac_cdc06: two reset inversions preserve even source polarity", "[cdc][cdc06][reset]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module double_inverted_reset(input logic clk_a, clk_b, rst_n, d_i, output logic q_o);
+            logic reset_q, reset_mid, reset_out;
+            always_ff @(posedge clk_a or negedge rst_n)
+                if (!rst_n) reset_q <= 1'b0;
+                else reset_q <= 1'b1;
+            assign reset_mid = ~reset_q;
+            assign reset_out = ~reset_mid;
+            always_ff @(posedge clk_b or negedge reset_out)
+                if (!reset_out) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+    )",
+                                                    "double_inverted_reset");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    for (const auto& ff : pipeline.classifier->getFFNodes()) {
+        if (ff->hier_path == "double_inverted_reset.q_o") {
+            REQUIRE(ff->reset);
+            CHECK(ff->reset->driver_ff_path == "double_inverted_reset.reset_q");
+            REQUIRE(ff->reset->driver_inverted);
+            CHECK_FALSE(*ff->reset->driver_inverted);
+        }
+    }
+}
+
+TEST_CASE("CDC Ac_cdc06: inverted reset follows directed module ports", "[cdc][cdc06][reset]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module reset_inverter(input logic reset_n, output logic reset_hi);
+            assign reset_hi = !reset_n;
+        endmodule
+        module inverted_reset_port_top(input logic clk_a, clk_b, rst_n, d_i, output logic q_o);
+            logic reset_q, reset_hi;
+            always_ff @(posedge clk_a or negedge rst_n)
+                if (!rst_n) reset_q <= 1'b0;
+                else reset_q <= 1'b1;
+            reset_inverter u_inv(.reset_n(reset_q), .reset_hi(reset_hi));
+            always_ff @(posedge clk_b or posedge reset_hi)
+                if (reset_hi) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+    )",
+                                                    "inverted_reset_port_top");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    bool found = false;
+    for (const auto& crossing : pipeline.crossings)
+        found |= crossing.rule == "Ac_cdc06" && crossing.source_signal == "inverted_reset_port_top.reset_q" &&
+                 crossing.dest_signal == "inverted_reset_port_top.q_o";
+    CHECK(found);
+}
+
+TEST_CASE("CDC Ac_cdc06: inverted hierarchical reset source keeps exact child path", "[cdc][cdc06][reset]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module hier_reset_source(input logic clk_i, rst_n, output logic reset_q);
+            always_ff @(posedge clk_i or negedge rst_n)
+                if (!rst_n) reset_q <= 1'b0;
+                else reset_q <= 1'b1;
+        endmodule
+        module hier_inverted_reset_top(input logic clk_a, clk_b, rst_n, d_i, output logic q_o);
+            logic reset_hi;
+            hier_reset_source u_source(.clk_i(clk_a), .rst_n(rst_n), .reset_q());
+            hier_reset_source u_other(.clk_i(clk_a), .rst_n(rst_n), .reset_q());
+            assign reset_hi = ~u_source.reset_q;
+            always_ff @(posedge clk_b or posedge reset_hi)
+                if (reset_hi) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+    )",
+                                                    "hier_inverted_reset_top");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    bool found = false;
+    bool unrelated = false;
+    for (const auto& crossing : pipeline.crossings) {
+        found |= crossing.rule == "Ac_cdc06" && crossing.source_signal == "hier_inverted_reset_top.u_source.reset_q" &&
+                 crossing.dest_signal == "hier_inverted_reset_top.q_o";
+        unrelated |= crossing.rule == "Ac_cdc06" &&
+                     crossing.source_signal == "hier_inverted_reset_top.u_other.reset_q" &&
+                     crossing.dest_signal == "hier_inverted_reset_top.q_o";
+    }
+    CHECK(found);
+    CHECK_FALSE(unrelated);
+}
+
+TEST_CASE("CDC Ac_cdc06: scalar reset struct field crosses a directed output port", "[cdc][cdc06][reset]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        typedef struct packed {logic rst_n;} reset_bundle_t;
+        module reset_bundle_source(input logic clk_i, ext_rst_n, output reset_bundle_t resets_o);
+            always_ff @(posedge clk_i or negedge ext_rst_n)
+                if (!ext_rst_n) resets_o.rst_n <= 1'b0;
+                else resets_o.rst_n <= 1'b1;
+        endmodule
+        module reset_bundle_sink(input logic clk_i, rst_n, d_i, output logic q_o);
+            always_ff @(posedge clk_i or negedge rst_n)
+                if (!rst_n) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+        module reset_bundle_top(input logic clk_a, clk_b, ext_rst_n, d_i, output logic q_o);
+            reset_bundle_t bundle;
+            reset_bundle_source u_source(.clk_i(clk_a), .ext_rst_n(ext_rst_n), .resets_o(bundle));
+            reset_bundle_sink u_sink(.clk_i(clk_b), .rst_n(bundle.rst_n), .d_i(d_i), .q_o(q_o));
+        endmodule
+    )",
+                                                    "reset_bundle_top");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    const auto outputAlias = pipeline.db.directed_aliases.find("reset_bundle_top.u_source.resets_o.rst_n");
+    REQUIRE(outputAlias != pipeline.db.directed_aliases.end());
+    CHECK(std::find(outputAlias->second.begin(), outputAlias->second.end(), "reset_bundle_top.bundle.rst_n") !=
+          outputAlias->second.end());
+    const auto inputAlias = pipeline.db.directed_aliases.find("reset_bundle_top.bundle.rst_n");
+    REQUIRE(inputAlias != pipeline.db.directed_aliases.end());
+    CHECK(std::find(inputAlias->second.begin(), inputAlias->second.end(), "reset_bundle_top.u_sink.rst_n") !=
+          inputAlias->second.end());
+    bool sourceFF = false;
+    for (const auto& ff : pipeline.classifier->getFFNodes())
+        sourceFF |= ff->hier_path == "reset_bundle_top.u_source.resets_o.rst_n";
+    CHECK(sourceFF);
+    bool found = false;
+    for (const auto& crossing : pipeline.crossings)
+        found |= crossing.rule == "Ac_cdc06" && crossing.source_signal == "reset_bundle_top.u_source.resets_o.rst_n" &&
+                 crossing.dest_signal == "reset_bundle_top.u_sink.q_o";
+    CHECK(found);
+}
+
+TEST_CASE("CDC Ac_cdc06: constant reset-array element keeps unique vector FF driver", "[cdc][cdc06][reset]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        typedef struct packed {logic [1:0] rst_n;} reset_array_t;
+        module reset_array_source(input logic clk_i, ext_rst_n, output reset_array_t resets_o);
+            always_ff @(posedge clk_i or negedge ext_rst_n)
+                if (!ext_rst_n) resets_o.rst_n <= 2'b00;
+                else resets_o.rst_n <= 2'b11;
+        endmodule
+        module reset_array_sink(input logic clk_i, rst_n, d_i, output logic q_o);
+            always_ff @(posedge clk_i or negedge rst_n)
+                if (!rst_n) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+        module reset_array_top(input logic clk_a, clk_b, ext_rst_n, d_i, output logic q_o);
+            reset_array_t bundle;
+            reset_array_source u_source(.clk_i(clk_a), .ext_rst_n(ext_rst_n), .resets_o(bundle));
+            reset_array_sink u_sink(.clk_i(clk_b), .rst_n(bundle.rst_n[1]), .d_i(d_i), .q_o(q_o));
+        endmodule
+    )",
+                                                    "reset_array_top");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    const auto selectedAlias = pipeline.db.reset_selected_aliases.find("reset_array_top.bundle.rst_n");
+    REQUIRE(selectedAlias != pipeline.db.reset_selected_aliases.end());
+    CHECK(std::find(selectedAlias->second.begin(), selectedAlias->second.end(), "reset_array_top.u_sink.rst_n") !=
+          selectedAlias->second.end());
+    CHECK_FALSE(pipeline.db.directed_aliases.contains("reset_array_top.bundle.rst_n"));
+    bool found = false;
+    for (const auto& crossing : pipeline.crossings)
+        found |= crossing.rule == "Ac_cdc06" && crossing.source_signal == "reset_array_top.u_source.resets_o.rst_n" &&
+                 crossing.dest_signal == "reset_array_top.u_sink.q_o";
+    CHECK(found);
+    for (const auto& ff : pipeline.classifier->getFFNodes()) {
+        if (ff->hier_path == "reset_array_top.u_sink.q_o") {
+            REQUIRE(ff->reset);
+            REQUIRE(ff->reset->driver_inverted);
+            CHECK_FALSE(*ff->reset->driver_inverted);
+        }
+    }
+}
+
+TEST_CASE("CDC Ac_cdc06: constant-selected scalar reset output keeps its owning FF", "[cdc][cdc06][reset][array]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module selected_reset_source(input logic clk_i, ext_rst_n, output logic rst_sync_n);
+            always_ff @(posedge clk_i or negedge ext_rst_n)
+                if (!ext_rst_n) rst_sync_n <= 1'b0;
+                else rst_sync_n <= 1'b1;
+        endmodule
+        module selected_reset_sink(input logic clk_i, rst_ni, d_i, output logic q_o);
+            always_ff @(posedge clk_i or negedge rst_ni)
+                if (!rst_ni) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+        module selected_reset_top(input logic clk_a, clk_c, clk_b, ext_rst_n, d_i, select_i,
+                                  output logic q_fixed, q_fixed1, q_dynamic);
+            logic [1:0] reset_bus;
+            selected_reset_source u_bit0(.clk_i(clk_a), .ext_rst_n(ext_rst_n),
+                                         .rst_sync_n(reset_bus[0]));
+            selected_reset_source u_bit1(.clk_i(clk_c), .ext_rst_n(ext_rst_n),
+                                         .rst_sync_n(reset_bus[1]));
+            selected_reset_sink u_fixed(.clk_i(clk_b), .rst_ni(reset_bus[0]),
+                                        .d_i(d_i), .q_o(q_fixed));
+            selected_reset_sink u_fixed1(.clk_i(clk_b), .rst_ni(reset_bus[1]),
+                                         .d_i(d_i), .q_o(q_fixed1));
+            selected_reset_sink u_dynamic(.clk_i(clk_b), .rst_ni(reset_bus[select_i]),
+                                          .d_i(d_i), .q_o(q_dynamic));
+        endmodule
+    )",
+                                                    "selected_reset_top");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    const auto outputAlias = pipeline.db.reset_selected_aliases.find("selected_reset_top.u_bit0.rst_sync_n");
+    REQUIRE(outputAlias != pipeline.db.reset_selected_aliases.end());
+    CHECK(std::find(outputAlias->second.begin(), outputAlias->second.end(), "selected_reset_top.reset_bus[0]") !=
+          outputAlias->second.end());
+    CHECK_FALSE(pipeline.db.directed_aliases.contains("selected_reset_top.reset_bus[0]"));
+    CHECK_FALSE(pipeline.db.root_by_path.contains("selected_reset_top.reset_bus[0]"));
+    bool fixedCrossing = false;
+    bool fixed1Crossing = false;
+    bool dynamicCrossing = false;
+    for (const auto& crossing : pipeline.crossings) {
+        fixedCrossing |= crossing.rule == "Ac_cdc06" &&
+                         crossing.source_signal == "selected_reset_top.u_bit0.rst_sync_n" &&
+                         crossing.dest_signal == "selected_reset_top.u_fixed.q_o";
+        fixed1Crossing |= crossing.rule == "Ac_cdc06" &&
+                          crossing.source_signal == "selected_reset_top.u_bit1.rst_sync_n" &&
+                          crossing.dest_signal == "selected_reset_top.u_fixed1.q_o";
+        dynamicCrossing |= crossing.rule == "Ac_cdc06" && crossing.dest_signal == "selected_reset_top.u_dynamic.q_o";
+    }
+    CHECK(fixedCrossing);
+    CHECK(fixed1Crossing);
+    CHECK_FALSE(dynamicCrossing);
+    for (const auto& ff : pipeline.classifier->getFFNodes()) {
+        if (ff->hier_path == "selected_reset_top.u_dynamic.q_o") {
+            REQUIRE(ff->reset);
+            CHECK(ff->reset->driver_ff_path.empty());
+        }
+    }
+}
+
+TEST_CASE("CDC Ac_cdc06: indexed reset struct port preserves its scalar FF source", "[cdc][cdc06][reset][array]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        typedef struct packed { logic [1:0] rst_n; } projected_reset_t;
+        module projected_reset_ff(input logic clk_i, ext_rst_n, output logic q_o);
+            always_ff @(posedge clk_i or negedge ext_rst_n)
+                if (!ext_rst_n) q_o <= 1'b0;
+                else q_o <= 1'b1;
+        endmodule
+        module projected_reset_source(input logic clk_i, ext_rst_n, output projected_reset_t resets_o);
+            projected_reset_ff u_bit(.clk_i(clk_i), .ext_rst_n(ext_rst_n),
+                                     .q_o(resets_o.rst_n[0]));
+            assign resets_o.rst_n[1] = 1'b1;
+        endmodule
+        module projected_reset_sink(input logic clk_i, rst_ni, d_i, output logic q_o);
+            always_ff @(posedge clk_i or negedge rst_ni)
+                if (!rst_ni) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+        module projected_reset_top(input logic clk_a, clk_b, ext_rst_n, d_i, output logic q_o);
+            projected_reset_t bundle;
+            projected_reset_source u_source(.clk_i(clk_a), .ext_rst_n(ext_rst_n), .resets_o(bundle));
+            projected_reset_sink u_sink(.clk_i(clk_b), .rst_ni(bundle.rst_n[0]),
+                                        .d_i(d_i), .q_o(q_o));
+        endmodule
+    )",
+                                                    "projected_reset_top");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    const std::string driver = "projected_reset_top.u_source.u_bit.q_o";
+    bool found = false;
+    for (const auto& crossing : pipeline.crossings)
+        found |= crossing.rule == "Ac_cdc06" && crossing.source_signal == driver &&
+                 crossing.dest_signal == "projected_reset_top.u_sink.q_o";
+    CHECK(found);
+    for (const auto& ff : pipeline.classifier->getFFNodes()) {
+        if (ff->hier_path == "projected_reset_top.u_sink.q_o") {
+            REQUIRE(ff->reset);
+            CHECK(ff->reset->driver_ff_path == driver);
+        }
+    }
+}
+
+TEST_CASE("CDC Ac_cdc06: dynamic reset-array selector does not claim a unique route", "[cdc][cdc06][reset]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        typedef struct packed {logic [1:0] rst_n;} reset_array_t;
+        module dynamic_reset_source(input logic clk_i, ext_rst_n, output reset_array_t resets_o);
+            always_ff @(posedge clk_i or negedge ext_rst_n)
+                if (!ext_rst_n) resets_o.rst_n <= 2'b00;
+                else resets_o.rst_n <= 2'b11;
+        endmodule
+        module dynamic_reset_sink(input logic clk_i, rst_n, d_i, output logic q_o);
+            always_ff @(posedge clk_i or negedge rst_n)
+                if (!rst_n) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+        module dynamic_reset_top(input logic clk_a, clk_b, ext_rst_n, d_i, select_i,
+                                 output logic q_o);
+            reset_array_t bundle;
+            dynamic_reset_source u_source(.clk_i(clk_a), .ext_rst_n(ext_rst_n), .resets_o(bundle));
+            dynamic_reset_sink u_sink(.clk_i(clk_b), .rst_n(bundle.rst_n[select_i]),
+                                      .d_i(d_i), .q_o(q_o));
+        endmodule
+    )",
+                                                    "dynamic_reset_top");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    CHECK_FALSE(pipeline.db.reset_selected_aliases.contains("dynamic_reset_top.bundle.rst_n"));
+    for (const auto& crossing : pipeline.crossings)
+        CHECK(crossing.rule != "Ac_cdc06");
+    for (const auto& ff : pipeline.classifier->getFFNodes()) {
+        if (ff->hier_path == "dynamic_reset_top.u_sink.q_o") {
+            REQUIRE(ff->reset);
+            CHECK(ff->reset->driver_ff_path.empty());
+        }
+    }
+}
+
+TEST_CASE("CDC Ac_cdc06: duplicate FF paths do not choose a reset driver", "[cdc][cdc06][reset][ambiguous]") {
+    ClockDatabase db;
+    auto sourceClock = std::make_unique<ClockSource>();
+    sourceClock->name = "clk_a";
+    auto* sourceDomain = db.findOrCreateDomain(db.addSource(std::move(sourceClock)), Edge::Posedge);
+    auto otherClock = std::make_unique<ClockSource>();
+    otherClock->name = "clk_c";
+    auto* otherDomain = db.findOrCreateDomain(db.addSource(std::move(otherClock)), Edge::Posedge);
+    auto destClock = std::make_unique<ClockSource>();
+    destClock->name = "clk_b";
+    auto* destDomain = db.findOrCreateDomain(db.addSource(std::move(destClock)), Edge::Posedge);
+    db.directed_aliases["top.vector_q"] = {"top.rst_n"};
+
+    ResetSignal reset;
+    reset.hier_path = "top.rst_n";
+    reset.is_async = true;
+    std::vector<std::unique_ptr<FFNode>> nodes;
+    for (auto* domain : {sourceDomain, otherDomain}) {
+        auto ff = std::make_unique<FFNode>();
+        ff->hier_path = "top.vector_q";
+        ff->domain = domain;
+        nodes.push_back(std::move(ff));
+    }
+    auto sink = std::make_unique<FFNode>();
+    sink->hier_path = "top.q_o";
+    sink->domain = destDomain;
+    sink->reset = &reset;
+    nodes.push_back(std::move(sink));
+    std::vector<CrossingReport> crossings;
+    std::vector<FFEdge> edges;
+    SyncVerifier verifier(crossings, nodes, edges, &db);
+    verifier.analyze();
+
+    CHECK(reset.driver_ff_path.empty());
+    for (const auto& crossing : crossings)
+        CHECK(crossing.rule != "Ac_cdc06");
+}
+
+TEST_CASE("CDC Ac_cdc06: single-statement always_comb reset inversion is traced", "[cdc][cdc06][reset]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module procedural_inverted_reset(input logic clk_a, clk_b, rst_n, d_i,
+                                         output logic q_o);
+            logic reset_q, reset_hi;
+            always_ff @(posedge clk_a or negedge rst_n)
+                if (!rst_n) reset_q <= 1'b0;
+                else reset_q <= 1'b1;
+            always_comb begin
+                reset_hi = ~reset_q;
+            end
+            always_ff @(posedge clk_b or posedge reset_hi)
+                if (reset_hi) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+    )",
+                                                    "procedural_inverted_reset");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    bool found = false;
+    for (const auto& crossing : pipeline.crossings) {
+        if (crossing.rule == "Ac_cdc06" && crossing.source_signal == "procedural_inverted_reset.reset_q" &&
+            crossing.dest_signal == "procedural_inverted_reset.q_o") {
+            found = true;
+            CHECK(crossing.recommendation.find("verify") != std::string::npos);
+            CHECK(crossing.recommendation.find("without reset synchronizer") == std::string::npos);
+        }
+    }
+    CHECK(found);
+}
+
+TEST_CASE("CDC Ac_cdc06: conditional always_comb reset inversion stays unresolved", "[cdc][cdc06][reset]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module procedural_conditional_reset(input logic clk_a, clk_b, rst_n, select_i, d_i,
+                                            output logic q_o);
+            logic reset_q, reset_hi;
+            always_ff @(posedge clk_a or negedge rst_n)
+                if (!rst_n) reset_q <= 1'b0;
+                else reset_q <= 1'b1;
+            always_comb begin
+                if (select_i) reset_hi = ~reset_q;
+                else reset_hi = 1'b0;
+            end
+            always_ff @(posedge clk_b or posedge reset_hi)
+                if (reset_hi) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+    )",
+                                                    "procedural_conditional_reset");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    for (const auto& crossing : pipeline.crossings)
+        CHECK(crossing.rule != "Ac_cdc06");
+    for (const auto& ff : pipeline.classifier->getFFNodes()) {
+        if (ff->hier_path == "procedural_conditional_reset.q_o") {
+            REQUIRE(ff->reset);
+            CHECK(ff->reset->driver_ff_path.empty());
+        }
+    }
+}
+
+TEST_CASE("CDC Ac_cdc06: overwritten always_comb inversion is not a reset alias", "[cdc][cdc06][reset]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module overwritten_reset_top(input logic clk_a, clk_b, rst_n, d_i, output logic q_o);
+            logic reset_q, reset_hi;
+            always_ff @(posedge clk_a or negedge rst_n)
+                if (!rst_n) reset_q <= 1'b0;
+                else reset_q <= 1'b1;
+            always_comb begin
+                reset_hi = ~reset_q;
+                reset_hi = 1'b0;
+            end
+            always_ff @(posedge clk_b or posedge reset_hi)
+                if (reset_hi) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+    )",
+                                                    "overwritten_reset_top");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    for (const auto& crossing : pipeline.crossings)
+        CHECK(crossing.rule != "Ac_cdc06");
+    for (const auto& ff : pipeline.classifier->getFFNodes()) {
+        if (ff->hier_path == "overwritten_reset_top.q_o") {
+            REQUIRE(ff->reset);
+            CHECK(ff->reset->driver_ff_path.empty());
+        }
+    }
+}
+
+TEST_CASE("CDC Ac_cdc06: conditional inverted reset must not guess a driver", "[cdc][cdc06][reset]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module conditional_reset_top(input logic clk_a, clk_b, rst_n, select_i, d_i,
+                                     output logic q_o);
+            logic reset_a_q, reset_b_q, reset_hi;
+            always_ff @(posedge clk_a or negedge rst_n) begin
+                if (!rst_n) begin reset_a_q <= 1'b0; reset_b_q <= 1'b0; end
+                else begin reset_a_q <= 1'b1; reset_b_q <= d_i; end
+            end
+            assign reset_hi = select_i ? ~reset_a_q : ~reset_b_q;
+            always_ff @(posedge clk_b or posedge reset_hi)
+                if (reset_hi) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+    )",
+                                                    "conditional_reset_top");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    for (const auto& crossing : pipeline.crossings)
+        CHECK(crossing.rule != "Ac_cdc06");
+    for (const auto& ff : pipeline.classifier->getFFNodes()) {
+        if (ff->hier_path == "conditional_reset_top.q_o") {
+            REQUIRE(ff->reset);
+            CHECK(ff->reset->driver_ff_path.empty());
+        }
+    }
+}
+
+TEST_CASE("CDC Ac_cdc06: same reset leaf in sibling is not a driver", "[cdc][cdc06][reset][scope]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module unrelated_reset_source(input logic clk_i, rst_n, output logic rst_sync_n);
+            always_ff @(posedge clk_i or negedge rst_n)
+                if (!rst_n) rst_sync_n <= 1'b0;
+                else rst_sync_n <= 1'b1;
+        endmodule
+        module unrelated_reset_sink(input logic clk_i, rst_sync_n, d_i, output logic q_o);
+            always_ff @(posedge clk_i or negedge rst_sync_n)
+                if (!rst_sync_n) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+        module unrelated_reset_top(input logic clk_a, clk_b, rst_n, d_i, output logic q_o);
+            logic unused_reset;
+            unrelated_reset_source u_source(.clk_i(clk_a), .rst_n(rst_n), .rst_sync_n(unused_reset));
+            unrelated_reset_sink u_sink(.clk_i(clk_b), .rst_sync_n(rst_n), .d_i(d_i), .q_o(q_o));
+        endmodule
+    )",
+                                                    "unrelated_reset_top");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    bool falseMatch = false;
+    for (const auto& crossing : pipeline.crossings)
+        falseMatch |= crossing.rule == "Ac_cdc06" && crossing.dest_signal == "unrelated_reset_top.u_sink.q_o";
+    CHECK_FALSE(falseMatch);
+}
+
+TEST_CASE("CDC Ac_cdc06: directed cross-instance reset driver is reported", "[cdc][cdc06][reset][alias]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module aliased_reset_source(input logic clk_i, rst_n, output logic rst_sync_n);
+            always_ff @(posedge clk_i or negedge rst_n)
+                if (!rst_n) rst_sync_n <= 1'b0;
+                else rst_sync_n <= 1'b1;
+        endmodule
+        module aliased_reset_sink(input logic clk_i, rst_sync_n, d_i, output logic q_o);
+            always_ff @(posedge clk_i or negedge rst_sync_n)
+                if (!rst_sync_n) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+        module aliased_reset_top(input logic clk_a, clk_b, rst_n, d_i, output logic q_o);
+            logic generated_reset, routed_reset;
+            aliased_reset_source u_source(.clk_i(clk_a), .rst_n(rst_n), .rst_sync_n(generated_reset));
+            assign routed_reset = generated_reset;
+            aliased_reset_sink u_sink(.clk_i(clk_b), .rst_sync_n(routed_reset), .d_i(d_i), .q_o(q_o));
+        endmodule
+    )",
+                                                    "aliased_reset_top");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    bool found = false;
+    for (const auto& crossing : pipeline.crossings)
+        found |= crossing.rule == "Ac_cdc06" && crossing.source_signal == "aliased_reset_top.u_source.rst_sync_n" &&
+                 crossing.dest_signal == "aliased_reset_top.u_sink.q_o";
+    CHECK(found);
+    const FFNode* source = nullptr;
+    const FFNode* sink = nullptr;
+    for (const auto& ff : pipeline.classifier->getFFNodes()) {
+        if (ff->hier_path == "aliased_reset_top.u_source.rst_sync_n")
+            source = ff.get();
+        if (ff->hier_path == "aliased_reset_top.u_sink.q_o")
+            sink = ff.get();
+    }
+    REQUIRE(source);
+    REQUIRE(sink);
+    REQUIRE(sink->reset);
+    CHECK(sink->reset->driver_ff_path == source->hier_path);
+    CHECK(sink->reset->source_domain == source->domain->canonical_name);
+}
+
+TEST_CASE("CDC Ac_cdc06: data 2FF does not synchronize a separate reset use", "[cdc][cdc06][reset][data_sync]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module reset_data_sync_top(input logic clk_a, clk_b, rst_n, d_i, output logic q_o);
+            logic rst_sync_n, sync1, sync2;
+            always_ff @(posedge clk_a or negedge rst_n)
+                if (!rst_n) rst_sync_n <= 1'b0;
+                else rst_sync_n <= 1'b1;
+            always_ff @(posedge clk_b or negedge rst_n)
+                if (!rst_n) begin sync1 <= 1'b0; sync2 <= 1'b0; end
+                else begin sync1 <= rst_sync_n; sync2 <= sync1; end
+            always_ff @(posedge clk_b or negedge rst_sync_n)
+                if (!rst_sync_n) q_o <= 1'b0;
+                else q_o <= d_i;
+        endmodule
+    )",
+                                                    "reset_data_sync_top");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    bool found = false;
+    for (const auto& crossing : pipeline.crossings)
+        found |= crossing.rule == "Ac_cdc06" && crossing.dest_signal == "reset_data_sync_top.q_o";
+    CHECK(found);
+}
+
+TEST_CASE("CDC Ac_cdc06: ambiguous reset aliases do not choose an arbitrary FF", "[cdc][cdc06][reset][ambiguous]") {
+    ClockDatabase db;
+    auto sourceClock = std::make_unique<ClockSource>();
+    sourceClock->name = "clk_a";
+    auto* sourceDomain = db.findOrCreateDomain(db.addSource(std::move(sourceClock)), Edge::Posedge);
+    auto destClock = std::make_unique<ClockSource>();
+    destClock->name = "clk_b";
+    auto* destDomain = db.findOrCreateDomain(db.addSource(std::move(destClock)), Edge::Posedge);
+    db.directed_aliases["top.a.reset_q"] = {"top.shared_reset"};
+    db.directed_aliases["top.b.reset_q"] = {"top.shared_reset"};
+    db.directed_aliases["top.shared_reset"] = {"top.sink.rst_n"};
+
+    ResetSignal reset;
+    reset.hier_path = "top.sink.rst_n";
+    reset.is_async = true;
+    std::vector<std::unique_ptr<FFNode>> nodes;
+    for (const auto& path : {"top.a.reset_q", "top.b.reset_q"}) {
+        auto node = std::make_unique<FFNode>();
+        node->hier_path = path;
+        node->domain = sourceDomain;
+        nodes.push_back(std::move(node));
+    }
+    auto sink = std::make_unique<FFNode>();
+    sink->hier_path = "top.sink.q_o";
+    sink->domain = destDomain;
+    sink->reset = &reset;
+    nodes.push_back(std::move(sink));
+
+    std::vector<CrossingReport> crossings;
+    std::vector<FFEdge> edges;
+    SyncVerifier verifier(crossings, nodes, edges, &db);
+    verifier.analyze();
+    bool found = false;
+    for (const auto& crossing : crossings)
+        found |= crossing.rule == "Ac_cdc06";
+    CHECK_FALSE(found);
+    CHECK(reset.driver_ff_path.empty());
+}
+
+TEST_CASE("CDC SyncVerifier: RTL registered data clock emits Ac_cdc10", "[cdc][cdc10][integration]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module registered_data_clock(input logic src_clk, rst_n, data_i, payload_i);
+            logic data_pulse, sampled_q;
+            always_ff @(posedge src_clk or negedge rst_n)
+                if (!rst_n) data_pulse <= 1'b0;
+                else data_pulse <= data_i;
+            always_ff @(posedge data_pulse or negedge rst_n)
+                if (!rst_n) sampled_q <= 1'b0;
+                else sampled_q <= payload_i;
+        endmodule
+    )");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+
+    bool found = false;
+    for (const auto& crossing : pipeline.crossings)
+        found |= crossing.rule == "Ac_cdc10";
+    CHECK(found);
+}
+
+TEST_CASE("CDC SyncVerifier: an unrelated same-named FF is not a clock driver", "[cdc][cdc10][scope]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module producer(input logic clk_i, data_i, output logic data_sig);
+            always_ff @(posedge clk_i) data_sig <= data_i;
+        endmodule
+        module unrelated_data_clock(input logic clk_i, data_sig, data_i);
+            logic unused, sampled_q;
+            producer u_other(.clk_i(clk_i), .data_i(data_i), .data_sig(unused));
+            always_ff @(posedge data_sig) sampled_q <= data_i;
+        endmodule
+    )",
+                                                    "unrelated_data_clock");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    for (const auto& crossing : pipeline.crossings)
+        CHECK(crossing.rule != "Ac_cdc10");
+}
+
+TEST_CASE("CDC SyncVerifier: connected child FF output used as clock is Ac_cdc10", "[cdc][cdc10][scope]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module pulse_source(input logic clk_i, data_i, output logic data_sig);
+            always_ff @(posedge clk_i) data_sig <= data_i;
+        endmodule
+        module connected_data_clock(input logic clk_i, data_i);
+            logic data_sig, sampled_q;
+            pulse_source u_source(.clk_i(clk_i), .data_i(data_i), .data_sig(data_sig));
+            always_ff @(posedge data_sig) sampled_q <= data_i;
+        endmodule
+    )",
+                                                    "connected_data_clock");
+    REQUIRE(compiled);
+
+    FullPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    bool found = false;
+    for (const auto& crossing : pipeline.crossings)
+        found |= crossing.rule == "Ac_cdc10" && crossing.source_signal == "connected_data_clock.u_source.data_sig" &&
+                 crossing.dest_signal == "connected_data_clock.sampled_q";
+    CHECK(found);
+}
 
 TEST_CASE("CDC SyncVerifier: unsynchronized crossing remains VIOLATION", "[cdc][sync]") {
     auto compiled = testutils::cdc::compileInlineSV(R"(

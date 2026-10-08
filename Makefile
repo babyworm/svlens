@@ -11,13 +11,14 @@ CLANG_FORMAT ?= clang-format
 # future contributors using .hpp / .cxx / .cc / .hxx remain covered.
 FORMAT_FILES := $(shell git ls-files src include tests fuzz 2>/dev/null | grep -E '\.(cpp|cxx|cc|h|hpp|hxx)$$')
 
-.PHONY: help build test install clean debug format format-check bench
+.PHONY: help build test test-sva-sim install clean debug format format-check bench
 
 help:
 	@echo "svlens build targets:"
 	@echo "  make build         Release build"
 	@echo "  make debug         Debug build"
 	@echo "  make test          Run full test suite"
+	@echo "  make test-sva-sim  Optional Verilator SVA pass/fail simulation"
 	@echo "  make install       Install svlens"
 	@echo "  make clean         Remove build directory"
 	@echo "  make format        Apply clang-format to all C++ sources"
@@ -39,6 +40,9 @@ debug:
 
 test: build
 	ctest --test-dir build --output-on-failure
+
+test-sva-sim: build
+	python3 tests/test_cdc_sva_sim.py
 
 install: build
 	cmake --install build --prefix "$(PREFIX)"

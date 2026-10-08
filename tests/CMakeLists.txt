@@ -100,6 +100,7 @@ add_test(NAME install_smoke
             $<TARGET_FILE:svlens>
             ${CMAKE_BINARY_DIR}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(install_smoke PROPERTIES RUN_SERIAL TRUE)
 
 add_test(NAME help_contract
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_help_contract.sh
@@ -138,5 +139,26 @@ add_test(NAME metrics_source_loc
 
 add_test(NAME metrics_lhs_concat_for_loop
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_metrics_lhs_concat_for_loop.sh
+            $<TARGET_FILE:svlens>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME report_convert
+    COMMAND python3 -B -m unittest discover -s ${CMAKE_SOURCE_DIR}/tests
+            -p test_report_convert.py
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME python_api
+    COMMAND ${CMAKE_COMMAND} -E env "SVLENS_BINARY=$<TARGET_FILE:svlens>"
+            python3 -B -m unittest discover -s ${CMAKE_SOURCE_DIR}/python/tests
+            -p test_api.py
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME cross_references
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_cross_references.sh
+            $<TARGET_FILE:svlens>
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_test(NAME user_rules
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_user_rules.sh
             $<TARGET_FILE:svlens>
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

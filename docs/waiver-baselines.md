@@ -180,6 +180,19 @@ waivers:
 
 ## CDC waiver strategy
 
+For a reviewed crossing tied to a specific destination FF declaration,
+an inline directive is also supported on that declaration or the line above:
+
+```systemverilog
+// svlens: waive Ac_cdc01 path=top.u_sync.q_b reason: reviewed intentional crossing
+logic q_b;
+```
+
+The rule, exact destination path, and nonempty reason are required. A
+directive applies only to the matching path; unrelated crossings from the
+same source remain active. YAML waivers remain available for crossings that
+cannot be anchored to a destination FF declaration.
+
 Use CDC waivers for **reviewed intentional crossings**, not for “unknown but
 probably okay” paths.
 

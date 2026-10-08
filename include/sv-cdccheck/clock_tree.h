@@ -7,6 +7,7 @@
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "slang/ast/symbols/PortSymbols.h"
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -18,11 +19,12 @@ namespace sv_cdccheck {
 /// Builds the ClockDatabase by:
 /// 1. Importing SDC constraints (if provided) → primary/generated ClockSources
 /// 2. Auto-detecting clock ports from naming patterns
-/// 3. Walking the elaborated hierarchy to propagate clock nets through port connections
+/// 3. Propagating direct aliases, transparent port connections, and clock nets
+///    through the elaborated hierarchy
 /// 4. Registering domain relationships (async, divided, exclusive)
 ///
-/// After analyze(), every clock-carrying signal in the design has a ClockNet
-/// pointing to its ultimate ClockSource, regardless of hierarchical name changes.
+/// Unresolved generated scopes, gated paths, and mux outputs retain distinct
+/// or unknown sources; a ClockNet is not guaranteed for every physical clock.
 class ClockTreeAnalyzer {
 public:
     ClockTreeAnalyzer(slang::ast::Compilation& compilation,
@@ -44,6 +46,7 @@ public:
 
     /// Run full clock tree analysis
     void analyze();
+    size_t skippedSdcRelationshipGroups() const { return skipped_sdc_relationship_groups_; }
 
     /// Walk continuous assigns in every instance and mark any clock
     /// source whose origin signal is driven by a combinational mux /
@@ -66,11 +69,13 @@ private:
     std::optional<SdcConstraints> sdc_;
     std::unordered_set<std::string> safe_mux_cells_;
     std::unordered_set<std::string> safe_sync_cells_;
+    size_t skipped_sdc_relationship_groups_ = 0;
 
     // ── Phase 1a: Source identification ──
 
     /// Import create_clock / create_generated_clock from SDC
     void importSdcClocks();
+    void propagateGeneratedPeriods();
 
     /// Auto-detect clock ports by name pattern (*clk*, *clock*, *ck*)
     void autoDetectClockPorts();
@@ -79,6 +84,7 @@ private:
 
     /// DFS walk from root: propagate known clock nets through port connections
     void propagateFromRoot();
+    void propagateTransparentAliases();
 
     /// Recursive: propagate clock nets into an instance via its port connections
     void propagateInstance(
@@ -113,7 +119,7 @@ private:
 
     // ── Phase 1b+: Clock divider detection ──
 
-    /// Detect clock dividers: always_ff with q <= ~q toggle pattern
+    /// Detect fixed-ratio clock dividers: unconditional or reset-only q <= ~q
     void detectClockDividers();
 
     /// Recursive helper for clock divider detection
@@ -121,9 +127,9 @@ private:
                                        const std::string& inst_path);
 
     /// Check a statement for toggle pattern (q <= ~q)
-    void checkTogglePattern(const slang::ast::Statement& stmt,
-                            const std::string& clock_name,
-                            const std::string& inst_path);
+    void checkTogglePattern(const slang::ast::Statement& stmt, const std::string& clock_name,
+                            const std::string& inst_path, const std::string& reset_name, bool reset_active_low,
+                            const std::string& expected_lhs = {});
 
     /// Collect every signal name that appears on the clock side of an
     /// always_ff sensitivity list, across the full elaborated design.

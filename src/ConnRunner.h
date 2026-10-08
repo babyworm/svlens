@@ -23,6 +23,7 @@ struct ConnCliOptions {
     bool checkClockReset = false;
     bool checkSynth = false;
     std::string conventionFile;
+    std::string userRulesFile;
     std::string expectFile;
     std::string diffFile;
     std::string traceSignal;

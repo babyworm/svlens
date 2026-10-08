@@ -30,6 +30,11 @@ static std::string extractLHSBaseName(const slang::ast::Expression& expr) {
     switch (expr.kind) {
         case slang::ast::ExpressionKind::NamedValue:
             return std::string(expr.as<slang::ast::NamedValueExpression>().symbol.name);
+        case slang::ast::ExpressionKind::MemberAccess: {
+            const auto& member = expr.as<slang::ast::MemberAccessExpression>();
+            auto base = extractLHSBaseName(member.value());
+            return base.empty() ? std::string{} : base + "." + std::string(member.member.name);
+        }
         case slang::ast::ExpressionKind::ElementSelect:
             return extractLHSBaseName(
                 expr.as<slang::ast::ElementSelectExpression>().value());
@@ -39,6 +44,23 @@ static std::string extractLHSBaseName(const slang::ast::Expression& expr) {
         default:
             return "";
     }
+}
+
+static std::string extractMemberReferenceName(const slang::ast::Expression& expr) {
+    using EK = slang::ast::ExpressionKind;
+    if (expr.kind == EK::NamedValue || expr.kind == EK::HierarchicalValue) {
+        const auto& symbol = expr.as<slang::ast::ValueExpressionBase>().symbol;
+        if (symbol.kind == slang::ast::SymbolKind::Parameter || symbol.kind == slang::ast::SymbolKind::TypeParameter ||
+            symbol.kind == slang::ast::SymbolKind::EnumValue)
+            return {};
+        return expr.kind == EK::HierarchicalValue ? symbol.getHierarchicalPath() : std::string(symbol.name);
+    }
+    if (expr.kind == EK::MemberAccess) {
+        const auto& member = expr.as<slang::ast::MemberAccessExpression>();
+        auto base = extractMemberReferenceName(member.value());
+        return base.empty() ? std::string{} : base + "." + std::string(member.member.name);
+    }
+    return {};
 }
 
 void collectReferencedSignals(const slang::ast::Expression& expr,
@@ -118,6 +140,12 @@ void collectReferencedSignals(const slang::ast::Expression& expr,
         case slang::ast::ExpressionKind::RangeSelect: {
             auto& sel = expr.as<slang::ast::RangeSelectExpression>();
             collectReferencedSignals(sel.value(), signals);
+            return;
+        }
+        case slang::ast::ExpressionKind::MemberAccess: {
+            auto name = extractMemberReferenceName(expr);
+            if (!name.empty() && std::find(signals.begin(), signals.end(), name) == signals.end())
+                signals.push_back(std::move(name));
             return;
         }
         case slang::ast::ExpressionKind::Conversion: {

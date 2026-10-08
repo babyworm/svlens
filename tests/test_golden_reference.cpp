@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include "test_helpers.h"
 #include "sv-cdccheck/clock_tree.h"
 #include "sv-cdccheck/ff_classifier.h"
 #include "sv-cdccheck/connectivity.h"
@@ -18,27 +19,8 @@ namespace fs = std::filesystem;
 using namespace sv_cdccheck;
 
 // Compile a .sv file from disk
-static std::unique_ptr<slang::ast::Compilation> compileFixture(const std::string& path) {
-    slang::driver::Driver driver;
-    driver.addStandardArgs();
-    const char* args[] = {"test", path.c_str()};
-    (void)driver.parseCommandLine(2, const_cast<char**>(args));
-    (void)driver.processOptions();
-    (void)driver.parseAllSources();
-
-    auto compilation = driver.createCompilation();
-    auto& root = compilation->getRoot();
-    for (auto& member : root.members()) {
-        if (member.kind == slang::ast::SymbolKind::Instance) {
-            auto& inst = member.as<slang::ast::InstanceSymbol>();
-            for (auto& bm : inst.body.members()) {
-                if (bm.kind == slang::ast::SymbolKind::ProceduralBlock)
-                    (void)bm.as<slang::ast::ProceduralBlockSymbol>().getBody();
-            }
-        }
-    }
-    compilation->getAllDiagnostics();
-    return compilation;
+static auto compileFixture(const std::string& path) {
+    return sv_cdccheck::test::compileSVFile(path);
 }
 
 // Run the 6-pass pipeline and collect counts

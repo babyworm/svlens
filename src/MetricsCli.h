@@ -40,7 +40,9 @@ inline void printMetricsUsage() {
         "  --format json|md|both          Report format (default: json)\n"
         "  --help                         Show this help\n"
         "  --version                      Show version\n"
-        "  " + commoncli::passThroughNote() + "\n\n"
+        "  " +
+        commoncli::passThroughNote() +
+        "\n\n"
         "Metrics-specific:\n"
         "  --roots outputs|ffd|all        Root selection (default: all)\n"
         "  --max-depth <N>                Backward traversal depth limit (default: 256)\n"
@@ -63,8 +65,8 @@ inline void printMetricsUsage() {
         "  0  Analysis completed successfully.\n"
         "  1  Error during compilation or analysis.\n\n"
         "Limitations:\n"
-        "  MVP supports continuous assign, direct assignment, and limited procedural fragments.\n"
-        "  Full always_comb semantics are deferred to v2.\n"
+        "  Supports continuous assign, direct assignment, case/casez/casex, and bounded for loops.\n"
+        "  Function calls are approximate; full always_comb semantics are not implemented.\n"
         "  FF D-side cones use CDC hint data; provenance_level indicates confidence.\n\n"
         "Notes:\n"
         "  Run 'svlens help conn' or 'svlens help cdc' for other analysis modes.\n"

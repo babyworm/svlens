@@ -20,6 +20,7 @@ jobs:
           - os: macos-latest  # macos-latest is arm64 (M-series) since 2024
             artifact: svlens-macos-arm64
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     env:
       ARTIFACT_NAME: ${{ matrix.artifact }}
     steps:
@@ -30,9 +31,7 @@ jobs:
       - name: Install Linux build prerequisites
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
+          ./scripts/ci-apt-install.sh build-essential \
             cmake \
             git \
             python3 \

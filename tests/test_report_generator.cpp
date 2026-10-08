@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <filesystem>
+#include <sstream>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -204,7 +205,7 @@ static AnalysisResult makeMixedResult() {
     return result;
 }
 
-TEST_CASE("ReportGenerator: SDC output has set_false_path and set_max_delay", "[report]") {
+TEST_CASE("ReportGenerator: SDC output is a review-only timing template", "[report]") {
     auto result = makeMixedResult();
     ReportGenerator gen(result);
 
@@ -216,16 +217,20 @@ TEST_CASE("ReportGenerator: SDC output has set_false_path and set_max_delay", "[
                          std::istreambuf_iterator<char>());
     fs::remove(path);
 
-    // Waived crossing should produce set_false_path
-    CHECK(content.find("set_false_path") != std::string::npos);
+    // Neither a waiver nor a violation authorizes a timing exception.
+    CHECK(content.find("set_false_path") == std::string::npos);
     CHECK(content.find("WAIVED") != std::string::npos);
 
-    // Synced crossing should produce set_max_delay
-    CHECK(content.find("set_max_delay") != std::string::npos);
+    // This fixture has no destination period, so no number is guessed.
+    CHECK(content.find("set_max_delay") == std::string::npos);
     CHECK(content.find("SYNCED") != std::string::npos);
 
     // Violation should have a WARNING comment
     CHECK(content.find("WARNING: unsynchronized crossing") != std::string::npos);
+    std::istringstream lines(content);
+    for (std::string line; std::getline(lines, line);)
+        if (!line.empty())
+            CHECK(line.front() == '#');
 }
 
 TEST_CASE("ReportGenerator: DOT output has digraph and red edges", "[report]") {

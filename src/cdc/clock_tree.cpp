@@ -9,14 +9,23 @@
 #include "slang/ast/expressions/AssignmentExpressions.h"
 #include "slang/ast/expressions/OperatorExpressions.h"
 #include "slang/ast/expressions/ConversionExpression.h"
+#include "slang/ast/expressions/SelectExpressions.h"
 #include "slang/ast/statements/ConditionalStatements.h"
 #include "slang/ast/SemanticFacts.h"
 #include "slang/ast/Expression.h"
+#include "slang/ast/EvalContext.h"
+#include "slang/ast/ASTVisitor.h"
 #include "slang/ast/Statement.h"
+#include "slang/ast/types/AllTypes.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <deque>
+#include <optional>
+#include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace sv_cdccheck {
 
@@ -143,6 +152,7 @@ void ClockTreeAnalyzer::detectUnsafeCombClocks() {
 }
 
 void ClockTreeAnalyzer::analyze() {
+    skipped_sdc_relationship_groups_ = 0;
     // Phase 1a: Identify clock sources
     if (sdc_) {
         importSdcClocks();
@@ -150,12 +160,14 @@ void ClockTreeAnalyzer::analyze() {
     autoDetectClockPorts();
 
     // Phase 1b: Propagate through hierarchy
+    propagateTransparentAliases();
     propagateFromRoot();
 
     // Phase 1b+: Detect PLL/MMCM outputs, clock dividers, and clock gates
     detectPLLOutputs();
     detectClockDividers();
     detectClockGates();
+    propagateGeneratedPeriods();
 
     // Phase 1c: Register relationships
     if (sdc_) {
@@ -172,11 +184,13 @@ void ClockTreeAnalyzer::importSdcClocks() {
         src->id = "sdc_" + clk.name;
         src->name = clk.name;
         src->type = ClockSource::Type::Primary;
-        src->period_ns = clk.period;
+        if (clk.period && std::isfinite(*clk.period) && *clk.period > 0)
+            src->period_ns = clk.period;
         src->origin_signal = clk.target;
         clock_db_.addSource(std::move(src));
     }
 
+    std::vector<std::pair<ClockSource*, std::string>> generated;
     for (auto& gen : sdc_->generated_clocks) {
         auto src = std::make_unique<ClockSource>();
         src->id = "sdc_gen_" + gen.name;
@@ -187,15 +201,71 @@ void ClockTreeAnalyzer::importSdcClocks() {
         src->multiply_by = gen.multiply_by;
         src->invert = gen.invert;
 
-        // Link to master source
-        for (auto& existing : clock_db_.sources) {
-            if (existing->origin_signal == gen.source_clock ||
-                existing->name == gen.source_clock) {
-                src->master = existing.get();
+        auto* added = clock_db_.addSource(std::move(src));
+        generated.emplace_back(added, gen.source_clock);
+    }
+
+    // Resolve after all generated sources exist so a child can precede its
+    // master in SDC. Ambiguous names, invalid ratios, and master cycles are
+    // left unlinked rather than creating a false related-clock relationship.
+    std::unordered_map<ClockSource*, ClockSource*> proposed;
+    for (const auto& [child, sourceName] : generated) {
+        if (sourceName.empty() || child->divide_by <= 0 || child->multiply_by <= 0)
+            continue;
+        ClockSource* candidate = nullptr;
+        bool ambiguous = false;
+        for (const auto& source : clock_db_.sources) {
+            if (source->name != sourceName && source->origin_signal != sourceName)
+                continue;
+            if (candidate && candidate != source.get()) {
+                ambiguous = true;
                 break;
             }
+            candidate = source.get();
         }
-        clock_db_.addSource(std::move(src));
+        if (!ambiguous && candidate)
+            proposed[child] = candidate;
+    }
+    for (const auto& [child, candidate] : proposed) {
+        std::unordered_set<ClockSource*> visited;
+        ClockSource* current = child;
+        ClockSource* terminal = nullptr;
+        while (current && visited.insert(current).second) {
+            if (auto next = proposed.find(current); next != proposed.end()) {
+                current = next->second;
+            } else if (current->master) {
+                current = current->master;
+            } else {
+                terminal = current;
+                current = nullptr;
+            }
+        }
+        const bool validTerminal =
+            terminal && (terminal->type != ClockSource::Type::Generated ||
+                         (terminal->period_ns && std::isfinite(*terminal->period_ns) && *terminal->period_ns > 0));
+        if (!current && validTerminal)
+            child->master = candidate;
+    }
+}
+
+void ClockTreeAnalyzer::propagateGeneratedPeriods() {
+    // Period is timing context, not proof of a stable capture window. Only a
+    // finite positive master period and ratio support a derived value.
+    for (size_t iteration = 0; iteration < clock_db_.sources.size(); ++iteration) {
+        bool changed = false;
+        for (const auto& source : clock_db_.sources) {
+            if (source->type != ClockSource::Type::Generated || source->period_ns || !source->master ||
+                !source->master->period_ns || source->divide_by <= 0 || source->multiply_by <= 0)
+                continue;
+            const double period = *source->master->period_ns * static_cast<double>(source->divide_by) /
+                                  static_cast<double>(source->multiply_by);
+            if (std::isfinite(period) && period > 0) {
+                source->period_ns = period;
+                changed = true;
+            }
+        }
+        if (!changed)
+            break;
     }
 }
 
@@ -242,21 +312,528 @@ void ClockTreeAnalyzer::autoDetectClockPorts() {
 
 // ── Phase 1b: Hierarchical propagation ──
 
-// Extract signal name from an expression (NamedValueExpression or Assignment for output ports)
+// Extract a parent-scope signal path from a port connection expression.
 static std::string extractSignalNameFromExpr(const slang::ast::Expression& expr) {
     if (expr.kind == slang::ast::ExpressionKind::NamedValue) {
         auto& named = expr.as<slang::ast::NamedValueExpression>();
         return std::string(named.symbol.name);
     }
+    if (expr.kind == slang::ast::ExpressionKind::MemberAccess) {
+        auto& member = expr.as<slang::ast::MemberAccessExpression>();
+        auto base = extractSignalNameFromExpr(member.value());
+        return base.empty() ? std::string{} : base + "." + std::string(member.member.name);
+    }
+    if (expr.kind == slang::ast::ExpressionKind::Conversion)
+        return extractSignalNameFromExpr(expr.as<slang::ast::ConversionExpression>().operand());
     // Output port connections are modeled as Assignment: wire = port_internal
     if (expr.kind == slang::ast::ExpressionKind::Assignment) {
         auto& assign = expr.as<slang::ast::AssignmentExpression>();
-        if (assign.left().kind == slang::ast::ExpressionKind::NamedValue) {
-            return std::string(
-                assign.left().as<slang::ast::NamedValueExpression>().symbol.name);
-        }
+        return extractSignalNameFromExpr(assign.left());
     }
     return "";
+}
+
+static ClockSource* rootSource(ClockSource* source) {
+    std::unordered_set<ClockSource*> visited;
+    while (source && source->master) {
+        if (!visited.insert(source).second)
+            return nullptr;
+        source = source->master;
+    }
+    return source;
+}
+
+// Alias edges must use the signal's declaring scope. A reference inside a
+// generate block can name a port declared on the enclosing module, while a
+// clock net declared inside the block needs its generated path.
+static std::string extractSignalPathFromExpr(const slang::ast::Expression& expr, const std::string& scope_path) {
+    using EK = slang::ast::ExpressionKind;
+    if (expr.kind == EK::NamedValue) {
+        const auto& symbol = expr.as<slang::ast::NamedValueExpression>().symbol;
+        auto path = symbol.getHierarchicalPath();
+        return path.empty() ? scope_path + "." + std::string(symbol.name) : path;
+    }
+    if (expr.kind == EK::HierarchicalValue)
+        return expr.as<slang::ast::HierarchicalValueExpression>().symbol.getHierarchicalPath();
+    if (expr.kind == EK::MemberAccess) {
+        const auto& member = expr.as<slang::ast::MemberAccessExpression>();
+        const auto base = extractSignalPathFromExpr(member.value(), scope_path);
+        return base.empty() ? std::string{} : base + "." + std::string(member.member.name);
+    }
+    if (expr.kind == EK::Conversion)
+        return extractSignalPathFromExpr(expr.as<slang::ast::ConversionExpression>().operand(), scope_path);
+    if (expr.kind == EK::Assignment)
+        return extractSignalPathFromExpr(expr.as<slang::ast::AssignmentExpression>().left(), scope_path);
+    return {};
+}
+
+static std::string directAliasPathFromExpr(const slang::ast::Expression& expr, const std::string& scope_path) {
+    using EK = slang::ast::ExpressionKind;
+    if (expr.kind == EK::Conversion) {
+        const auto& conversion = expr.as<slang::ast::ConversionExpression>();
+        if (!expr.type || !conversion.operand().type ||
+            expr.type->getBitWidth() != conversion.operand().type->getBitWidth() ||
+            expr.type->isFourState() != conversion.operand().type->isFourState())
+            return {};
+        return directAliasPathFromExpr(conversion.operand(), scope_path);
+    }
+    if (expr.kind == EK::Assignment)
+        return directAliasPathFromExpr(expr.as<slang::ast::AssignmentExpression>().left(), scope_path);
+    if (expr.kind == EK::MemberAccess) {
+        const auto& member = expr.as<slang::ast::MemberAccessExpression>();
+        auto base = directAliasPathFromExpr(member.value(), scope_path);
+        return base.empty() ? std::string{} : base + "." + std::string(member.member.name);
+    }
+    if (expr.kind == EK::NamedValue || expr.kind == EK::HierarchicalValue) {
+        const auto& symbol = expr.as<slang::ast::ValueExpressionBase>().symbol;
+        if (symbol.kind == slang::ast::SymbolKind::Parameter || symbol.kind == slang::ast::SymbolKind::TypeParameter ||
+            symbol.kind == slang::ast::SymbolKind::EnumValue)
+            return {};
+        return extractSignalPathFromExpr(expr, scope_path);
+    }
+    return {};
+}
+
+struct SelectedElementPath {
+    std::string base;
+    std::string bit;
+};
+
+static std::optional<SelectedElementPath> selectedIntegralElementPath(const slang::ast::Expression& expr,
+                                                                      const std::string& scope_path) {
+    using EK = slang::ast::ExpressionKind;
+    const slang::ast::Expression* selected = &expr;
+    while (selected->kind == EK::Assignment || selected->kind == EK::Conversion) {
+        if (selected->kind == EK::Assignment)
+            selected = &selected->as<slang::ast::AssignmentExpression>().left();
+        else {
+            const auto& conversion = selected->as<slang::ast::ConversionExpression>();
+            if (!selected->type || !conversion.operand().type ||
+                selected->type->getBitWidth() != conversion.operand().type->getBitWidth() ||
+                selected->type->isFourState() != conversion.operand().type->isFourState())
+                return std::nullopt;
+            selected = &conversion.operand();
+        }
+    }
+    if (selected->kind != EK::ElementSelect || !selected->type || !selected->type->isIntegral())
+        return std::nullopt;
+    const auto& select = selected->as<slang::ast::ElementSelectExpression>();
+    const auto* index = select.selector().getConstant();
+    if (!select.value().type || !select.value().type->isIntegral() || !select.value().type->hasFixedRange() || !index ||
+        !*index || !index->isInteger())
+        return std::nullopt;
+    const auto value = index->integer().as<int64_t>();
+    const auto range = select.value().type->getFixedRange();
+    if (!value || *value < range.lower() || *value > range.upper())
+        return std::nullopt;
+    auto base = extractSignalPathFromExpr(select.value(), scope_path);
+    if (base.empty())
+        return std::nullopt;
+    auto bit = base + "[" + std::to_string(*value) + "]";
+    return SelectedElementPath{std::move(base), std::move(bit)};
+}
+
+static std::string oneBitInversionSource(const slang::ast::Expression& expr, const std::string& scope_path) {
+    using EK = slang::ast::ExpressionKind;
+    const slang::ast::Expression* inverted = &expr;
+    while (inverted->kind == EK::Conversion) {
+        const auto& conversion = inverted->as<slang::ast::ConversionExpression>();
+        if (!inverted->type || !conversion.operand().type || inverted->type->getBitWidth() != 1 ||
+            conversion.operand().type->getBitWidth() != 1 ||
+            inverted->type->isFourState() != conversion.operand().type->isFourState())
+            return {};
+        inverted = &conversion.operand();
+    }
+    if (inverted->kind != EK::UnaryOp)
+        return {};
+    const auto& unary = inverted->as<slang::ast::UnaryExpression>();
+    if ((unary.op != slang::ast::UnaryOperator::BitwiseNot && unary.op != slang::ast::UnaryOperator::LogicalNot) ||
+        !unary.operand().type || unary.operand().type->getBitWidth() != 1)
+        return {};
+    auto source = directAliasPathFromExpr(unary.operand(), scope_path);
+    if (!source.empty())
+        return source;
+    if (const auto selected = selectedIntegralElementPath(unary.operand(), scope_path);
+        selected && unary.operand().type->getBitWidth() == 1)
+        return selected->bit;
+    return {};
+}
+
+static bool isCompileTimeValue(const slang::ast::Expression& expr) {
+    using EK = slang::ast::ExpressionKind;
+    const slang::ast::Expression* current = &expr;
+    while (current->kind == EK::Conversion || current->kind == EK::MemberAccess || current->kind == EK::ElementSelect ||
+           current->kind == EK::RangeSelect) {
+        if (current->kind == EK::Conversion)
+            current = &current->as<slang::ast::ConversionExpression>().operand();
+        else if (current->kind == EK::MemberAccess)
+            current = &current->as<slang::ast::MemberAccessExpression>().value();
+        else if (current->kind == EK::ElementSelect)
+            current = &current->as<slang::ast::ElementSelectExpression>().value();
+        else
+            current = &current->as<slang::ast::RangeSelectExpression>().value();
+    }
+    if (current->kind != EK::NamedValue && current->kind != EK::HierarchicalValue)
+        return false;
+    const auto& symbol = current->as<slang::ast::ValueExpressionBase>().symbol;
+    return symbol.kind == slang::ast::SymbolKind::Parameter || symbol.kind == slang::ast::SymbolKind::TypeParameter ||
+           symbol.kind == slang::ast::SymbolKind::EnumValue;
+}
+
+static std::vector<std::string> expressionDependencies(const slang::ast::Expression& expr,
+                                                       const std::string& scope_path) {
+    std::vector<std::string> dependencies;
+    auto add = [&](std::string path) {
+        if (!path.empty())
+            dependencies.push_back(std::move(path));
+    };
+    auto visitor = slang::ast::makeVisitor(
+        [&](auto& self, const slang::ast::ElementSelectExpression& selected) {
+            if (const auto path = selectedIntegralElementPath(selected, scope_path);
+                path && !isCompileTimeValue(selected))
+                add(path->bit);
+            else
+                self.visitDefault(selected);
+        },
+        [&](auto& self, const slang::ast::MemberAccessExpression& member) {
+            if (!isCompileTimeValue(member)) {
+                auto path = extractSignalPathFromExpr(member, scope_path);
+                if (!path.empty()) {
+                    add(std::move(path));
+                    return;
+                }
+            }
+            self.visitDefault(member);
+        },
+        [&](auto&, const slang::ast::NamedValueExpression& named) {
+            if (!isCompileTimeValue(named))
+                add(extractSignalPathFromExpr(named, scope_path));
+        },
+        [&](auto&, const slang::ast::HierarchicalValueExpression& named) {
+            if (!isCompileTimeValue(named))
+                add(extractSignalPathFromExpr(named, scope_path));
+        },
+        [&](auto&, const slang::ast::ArbitrarySymbolExpression& symbol) {
+            if (symbol.symbol && symbol.symbol->kind != slang::ast::SymbolKind::Parameter &&
+                symbol.symbol->kind != slang::ast::SymbolKind::TypeParameter &&
+                symbol.symbol->kind != slang::ast::SymbolKind::EnumValue)
+                add(symbol.symbol->getHierarchicalPath());
+        },
+        [&](auto& self, const slang::ast::ConditionalExpression& conditional) {
+            if (const auto* known = conditional.knownSide())
+                known->visit(self);
+            else
+                self.visitDefault(conditional);
+        });
+    expr.visit(visitor);
+    std::sort(dependencies.begin(), dependencies.end());
+    dependencies.erase(std::unique(dependencies.begin(), dependencies.end()), dependencies.end());
+    return dependencies;
+}
+
+static const slang::ast::AssignmentExpression* soleUnconditionalAssignment(const slang::ast::Statement& stmt) {
+    using SK = slang::ast::StatementKind;
+    if (stmt.kind == SK::ExpressionStatement) {
+        const auto& expr = stmt.as<slang::ast::ExpressionStatement>().expr;
+        return expr.kind == slang::ast::ExpressionKind::Assignment ? &expr.as<slang::ast::AssignmentExpression>()
+                                                                   : nullptr;
+    }
+    if (stmt.kind == SK::Block)
+        return soleUnconditionalAssignment(stmt.as<slang::ast::BlockStatement>().body);
+    if (stmt.kind == SK::List) {
+        const auto& list = stmt.as<slang::ast::StatementList>().list;
+        return list.size() == 1 && list[0] ? soleUnconditionalAssignment(*list[0]) : nullptr;
+    }
+    return nullptr;
+}
+
+void ClockTreeAnalyzer::propagateTransparentAliases() {
+    // Direct assignments and directed port connections form a clock-alias
+    // graph. Compute it before the ordinary top-down walk so a clock-manager
+    // output can reach a consumer declared earlier in its parent module.
+    // Conditional, arithmetic, and gated expressions are deliberately absent.
+    std::unordered_map<std::string, std::vector<std::string>> aliases;
+    std::unordered_map<std::string, std::vector<std::string>> root_edges;
+    std::unordered_map<std::string, std::vector<std::string>> resetInversions;
+    std::unordered_map<std::string, std::vector<std::string>> resetSelectedAliases;
+    std::unordered_map<std::string, std::vector<std::string>> resetIndexedFieldAliases;
+    std::unordered_map<std::string, ResetMuxInputs> resetMuxInputs;
+    auto addAlias = [&aliases, &root_edges](std::string from, std::string to) {
+        if (!from.empty() && !to.empty()) {
+            aliases[from].push_back(to);
+            root_edges[std::move(from)].push_back(std::move(to));
+        }
+    };
+    auto recordResetInversion = [&](const slang::ast::AssignmentExpression& expr, const std::string& path) {
+        if (expr.isNonBlocking() || expr.isCompound() || expr.timingControl || !expr.left().type ||
+            expr.left().type->getBitWidth() != 1)
+            return;
+        auto lhs = directAliasPathFromExpr(expr.left(), path);
+        if (lhs.empty())
+            return;
+        auto source = oneBitInversionSource(expr.right(), path);
+        if (!source.empty())
+            resetInversions[std::move(source)].push_back(std::move(lhs));
+    };
+
+    auto visitScope = [&](auto&& self, const slang::ast::Scope& scope, const std::string& path,
+                          const std::string& parent_path, const slang::ast::InstanceSymbol* inst) -> void {
+        if (inst && !parent_path.empty()) {
+            const std::string definition(inst->getDefinition().name);
+            if (definition == "prim_clock_buf" || definition == "prim_generic_clock_buf") {
+                addAlias(path + ".clk_i", path + ".clk_o");
+            } else if (definition == "prim_clock_mux2" || definition == "prim_generic_clock_mux2") {
+                auto hasPort = [&](const char* name, slang::ast::ArgumentDirection direction) {
+                    for (const auto* member : inst->body.getPortList()) {
+                        if (!member || member->kind != slang::ast::SymbolKind::Port || member->name != name)
+                            continue;
+                        const auto& port = member->as<slang::ast::PortSymbol>();
+                        return port.direction == direction && port.getType().getBitWidth() == 1;
+                    }
+                    return false;
+                };
+                if (hasPort("clk0_i", slang::ast::ArgumentDirection::In) &&
+                    hasPort("clk1_i", slang::ast::ArgumentDirection::In) &&
+                    hasPort("sel_i", slang::ast::ArgumentDirection::In) &&
+                    hasPort("clk_o", slang::ast::ArgumentDirection::Out)) {
+                    resetMuxInputs.emplace(path + ".clk_o",
+                                           ResetMuxInputs{path + ".clk0_i", path + ".clk1_i", path + ".sel_i"});
+                }
+            } else if (definition == "prim_clock_gating" || definition == "prim_generic_clock_gating" ||
+                       definition == "prim_clock_gating_sync" || definition == "prim_clock_div") {
+                // Gate/divider output shares an origin, not a clock domain.
+                // This edge is never added to the transparent alias graph.
+                root_edges[path + ".clk_i"].push_back(path + ".clk_o");
+            }
+            for (auto* conn : inst->getPortConnections()) {
+                if (!conn || conn->port.kind != slang::ast::SymbolKind::Port)
+                    continue;
+                auto* expr = conn->getExpression();
+                if (!expr)
+                    continue;
+                const auto& port = conn->port.as<slang::ast::PortSymbol>();
+                const std::string inner = path + "." + std::string(port.name);
+                auto outer = directAliasPathFromExpr(*expr, parent_path);
+                const auto selectedBit = outer.empty() && port.getType().getBitWidth() == 1
+                                             ? selectedIntegralElementPath(*expr, parent_path)
+                                             : std::nullopt;
+                if (selectedBit) {
+                    if (port.direction == slang::ast::ArgumentDirection::In) {
+                        // Keep the aggregate candidate for a vector FF driving
+                        // the bit, plus its separate indexed FF candidate.
+                        resetSelectedAliases[selectedBit->base].push_back(inner);
+                        resetSelectedAliases[selectedBit->bit].push_back(inner);
+                    } else if (port.direction == slang::ast::ArgumentDirection::Out) {
+                        resetSelectedAliases[inner].push_back(selectedBit->bit);
+                    }
+                }
+                if (outer.empty() && !selectedBit && port.direction == slang::ast::ArgumentDirection::In &&
+                    port.getType().getBitWidth() == 1) {
+                    auto invertedSource = oneBitInversionSource(*expr, parent_path);
+                    if (!invertedSource.empty())
+                        resetInversions[std::move(invertedSource)].push_back(inner);
+                }
+                if (auto mux = resetMuxInputs.find(path + ".clk_o");
+                    mux != resetMuxInputs.end() && port.direction == slang::ast::ArgumentDirection::In) {
+                    const auto source = !outer.empty() ? outer : selectedBit ? selectedBit->bit : std::string{};
+                    const auto dependencies =
+                        source.empty() ? expressionDependencies(*expr, parent_path) : std::vector<std::string>{};
+                    if (port.name == "clk0_i") {
+                        mux->second.input0_source = source;
+                        mux->second.input0_dependencies = dependencies;
+                    } else if (port.name == "clk1_i") {
+                        mux->second.input1_source = source;
+                        mux->second.input1_dependencies = dependencies;
+                    } else if (port.name == "sel_i") {
+                        mux->second.select_source = source;
+                        mux->second.select_dependencies = dependencies;
+                        const auto* cached = expr->getConstant();
+                        if (cached && *cached && cached->isInteger() && !cached->hasUnknown()) {
+                            mux->second.selected_input = cached->isTrue();
+                        } else if (!cached) {
+                            slang::ast::EvalContext context(*inst);
+                            const auto value = expr->eval(context);
+                            if (value && value.isInteger() && !value.hasUnknown())
+                                mux->second.selected_input = value.isTrue();
+                        }
+                    }
+                }
+                if (outer.empty())
+                    continue;
+                auto link = [&](const std::string& suffix, bool indexedResetField = false) {
+                    if (port.direction == slang::ast::ArgumentDirection::In) {
+                        addAlias(outer + suffix, inner + suffix);
+                        if (indexedResetField)
+                            resetIndexedFieldAliases[outer + suffix].push_back(inner + suffix);
+                    } else if (port.direction == slang::ast::ArgumentDirection::Out) {
+                        addAlias(inner + suffix, outer + suffix);
+                        if (indexedResetField)
+                            resetIndexedFieldAliases[inner + suffix].push_back(outer + suffix);
+                    }
+                };
+
+                auto linkField = [&](const slang::ast::Symbol& field) {
+                    if (field.kind != slang::ast::SymbolKind::Field)
+                        return;
+                    const std::string fieldName(field.name);
+                    const bool resetField = isResetName(fieldName);
+                    if (!resetField && !isClockName(fieldName))
+                        return;
+                    const auto& fieldType = field.as<slang::ast::FieldSymbol>().getType();
+                    const bool indexedResetField = resetField && fieldType.isIntegral() && fieldType.hasFixedRange() &&
+                                                   fieldType.getBitWidth() > 1 &&
+                                                   fieldType.getFixedRange().fullWidth() == fieldType.getBitWidth();
+                    link("." + fieldName, indexedResetField);
+                };
+
+                const auto& type = port.getType().getCanonicalType();
+                if (type.kind == slang::ast::SymbolKind::PackedStructType) {
+                    for (const auto& field : type.as<slang::ast::PackedStructType>().members())
+                        linkField(field);
+                } else if (type.kind == slang::ast::SymbolKind::UnpackedStructType) {
+                    for (const auto& field : type.as<slang::ast::UnpackedStructType>().members())
+                        linkField(field);
+                } else {
+                    link("");
+                }
+            }
+        }
+
+        for (const auto& member : scope.members()) {
+            if (member.kind == slang::ast::SymbolKind::ContinuousAssign) {
+                const auto& assign = member.as<slang::ast::ContinuousAssignSymbol>().getAssignment();
+                if (assign.kind != slang::ast::ExpressionKind::Assignment)
+                    continue;
+                const auto& expr = assign.as<slang::ast::AssignmentExpression>();
+                auto lhs = directAliasPathFromExpr(expr.left(), path);
+                auto rhs = directAliasPathFromExpr(expr.right(), path);
+                if (!lhs.empty() && !rhs.empty())
+                    addAlias(std::move(rhs), std::move(lhs));
+                recordResetInversion(expr, path);
+            } else if (member.kind == slang::ast::SymbolKind::ProceduralBlock) {
+                const auto& block = member.as<slang::ast::ProceduralBlockSymbol>();
+                if (block.procedureKind == slang::ast::ProceduralBlockKind::AlwaysComb) {
+                    if (const auto* assignment = soleUnconditionalAssignment(block.getBody()))
+                        recordResetInversion(*assignment, path);
+                }
+            } else if (member.kind == slang::ast::SymbolKind::Instance) {
+                const auto& child = member.as<slang::ast::InstanceSymbol>();
+                self(self, child.body, path + "." + std::string(child.name), path, &child);
+            } else if (member.kind == slang::ast::SymbolKind::GenerateBlock) {
+                const auto& block = member.as<slang::ast::GenerateBlockSymbol>();
+                if (block.isUninstantiated)
+                    continue;
+                const std::string name = block.getExternalName();
+                self(self, block, name.empty() ? path : path + "." + name, path, nullptr);
+            } else if (member.kind == slang::ast::SymbolKind::GenerateBlockArray) {
+                const auto& array = member.as<slang::ast::GenerateBlockArraySymbol>();
+                for (const auto* entry : array.entries) {
+                    if (!entry || entry->isUninstantiated)
+                        continue;
+                    std::string name = entry->getExternalName();
+                    if (name.empty())
+                        name = std::string(array.name);
+                    self(self, *entry, path + "." + name, path, nullptr);
+                }
+            }
+        }
+    };
+
+    auto& root = compilation_.getRoot();
+    std::unordered_map<std::string, std::unordered_set<ClockSource*>> candidates;
+    std::deque<std::pair<std::string, ClockSource*>> pending;
+    std::vector<std::pair<std::string, ClockSource*>> seeds;
+    for (auto* top : root.topInstances) {
+        if (!top)
+            continue;
+        const std::string top_path(top->name);
+        visitScope(visitScope, top->body, top_path, "", top);
+        std::unordered_set<std::string> top_ports;
+        for (const auto& member : top->body.members()) {
+            if (member.kind == slang::ast::SymbolKind::Port)
+                top_ports.insert(std::string(member.name));
+        }
+        for (const auto& source : clock_db_.sources) {
+            const auto& origin = source->origin_signal;
+            if (origin.empty())
+                continue;
+            std::string path;
+            if (source->type == ClockSource::Type::Generated && origin.find('/') != std::string::npos) {
+                // SDC get_pins commonly names a child output as
+                // `u_gate/clk_o`. Seed that exact pin; its directed output
+                // port connection carries the declared clock to the parent
+                // signal without a global same-name guess.
+                path = origin;
+                std::replace(path.begin(), path.end(), '/', '.');
+                if (!path.starts_with(top_path + "."))
+                    path = top_path + "." + path;
+            } else if (origin.find('.') == std::string::npos) {
+                if (!top_ports.contains(origin))
+                    continue;
+                path = top_path + "." + origin;
+            } else {
+                if (!origin.starts_with(top_path + "."))
+                    continue;
+                path = origin;
+            }
+            seeds.emplace_back(path, source.get());
+            if (candidates[path].insert(source.get()).second)
+                pending.emplace_back(path, source.get());
+        }
+    }
+
+    while (!pending.empty()) {
+        auto [path, source] = std::move(pending.front());
+        pending.pop_front();
+        auto it = aliases.find(path);
+        if (it == aliases.end())
+            continue;
+        for (const auto& next : it->second) {
+            if (candidates[next].insert(source).second)
+                pending.emplace_back(next, source);
+        }
+    }
+
+    // A node reachable from more than one physical source is ambiguous, such
+    // as a mux output. Leave it unresolved rather than silently choosing one.
+    for (const auto& [path, sources] : candidates) {
+        if (sources.size() != 1 || clock_db_.net_by_path.contains(path))
+            continue;
+        auto net = std::make_unique<ClockNet>();
+        net->hier_path = path;
+        net->source = *sources.begin();
+        clock_db_.addNet(std::move(net));
+    }
+
+    std::unordered_map<std::string, std::unordered_set<ClockSource*>> roots;
+    pending.clear();
+    for (const auto& [path, source] : seeds) {
+        auto* root_source = rootSource(source);
+        if (!root_source)
+            continue;
+        if (roots[path].insert(root_source).second)
+            pending.emplace_back(path, root_source);
+    }
+    while (!pending.empty()) {
+        auto [path, source] = std::move(pending.front());
+        pending.pop_front();
+        auto it = root_edges.find(path);
+        if (it == root_edges.end())
+            continue;
+        for (const auto& next : it->second) {
+            if (roots[next].insert(source).second)
+                pending.emplace_back(next, source);
+        }
+    }
+    for (const auto& [path, sources] : roots) {
+        if (sources.size() == 1)
+            clock_db_.root_by_path[path] = *sources.begin();
+    }
+    clock_db_.directed_aliases = std::move(aliases);
+    clock_db_.reset_inversions = std::move(resetInversions);
+    clock_db_.reset_selected_aliases = std::move(resetSelectedAliases);
+    clock_db_.reset_indexed_field_aliases = std::move(resetIndexedFieldAliases);
+    clock_db_.reset_mux_inputs = std::move(resetMuxInputs);
 }
 
 void ClockTreeAnalyzer::propagateFromRoot() {
@@ -299,6 +876,9 @@ void ClockTreeAnalyzer::propagateInstance(
         }
     } else {
         // Map port connections: resolve the actual expression to find parent clock net
+        const auto parent_dot = inst_path.rfind('.');
+        const std::string parent_scope =
+            parent_dot == std::string::npos ? std::string{} : inst_path.substr(0, parent_dot);
         for (auto* conn : port_connections) {
             if (!conn) continue;
 
@@ -312,10 +892,19 @@ void ClockTreeAnalyzer::propagateInstance(
             auto* expr = conn->getExpression();
             if (expr) {
                 actual_signal = extractSignalNameFromExpr(*expr);
+                const auto declared_path = extractSignalPathFromExpr(*expr, parent_scope);
+                if (auto known = clock_db_.net_by_path.find(declared_path); known != clock_db_.net_by_path.end())
+                    parent_clock_net = known->second;
                 if (!actual_signal.empty()) {
-                    auto it = parent_nets.find(actual_signal);
-                    if (it != parent_nets.end()) {
-                        parent_clock_net = it->second;
+                    if (!parent_clock_net) {
+                        auto it = parent_nets.find(actual_signal);
+                        if (it != parent_nets.end())
+                            parent_clock_net = it->second;
+                        else if (!parent_scope.empty()) {
+                            auto known = clock_db_.net_by_path.find(parent_scope + "." + actual_signal);
+                            if (known != clock_db_.net_by_path.end())
+                                parent_clock_net = known->second;
+                        }
                     }
                 }
             }
@@ -340,11 +929,6 @@ void ClockTreeAnalyzer::propagateInstance(
                 // last segment chopped (the scope in which
                 // actual_signal lives, since actual_signal is the
                 // parent's expression for this port connection).
-                std::string parent_scope;
-                auto last_dot = inst_path.rfind('.');
-                if (last_dot != std::string::npos) {
-                    parent_scope = inst_path.substr(0, last_dot);
-                }
                 std::string qualified = parent_scope.empty()
                     ? actual_signal
                     : parent_scope + "." + actual_signal;
@@ -482,6 +1066,11 @@ void ClockTreeAnalyzer::collectSensitivityClocks(
             // If this signal is already a known local net, skip
             if (local_nets.count(sig_name))
                 continue;
+            if (auto known = clock_db_.net_by_path.find(inst_path + "." + sig_name);
+                known != clock_db_.net_by_path.end()) {
+                local_nets[sig_name] = known->second;
+                continue;
+            }
 
             // Check if there's already a source for this clock
             ClockSource* found_source = nullptr;
@@ -671,6 +1260,8 @@ void ClockTreeAnalyzer::detectClockDividersInInstance(
 
             // Extract the clock signal from sensitivity list
             std::string clock_name;
+            std::string reset_name;
+            bool reset_active_low = false;
             auto& timing = timed.timing;
             if (timing.kind == slang::ast::TimingControlKind::SignalEvent) {
                 auto& sec = timing.as<slang::ast::SignalEventControl>();
@@ -682,9 +1273,13 @@ void ClockTreeAnalyzer::detectClockDividersInInstance(
                         continue;
                     auto& sec = ev->as<slang::ast::SignalEventControl>();
                     std::string sig = extractSignalNameFromExpr(sec.expr);
-                    if (isClockName(sig)) {
+                    if (isResetName(sig)) {
+                        if (sec.edge == slang::ast::EdgeKind::NegEdge || sec.edge == slang::ast::EdgeKind::PosEdge) {
+                            reset_name = sig;
+                            reset_active_low = sec.edge == slang::ast::EdgeKind::NegEdge;
+                        }
+                    } else if (isClockName(sig)) {
                         clock_name = sig;
-                        break;
                     }
                 }
             }
@@ -693,7 +1288,7 @@ void ClockTreeAnalyzer::detectClockDividersInInstance(
 
             // Look for toggle pattern: q <= ~q or q <= !q
             // Walk the inner statement for assignments where LHS == ~RHS
-            checkTogglePattern(timed.stmt, clock_name, inst_path);
+            checkTogglePattern(timed.stmt, clock_name, inst_path, reset_name, reset_active_low);
         }
 
         // Recurse into child instances
@@ -705,11 +1300,35 @@ void ClockTreeAnalyzer::detectClockDividersInInstance(
     }
 }
 
-void ClockTreeAnalyzer::checkTogglePattern(
-    const slang::ast::Statement& stmt,
-    const std::string& clock_name,
-    const std::string& inst_path)
-{
+// Accept a reset branch only when it assigns a literal to one signal. A
+// reset-looking condition without a matching asynchronous reset event is not
+// enough to characterize the following toggle as a fixed divider.
+static std::string resetLiteralTarget(const slang::ast::Statement& stmt) {
+    using SK = slang::ast::StatementKind;
+    using EK = slang::ast::ExpressionKind;
+    if (stmt.kind == SK::Block)
+        return resetLiteralTarget(stmt.as<slang::ast::BlockStatement>().body);
+    if (stmt.kind == SK::List) {
+        const auto& list = stmt.as<slang::ast::StatementList>().list;
+        return list.size() == 1 && list.front() ? resetLiteralTarget(*list.front()) : std::string{};
+    }
+    if (stmt.kind != SK::ExpressionStatement)
+        return {};
+    const auto& expr = stmt.as<slang::ast::ExpressionStatement>().expr;
+    if (expr.kind != EK::Assignment)
+        return {};
+    const auto& assignment = expr.as<slang::ast::AssignmentExpression>();
+    auto* rhs = &assignment.right();
+    while (rhs->kind == EK::Conversion)
+        rhs = &rhs->as<slang::ast::ConversionExpression>().operand();
+    if (rhs->kind != EK::IntegerLiteral && rhs->kind != EK::UnbasedUnsizedIntegerLiteral)
+        return {};
+    return extractSignalNameFromExpr(assignment.left());
+}
+
+void ClockTreeAnalyzer::checkTogglePattern(const slang::ast::Statement& stmt, const std::string& clock_name,
+                                           const std::string& inst_path, const std::string& reset_name,
+                                           bool reset_active_low, const std::string& expected_lhs) {
     using SK = slang::ast::StatementKind;
     using EK = slang::ast::ExpressionKind;
 
@@ -721,7 +1340,8 @@ void ClockTreeAnalyzer::checkTogglePattern(
 
             auto& assign = expr.as<slang::ast::AssignmentExpression>();
             std::string lhs = extractSignalNameFromExpr(assign.left());
-            if (lhs.empty()) break;
+            if (lhs.empty() || (!expected_lhs.empty() && lhs != expected_lhs))
+                break;
 
             // Check RHS is ~lhs (unary not/bitwise not)
             auto* rhs = &assign.right();
@@ -754,37 +1374,63 @@ void ClockTreeAnalyzer::checkTogglePattern(
                         }
                         // Create a generated clock source with divide_by 2
                         ClockSource* master_src = nullptr;
-                        for (auto& src : clock_db_.sources) {
-                            if (src->origin_signal == clock_name ||
-                                src->name == clock_name) {
+                        if (auto net = clock_db_.net_by_path.find(inst_path + "." + clock_name);
+                            net != clock_db_.net_by_path.end()) {
+                            master_src = net->second->source;
+                        }
+                        if (!master_src) {
+                            bool ambiguous = false;
+                            for (const auto& src : clock_db_.sources) {
+                                if (src->origin_signal != clock_name && src->name != clock_name)
+                                    continue;
+                                if (master_src && master_src != src.get()) {
+                                    ambiguous = true;
+                                    break;
+                                }
                                 master_src = src.get();
-                                break;
                             }
+                            if (ambiguous)
+                                master_src = nullptr;
                         }
 
-                        // Check if already created
-                        std::string div_name = lhs + "_div2";
-                        bool already_exists = false;
-                        for (auto& src : clock_db_.sources) {
-                            if (src->name == div_name) {
-                                already_exists = true;
+                        const std::string divided_path = inst_path + "." + lhs;
+                        ClockSource* divided_src = nullptr;
+                        for (const auto& src : clock_db_.sources) {
+                            if (src->origin_signal != divided_path)
+                                continue;
+                            if (!divided_src || src->type == ClockSource::Type::Generated)
+                                divided_src = src.get();
+                            if (src->type == ClockSource::Type::Generated)
                                 break;
-                            }
                         }
-                        if (already_exists) break;
+                        if (divided_src && divided_src->type != ClockSource::Type::AutoDetected)
+                            break;
+                        if (master_src == divided_src)
+                            master_src = nullptr;
+
+                        // A consumer may have lazily registered this net as
+                        // AutoDetected before the toggle FF was visited.
+                        // Promote that exact source so there is no phantom
+                        // duplicate domain or global same-name collision.
+                        if (divided_src) {
+                            divided_src->type = ClockSource::Type::Generated;
+                            divided_src->master = master_src;
+                            divided_src->divide_by = 2;
+                            break;
+                        }
 
                         auto src = std::make_unique<ClockSource>();
-                        src->id = "divider_" + lhs;
-                        src->name = div_name;
+                        src->id = "divider_" + divided_path;
+                        src->name = lhs + "_div2";
                         src->type = ClockSource::Type::Generated;
-                        src->origin_signal = inst_path + "." + lhs;
+                        src->origin_signal = divided_path;
                         src->master = master_src;
                         src->divide_by = 2;
                         clock_db_.addSource(std::move(src));
 
                         // Create a ClockNet for the divided clock
                         auto net = std::make_unique<ClockNet>();
-                        net->hier_path = inst_path + "." + lhs;
+                        net->hier_path = divided_path;
                         net->source = clock_db_.sources.back().get();
                         net->is_gated = false;
                         clock_db_.addNet(std::move(net));
@@ -795,20 +1441,38 @@ void ClockTreeAnalyzer::checkTogglePattern(
         }
         case SK::Block: {
             auto& block = stmt.as<slang::ast::BlockStatement>();
-            checkTogglePattern(block.body, clock_name, inst_path);
+            checkTogglePattern(block.body, clock_name, inst_path, reset_name, reset_active_low, expected_lhs);
             break;
         }
         case SK::List: {
             auto& list = stmt.as<slang::ast::StatementList>();
-            for (auto* child : list.list)
-                if (child) checkTogglePattern(*child, clock_name, inst_path);
+            // Multiple updates can change edge spacing; recognize only one
+            // update or one reset branch followed by the toggle below.
+            if (list.list.size() == 1 && list.list.front())
+                checkTogglePattern(*list.list.front(), clock_name, inst_path, reset_name, reset_active_low,
+                                   expected_lhs);
             break;
         }
         case SK::Conditional: {
-            auto& cond = stmt.as<slang::ast::ConditionalStatement>();
-            checkTogglePattern(cond.ifTrue, clock_name, inst_path);
-            if (cond.ifFalse)
-                checkTogglePattern(*cond.ifFalse, clock_name, inst_path);
+            const auto& cond = stmt.as<slang::ast::ConditionalStatement>();
+            if (reset_name.empty() || cond.conditions.size() != 1 || cond.conditions.front().pattern || !cond.ifFalse)
+                break;
+            const slang::ast::Expression* condition = cond.conditions.front().expr;
+            while (condition->kind == EK::Conversion)
+                condition = &condition->as<slang::ast::ConversionExpression>().operand();
+            bool negated = false;
+            if (condition->kind == EK::UnaryOp) {
+                const auto& unary = condition->as<slang::ast::UnaryExpression>();
+                if (unary.op == slang::ast::UnaryOperator::LogicalNot) {
+                    negated = true;
+                    condition = &unary.operand();
+                }
+            }
+            if (extractSignalNameFromExpr(*condition) != reset_name || negated != reset_active_low)
+                break;
+            const std::string reset_target = resetLiteralTarget(cond.ifTrue);
+            if (!reset_target.empty())
+                checkTogglePattern(*cond.ifFalse, clock_name, inst_path, {}, false, reset_target);
             break;
         }
         default: break;
@@ -887,17 +1551,20 @@ void ClockTreeAnalyzer::detectClockGatesInInstance(
                     clock_out_signal = actual;
             }
 
-            // Mark clock nets as gated
+            // Mark the exact output net as gated. A substring search would
+            // mark unrelated sibling clocks with the same leaf name.
             if (!clock_out_signal.empty()) {
-                for (auto& net : clock_db_.nets) {
-                    if (net->hier_path.find(clock_out_signal) != std::string::npos) {
-                        net->is_gated = true;
-                        net->gate_enable = enable_signal;
-                    }
+                const std::string output_path = inst_path + "." + clock_out_signal;
+                if (auto existing = clock_db_.net_by_path.find(output_path); existing != clock_db_.net_by_path.end()) {
+                    existing->second->is_gated = true;
+                    existing->second->gate_enable = enable_signal;
+                    detectClockGatesInInstance(child, child_path);
+                    continue;
                 }
-                // Also create a gated clock net if not found
+                // No explicit generated-clock net was found for this output.
                 auto net = std::make_unique<ClockNet>();
-                net->hier_path = inst_path + "." + clock_out_signal;
+                net->hier_path = output_path;
+                net->source = nullptr;
                 net->is_gated = true;
                 net->gate_enable = enable_signal;
                 // Try to find the source from input clock port
@@ -916,6 +1583,11 @@ void ClockTreeAnalyzer::detectClockGatesInInstance(
                         auto* expr = conn->getExpression();
                         if (expr) {
                             std::string in_clk = extractSignalNameFromExpr(*expr);
+                            if (auto known = clock_db_.net_by_path.find(inst_path + "." + in_clk);
+                                known != clock_db_.net_by_path.end()) {
+                                net->source = known->second->source;
+                                break;
+                            }
                             for (auto& src : clock_db_.sources) {
                                 if (src->origin_signal == in_clk ||
                                     src->name == in_clk) {
@@ -939,7 +1611,30 @@ void ClockTreeAnalyzer::detectClockGatesInInstance(
 // ── Phase 1c: Relationship registration ──
 
 void ClockTreeAnalyzer::importSdcRelationships() {
-    for (auto& group : sdc_->clock_groups) {
+    auto uniqueSource = [&](const std::string& name) -> ClockSource* {
+        ClockSource* found = nullptr;
+        for (const auto& source : clock_db_.sources) {
+            if (source->name != name)
+                continue;
+            if (found)
+                return nullptr;
+            found = source.get();
+        }
+        return found;
+    };
+    auto descendsFrom = [](ClockSource* source, ClockSource* ancestor) {
+        std::unordered_set<ClockSource*> seen;
+        bool foundAncestor = false;
+        for (auto* master = source->master; master; master = master->master) {
+            if (!seen.insert(master).second)
+                return false;
+            if (master == ancestor)
+                foundAncestor = true;
+        }
+        return foundAncestor;
+    };
+
+    for (const auto& group : sdc_->clock_groups) {
         DomainRelationship::Type rel_type;
         switch (group.type) {
             case SdcClockGroup::Type::Asynchronous:
@@ -950,52 +1645,63 @@ void ClockTreeAnalyzer::importSdcRelationships() {
                 rel_type = DomainRelationship::Type::LogicallyExclusive; break;
         }
 
-        // Handle single-group case: all unlisted clocks form implicit "other" group
-        if (group.groups.size() == 1) {
-            // Collect all clock names that are in the explicit group
-            std::unordered_set<std::string> listed_names(
-                group.groups[0].begin(), group.groups[0].end());
-
-            // Build implicit "other" group from all clock sources not listed
-            std::vector<std::string> other_group;
-            for (auto& src : clock_db_.sources) {
-                if (listed_names.find(src->name) == listed_names.end()) {
-                    other_group.push_back(src->name);
+        // Resolve each declared clock once and expand only proven master
+        // chains. Missing or duplicate names and overlapping clock groups
+        // must not create a partially guessed relationship.
+        std::vector<std::unordered_set<ClockSource*>> sourceGroups;
+        std::unordered_set<ClockSource*> assigned;
+        bool valid = true;
+        for (size_t i = 0; i < group.groups.size(); ++i) {
+            std::unordered_set<ClockSource*> members;
+            for (const auto& name : group.groups[i]) {
+                auto* root = uniqueSource(name);
+                if (!root) {
+                    valid = false;
+                    break;
+                }
+                members.insert(root);
+                if (i < group.include_generated.size() && group.include_generated[i]) {
+                    for (const auto& source : clock_db_.sources) {
+                        if (source->type == ClockSource::Type::Generated && descendsFrom(source.get(), root))
+                            members.insert(source.get());
+                    }
                 }
             }
-
-            // If there are unlisted clocks, add as implicit group and proceed
-            if (!other_group.empty()) {
-                group.groups.push_back(other_group);
-            }
+            if (!valid || members.empty())
+                break;
+            for (auto* source : members)
+                if (!assigned.insert(source).second)
+                    valid = false;
+            sourceGroups.push_back(std::move(members));
+            if (!valid)
+                break;
+        }
+        if (!valid || sourceGroups.empty()) {
+            ++skipped_sdc_relationship_groups_;
+            continue;
         }
 
-        // Register pairwise relationships between groups
-        for (size_t i = 0; i < group.groups.size(); i++) {
-            for (size_t j = i + 1; j < group.groups.size(); j++) {
-                for (auto& name_a : group.groups[i]) {
-                    for (auto& name_b : group.groups[j]) {
-                        ClockSource* src_a = nullptr;
-                        ClockSource* src_b = nullptr;
-                        for (auto& s : clock_db_.sources) {
-                            if (s->name == name_a) src_a = s.get();
-                            if (s->name == name_b) src_b = s.get();
-                        }
-                        if (src_a && src_b) {
-                            clock_db_.relationships.push_back(
-                                {src_a, src_b, rel_type, /*sdc_declared=*/true});
-                        }
-                    }
+        // A single explicit group is exclusive/asynchronous to every clock
+        // not selected into that group, including generated clocks unless
+        // -include_generated_clocks selected them above.
+        if (sourceGroups.size() == 1) {
+            std::unordered_set<ClockSource*> other;
+            for (const auto& source : clock_db_.sources)
+                if (!assigned.contains(source.get()))
+                    other.insert(source.get());
+            if (!other.empty())
+                sourceGroups.push_back(std::move(other));
+        }
+
+        for (size_t i = 0; i < sourceGroups.size(); ++i) {
+            for (size_t j = i + 1; j < sourceGroups.size(); ++j) {
+                for (auto* sourceA : sourceGroups[i]) {
+                    for (auto* sourceB : sourceGroups[j])
+                        clock_db_.relationships.push_back({sourceA, sourceB, rel_type, /*sdc_declared=*/true});
                 }
             }
         }
     }
-}
-
-// Walk master chain to find ultimate root clock source
-static ClockSource* rootSource(ClockSource* s) {
-    while (s && s->master) s = s->master;
-    return s;
 }
 
 void ClockTreeAnalyzer::inferRelationships() {
@@ -1020,7 +1726,7 @@ void ClockTreeAnalyzer::inferRelationships() {
             auto* rootA = rootSource(a);
             auto* rootB = rootSource(b);
 
-            if (rootA == rootB) {
+            if (rootA && rootA == rootB) {
                 // Same root → divided/related
                 clock_db_.relationships.push_back(
                     {a, b, DomainRelationship::Type::Divided});

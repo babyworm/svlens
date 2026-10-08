@@ -232,7 +232,12 @@ void writeSummary(const std::string& outputBase,
     const auto connDir = fs::path(outputBase) / "conn";
     const auto cdcDir = fs::path(outputBase) / "cdc";
     const auto metricsDir = fs::path(outputBase) / "metrics";
-    const auto correlations = correlateReports(connDir / "connect_report.json", cdcDir / "cdc_report.json");
+    // Only correlate JSON written by this run; a reused output directory may
+    // still hold JSON reports from an earlier run with different formats.
+    const auto emitsJson = [](const std::string& format) { return format == "json" || format == "all"; };
+    const auto correlations = emitsJson(connFormat) && emitsJson(cdcFormat)
+                                  ? correlateReports(connDir / "connect_report.json", cdcDir / "cdc_report.json")
+                                  : CorrelationResult{};
 
     ofs << "{\n";
     ofs << "  \"mode\": \"all\",\n";

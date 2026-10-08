@@ -150,3 +150,42 @@ assertion or JSON assertion ID; the pinned SoC label counts remain unchanged.
 SVA elaboration is not simulation or
 a protocol-safety proof. Raw benchmark artifacts remain under ignored
 `bench/opentitan/results/` and are uploaded by the scheduled/on-demand CI job.
+
+### Follow-up: CDC source resolution keeps the ancestor port chain
+
+The first GitHub Actions run of the benchmark workflow (2026-10-08 10:10 UTC)
+aborted every CDC target (aes, hmac, uart, top_earlgrey) with SIGABRT. `make
+build` configures without `CMAKE_BUILD_TYPE`, so asserts are enabled, and
+`resolveToFFs` recursed through a continuous assign without forwarding the
+ancestor port chain, tripping the chain-invariant assert in `findFFByName`.
+NDEBUG builds instead skipped the ancestor walk, so earlier local snapshots
+were produced with that walk silently disabled for sources reached through a
+local assign.
+
+A Release rerun at svlens commit `a9430e1c24c2a89b991c0ef1d188e5548953e89d`
+(binary SHA-256
+`aad249ecb8cc42a6a24cc6c5596dc1a11feb0d93470942f059d7dd9e0ec05a37`; the only
+untracked worktree entry was a symlink to the shared `.ot-src` checkout)
+forwards the chain. Against a Release build of the parent commit, which
+reproduces this snapshot's 3 / 219 / 21 CDC counts and 157/243 timing bases,
+the only change is one added SoC crossing, now 3 / 220 / 21 (244 records):
+
+- `top_earlgrey.u_lc_ctrl.transition_token_q` (`clk_io_div4_timers`, root
+  `clk_io_i`) -> `top_earlgrey.u_flash_ctrl.u_lfsr.lfsr_q` (`clk_main_infra`,
+  root `clk_main_i`), `CAUTION` / `Ac_cdc02`. Source path: `lc_ctrl.sv:397`
+  assigns `lc_flash_rma_seed_o` from `transition_token_q`, `top_earlgrey.sv`
+  wires it to `flash_ctrl.rma_seed_i` (lines 1666, 2084), and
+  `flash_ctrl.sv:276` feeds it to `prim_lfsr.seed_i`, loaded by
+  `prim_lfsr.sv:368` when `seed_en_i` is set. That enable is qualified through
+  `prim_lc_sync`, so this is a structural review item, not a demonstrated
+  synchronization failure.
+
+aes, hmac, and uart CDC reports are unchanged. The five signal references
+(5/5 roots, 1/1 category), 3/3 guidance and 1/1 reset-unresolved probes,
+4/4 root periods, AES 1/1 and SoC 6/6 SVA references, and 399/399 SoC
+assertion labels are unchanged; the period projection now reports 157/244
+timing bases. Connectivity results, the 20-row sample, and the 358/358
+direct-wiring frame do not depend on this CDC path and are unchanged.
+Following single-signal parent-scope aliases between sibling instances
+(the companion fix in the same change) adds no further OpenTitan
+difference: a Release build with both fixes produces identical reports.

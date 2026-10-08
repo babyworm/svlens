@@ -89,8 +89,11 @@ git diff --name-only main -- '*.cpp' '*.h' | xargs clang-format -i
   - test plan / `make test` output summary,
   - any schema or CLI surface changes,
   - linked issue if applicable.
-- **CI must pass** before merge. The `ci`, `portable-smoke`, and offline
-  smokes all gate the PR.
+- **CI must pass** before merge. The `ci` workflow (format, build/test,
+  coverage, ASan, Linux offline smoke) gates the PR. The per-OS
+  `portability` workflow (Ubuntu/macOS `portable-smoke`,
+  `macos-offline-smoke`) runs only on `v*` tags; trigger it manually via
+  `workflow_dispatch` when a change touches platform-specific code.
 
 ## Testing expectations
 

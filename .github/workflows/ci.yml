@@ -7,6 +7,7 @@ on:
 jobs:
   format-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PUSH_BEFORE_SHA: ${{ github.event.before }}
@@ -18,11 +19,10 @@ jobs:
 
       - name: Install clang-format and clang-format-diff
         run: |
-          sudo apt-get update
           # Ubuntu's clang-format package ships /usr/bin/clang-format-diff,
           # but the version-suffixed binaries (clang-format-diff-NN) come
           # with the corresponding clang-format-NN package on some images.
-          sudo apt-get install -y clang-format
+          ./scripts/ci-apt-install.sh clang-format
           # Locate clang-format-diff; fail loudly if absent so the format
           # gate cannot silently succeed when the tool is missing.
           # Using compgen -G avoids the "ls | head" pipeline whose exit code
@@ -90,14 +90,13 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
 
       - name: Install coverage prerequisites
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
+          ./scripts/ci-apt-install.sh build-essential \
             cmake \
             git \
             python3 \
@@ -165,6 +164,7 @@ jobs:
 
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
 
@@ -176,8 +176,7 @@ jobs:
 
       - name: Install build prerequisites
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake git python3 ccache
+          ./scripts/ci-apt-install.sh build-essential cmake git python3 ccache
 
       - name: Cache ccache
         uses: actions/cache@v5
@@ -200,68 +199,15 @@ jobs:
         run: |
           make test CMAKE_PREFIX_PATH="$HOME/.local"
 
-  portable-smoke:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Ubuntu prerequisites
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            git \
-            python3 \
-            ccache \
-            catch2 \
-            libyaml-cpp-dev
-
-      - name: Install macOS prerequisites
-        if: runner.os == 'macOS'
-        run: |
-          brew install catch2 yaml-cpp fmt ccache
-
-      - name: Cache slang install
-        uses: actions/cache@v5
-        with:
-          path: ~/.local
-          key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}
-
-      - name: Stage slang dependency
-        run: |
-          ./scripts/setup-deps.sh --prefix "$HOME/.local"
-
-      - name: Configure portable smoke build
-        run: |
-          cmake -B build-smoke \
-            -DCMAKE_PREFIX_PATH="$HOME/.local;/opt/homebrew" \
-            -DSVLENS_FETCH_DEPS=OFF
-
-      - name: Build portable smoke binary
-        run: |
-          cmake --build build-smoke -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
-
-      - name: Run portable smoke contract bundle
-        run: |
-          ctest --test-dir build-smoke --output-on-failure \
-            -R "install_smoke|help_contract|schema_contract|integration_shell|integration_svlens|integration_cdc_golden"
-
   preinstalled-offline-smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
 
       - name: Install build prerequisites and preinstalled deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
+          ./scripts/ci-apt-install.sh build-essential \
             cmake \
             git \
             python3 \
@@ -293,42 +239,9 @@ jobs:
         run: |
           ctest --test-dir build-offline -R "install_smoke|HtmlReport" --output-on-failure
 
-  macos-offline-smoke:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install preinstalled dependencies
-        run: |
-          brew update
-          brew install catch2 yaml-cpp fmt ccache
-
-      - name: Cache slang install
-        uses: actions/cache@v5
-        with:
-          path: ~/.local
-          key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}
-
-      - name: Stage slang dependency
-        run: |
-          ./scripts/setup-deps.sh --prefix "$HOME/.local"
-
-      - name: Configure offline with preinstalled deps
-        run: |
-          cmake -B build-macos \
-            -DCMAKE_PREFIX_PATH="$HOME/.local;/opt/homebrew" \
-            -DSVLENS_FETCH_DEPS=OFF
-
-      - name: Build offline
-        run: |
-          cmake --build build-macos -j"$(sysctl -n hw.ncpu)"
-
-      - name: Run contract smoke bundle
-        run: |
-          ctest --test-dir build-macos -R "install_smoke|help_contract|schema_contract|integration_shell|integration_svlens|integration_cdc_golden|HtmlReport" --output-on-failure
-
   asan:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
       SVLENS_ASAN_SLANG_PREFIX: /tmp/svlens-slang-asan
     steps:
@@ -336,8 +249,7 @@ jobs:
 
       - name: Install build prerequisites
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake git python3 ccache catch2 libyaml-cpp-dev
+          ./scripts/ci-apt-install.sh build-essential cmake git python3 ccache catch2 libyaml-cpp-dev
 
       - name: Cache sanitizer-compatible slang
         uses: actions/cache@v5

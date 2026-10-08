@@ -91,6 +91,9 @@ function activate(context) {
       }
       output.show(true);
     } catch (error) {
+      // Drop findings from an earlier run so stale locations are not shown
+      // as if they belonged to the current sources.
+      (mode === 'conn' ? diagnostics : cdcDiagnostics).clear();
       vscode.window.showErrorMessage(`svlens ${mode}: ${error.message}`);
     } finally {
       fs.rmSync(temp, {recursive: true, force: true});

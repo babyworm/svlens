@@ -316,7 +316,8 @@ Dependency bootstrap:
   FF path. `--user-rules` registers YAML name checkers, but
   arbitrary AST/plugin registration remains absent.
 - An installable CLI-backed Python API, source-backed VS Code conn/CDC
-  diagnostics, and SARIF/PR-summary converters exist. In-process pybind11
+  diagnostics with a CDC crossing tree view, and SARIF/PR-summary converters
+  exist. In-process pybind11
   bindings and changed-file incremental analysis remain absent.
 - Conn HTML has an interactive graph with search and port expansion. CDC HTML
   now supports module/category filtering and a selected crossing trace;

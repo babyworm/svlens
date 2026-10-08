@@ -7,8 +7,15 @@
   "engines": {"vscode": "^1.84.0"},
   "categories": ["Linters"],
   "main": "./extension.js",
-  "activationEvents": ["onCommand:svlens.runConn", "onCommand:svlens.runCdc"],
+  "activationEvents": [
+    "onCommand:svlens.runConn", "onCommand:svlens.runCdc", "onView:svlens.cdcCrossings"
+  ],
   "contributes": {
+    "views": {
+      "explorer": [
+        {"id": "svlens.cdcCrossings", "name": "svlens CDC Crossings"}
+      ]
+    },
     "commands": [
       {"command": "svlens.runConn", "title": "svlens: Run Connectivity"},
       {"command": "svlens.runCdc", "title": "svlens: Run CDC"}

@@ -220,4 +220,17 @@ if ! grep -q 'missing_sync.f' "$OUTDIR/svlens_both_filelist/svlens_summary.json"
 fi
 echo "PASS: svlens both filelist"
 
+# `all` forwards --metrics-* options to the metrics pass.
+"$SVLENS_BINARY" all tests/sv/cross_mode_link.sv --top cross_mode_link_top \
+    -o "$OUTDIR/svlens_all_metrics" --metrics-topk 1 --metrics-emit-cones >/dev/null 2>&1 || true
+python3 - "$OUTDIR/svlens_all_metrics/metrics/metrics_report.json" <<'PY'
+import json
+import sys
+
+report = json.load(open(sys.argv[1]))
+assert len(report["roots"]) == 1, f"--metrics-topk 1 not applied: {len(report['roots'])} roots"
+assert report.get("cone_detail"), "--metrics-emit-cones not applied"
+PY
+echo "PASS: svlens all metrics pass-through"
+
 echo "=== All svlens integration tests passed ==="

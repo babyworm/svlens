@@ -460,7 +460,7 @@ cmake --install build --prefix "$HOME/.local"
 
 - `always_comb` handles assignments, conditionals, case/casez/casex, and bounded for loops, but not full procedural semantics. Function calls produce approximate transform nodes; unsupported constructs are reported explicitly.
 - Roots report maximum extracted-graph fanout and an uncalibrated operator-weighted gate-cost proxy. Calibrated gate-count estimates and video-pipeline classification are not reported.
-- `all` mode runs metrics with default options; use `svlens metrics` directly for `--topk`, `--baseline`, `--emit-cones`, etc.
+- `all` mode forwards prefixed metrics options (`--metrics-topk`, `--metrics-baseline`, `--metrics-fail-on-regression`, `--metrics-emit-cones`, `--metrics-emit-raw-graph`, `--metrics-max-for-unroll`); the metrics report is always JSON.
 
 ---
 

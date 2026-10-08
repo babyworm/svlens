@@ -112,14 +112,93 @@ TEST_CASE("E2E: child output → wire → assign → child input", "[e2e][wire]"
 
     E2EPipeline p;
     p.run(*c);
-    // NOTE: assign chain between child instances through top-level wire
-    // is a known limitation — the connectivity builder traces assigns
-    // within an instance but cross-instance assign chains require
-    // resolving the wire_map through multiple levels.
-    // Document behavior: may or may not detect depending on resolution depth.
-    if (p.crossings.empty()) {
-        WARN("Cross-instance assign chain not detected — known limitation");
-    }
+    // The top-level alias `assign w2 = w1;` must not hide the crossing
+    // from u_drv.q (clk_a) to u_rcv.q (clk_b).
+    REQUIRE(p.crossings.size() == 1);
+    CHECK(p.crossings[0].category == ViolationCategory::Violation);
+    CHECK(p.crossings[0].source_signal == "assign_chain_top.u_drv.q");
+    CHECK(p.crossings[0].dest_signal == "assign_chain_top.u_rcv.q");
+}
+
+TEST_CASE("E2E: child output → two-hop assign chain → child input", "[e2e][wire]") {
+    auto c = test::compileSV(R"(
+        module drv2 (input logic clk_a, rst_n, d, output logic q);
+            always_ff @(posedge clk_a or negedge rst_n)
+                if (!rst_n) q <= 0; else q <= d;
+        endmodule
+        module rcv2 (input logic clk_b, rst_n, d, output logic q);
+            always_ff @(posedge clk_b or negedge rst_n)
+                if (!rst_n) q <= 0; else q <= d;
+        endmodule
+        module assign_chain2_top (input logic clk_a, clk_b, rst_n, d);
+            logic w1, w2, w3;
+            drv2 u_drv (.clk_a(clk_a), .rst_n(rst_n), .d(d), .q(w1));
+            assign w2 = w1;
+            assign w3 = w2;
+            rcv2 u_rcv (.clk_b(clk_b), .rst_n(rst_n), .d(w3), .q());
+        endmodule
+    )",
+                             "e2e");
+
+    E2EPipeline p;
+    p.run(*c);
+    REQUIRE(p.crossings.size() == 1);
+    CHECK(p.crossings[0].category == ViolationCategory::Violation);
+    CHECK(p.crossings[0].source_signal == "assign_chain2_top.u_drv.q");
+}
+
+TEST_CASE("E2E: parent FF → assign → child input", "[e2e][wire]") {
+    auto c = test::compileSV(R"(
+        module rcv3 (input logic clk_b, rst_n, d, output logic q);
+            always_ff @(posedge clk_b or negedge rst_n)
+                if (!rst_n) q <= 0; else q <= d;
+        endmodule
+        module parent_ff_top (input logic clk_a, clk_b, rst_n, d);
+            logic q_top, w;
+            always_ff @(posedge clk_a or negedge rst_n)
+                if (!rst_n) q_top <= 0; else q_top <= d;
+            assign w = q_top;
+            rcv3 u_rcv (.clk_b(clk_b), .rst_n(rst_n), .d(w), .q());
+        endmodule
+    )",
+                             "e2e");
+
+    E2EPipeline p;
+    p.run(*c);
+    REQUIRE(p.crossings.size() == 1);
+    CHECK(p.crossings[0].category == ViolationCategory::Violation);
+    CHECK(p.crossings[0].source_signal == "parent_ff_top.q_top");
+}
+
+TEST_CASE("E2E: same-domain child → assign → child (no crossing)", "[e2e][wire]") {
+    auto c = test::compileSV(R"(
+        module sd_drv (input logic clk, rst_n, d, output logic q);
+            always_ff @(posedge clk or negedge rst_n)
+                if (!rst_n) q <= 0; else q <= d;
+        endmodule
+        module sd_rcv (input logic clk, rst_n, d, output logic q);
+            always_ff @(posedge clk or negedge rst_n)
+                if (!rst_n) q <= 0; else q <= d;
+        endmodule
+        module sd_assign_top (input logic clk, rst_n, d);
+            logic w1, w2;
+            sd_drv u_drv (.clk(clk), .rst_n(rst_n), .d(d), .q(w1));
+            assign w2 = w1;
+            sd_rcv u_rcv (.clk(clk), .rst_n(rst_n), .d(w2), .q());
+        endmodule
+    )",
+                             "e2e");
+
+    E2EPipeline p;
+    p.run(*c);
+    // The alias must produce the same-domain edge, but no crossing.
+    bool found_edge = false;
+    for (auto& e : p.edges)
+        if (e.source && e.dest && e.source->hier_path == "sd_assign_top.u_drv.q" &&
+            e.dest->hier_path == "sd_assign_top.u_rcv.q")
+            found_edge = true;
+    CHECK(found_edge);
+    CHECK(p.crossings.empty());
 }
 
 TEST_CASE("E2E: same-domain child → wire → child (no crossing)", "[e2e][wire]") {

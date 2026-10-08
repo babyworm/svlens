@@ -392,13 +392,26 @@ static FFNode* findFFByName(
             const auto& [ancestor_port_map, ancestor_path] = *rit;
             // Try ancestor's cont_assigns first: if `current` is the LHS
             // of an `assign x = y;` style binding, follow to the RHS and
-            // continue the resolution from there.
+            // continue the resolution from there. Each alias target may
+            // itself be a sibling instance's output net (wire_map) or an
+            // FF in the ancestor scope, so check both before requiring a
+            // port mapping; otherwise `assign w2 = w1;` between two child
+            // instances hides the crossing.
             if (cidx > 0) {
                 --cidx;
                 const auto& ancestor_cont = g_parent_cont_chain[cidx];
-                auto cit = ancestor_cont.find(current);
-                if (cit != ancestor_cont.end() && cit->second.size() == 1) {
+                constexpr int kMaxAliasHops = 8;
+                for (int hop = 0; hop < kMaxAliasHops; ++hop) {
+                    auto cit = ancestor_cont.find(current);
+                    if (cit == ancestor_cont.end() || cit->second.size() != 1)
+                        break;
                     current = cit->second.front();
+                    auto wit_alias = wire_map.find(current);
+                    if (wit_alias != wire_map.end())
+                        return wit_alias->second;
+                    it = output_map.find(ancestor_path + "." + current);
+                    if (it != output_map.end())
+                        return it->second;
                 }
             }
             auto ait = ancestor_port_map.find(current);

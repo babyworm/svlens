@@ -550,8 +550,8 @@ static void resolveToFFs(
     if (it != cont_assigns.end()) {
         has_comb = true;
         for (auto& rhs : it->second) {
-            resolveToFFs(rhs, inst_path, output_map, port_map, wire_map,
-                        cont_assigns, result, has_comb, depth + 1);
+            resolveToFFs(rhs, inst_path, output_map, port_map, wire_map, cont_assigns, result, has_comb, depth + 1,
+                         parent_port_chain);
         }
     }
 }

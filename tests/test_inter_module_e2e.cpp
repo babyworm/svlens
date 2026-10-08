@@ -201,6 +201,42 @@ TEST_CASE("E2E: same-domain child → assign → child (no crossing)", "[e2e][wi
     CHECK(p.crossings.empty());
 }
 
+TEST_CASE("E2E: local assign in grandchild resolves through two port levels", "[e2e][wire]") {
+    // u_mid.u_leaf captures `tmp`, a local alias of its input port. Resolving
+    // the source must climb leaf -> mid -> top port maps after the local
+    // assign hop; dropping the ancestor chain there lost the crossing (and
+    // tripped the chain-invariant assert in assert-enabled builds).
+    auto c = test::compileSV(R"(
+        module gc_leaf (input logic clk_b, rst_n, d, output logic q);
+            logic tmp;
+            assign tmp = d;
+            always_ff @(posedge clk_b or negedge rst_n)
+                if (!rst_n) q <= 0; else q <= tmp;
+        endmodule
+        module gc_mid (input logic clk_b, rst_n, d_mid, output logic q);
+            gc_leaf u_leaf (.clk_b(clk_b), .rst_n(rst_n), .d(d_mid), .q(q));
+        endmodule
+        module gc_top (input logic clk_a, clk_b, rst_n, d);
+            logic q_a;
+            always_ff @(posedge clk_a or negedge rst_n)
+                if (!rst_n) q_a <= 0; else q_a <= d;
+            gc_mid u_mid (.clk_b(clk_b), .rst_n(rst_n), .d_mid(q_a), .q());
+        endmodule
+    )",
+                             "e2e");
+
+    E2EPipeline p;
+    p.run(*c);
+    REQUIRE(p.crossings.size() == 1);
+    // The leaf-local alias marks the path as combinational, so the existing
+    // classifier reports Ac_cdc02 (CAUTION); this test pins the resolution,
+    // not that classification.
+    CHECK((p.crossings[0].category == ViolationCategory::Violation ||
+           p.crossings[0].category == ViolationCategory::Caution));
+    CHECK(p.crossings[0].source_signal == "gc_top.q_a");
+    CHECK(p.crossings[0].dest_signal == "gc_top.u_mid.u_leaf.q");
+}
+
 TEST_CASE("E2E: same-domain child → wire → child (no crossing)", "[e2e][wire]") {
     auto c = test::compileSV(R"(
         module sd_a (input logic clk, rst_n, d, output logic q);

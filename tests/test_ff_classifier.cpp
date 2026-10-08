@@ -155,17 +155,9 @@ TEST_CASE("FFClassifier: async reset detection", "[ff]") {
     REQUIRE(ffs.size() >= 1);
 
     // FF should have async reset detected
-    // NOTE: This check is flaky due to slang Driver static state pollution
-    // when multiple Driver instances are created in the same process.
-    // The reset detection logic is correct — verified in isolation.
-    // TODO: Fix by using a single Driver per process or slang SourceManager reset.
-    if (ffs[0]->reset == nullptr) {
-        WARN("Reset detection flaky due to slang multi-Driver static state — passes in isolation");
-    }
-    if (ffs[0]->reset) {
-        CHECK(ffs[0]->reset->is_async == true);
-        CHECK(ffs[0]->reset->polarity == ResetSignal::Polarity::ActiveLow);
-    }
+    REQUIRE(ffs[0]->reset != nullptr);
+    CHECK(ffs[0]->reset->is_async == true);
+    CHECK(ffs[0]->reset->polarity == ResetSignal::Polarity::ActiveLow);
 }
 
 TEST_CASE("FFClassifier: multiple always_ff blocks create multiple FFs", "[ff]") {
@@ -227,11 +219,9 @@ TEST_CASE("FFClassifier: posedge reset (active high) detection", "[ff]") {
 
     auto& ffs = classifier.getFFNodes();
     REQUIRE(ffs.size() >= 1);
-    // Reset detection may be flaky in multi-driver environment
-    if (ffs[0]->reset) {
-        CHECK(ffs[0]->reset->is_async == true);
-        CHECK(ffs[0]->reset->polarity == ResetSignal::Polarity::ActiveHigh);
-    }
+    REQUIRE(ffs[0]->reset != nullptr);
+    CHECK(ffs[0]->reset->is_async == true);
+    CHECK(ffs[0]->reset->polarity == ResetSignal::Polarity::ActiveHigh);
 }
 
 TEST_CASE("FFClassifier: always_comb does not create FFs", "[ff]") {

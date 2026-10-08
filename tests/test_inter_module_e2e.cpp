@@ -240,13 +240,9 @@ TEST_CASE("E2E SDC: create_clock defines primary sources", "[e2e][sdc]") {
             found_async = true;
     CHECK(found_async);
 
-    // Crossing detection — may be flaky due to slang multi-driver static state
-    if (p.crossings.empty()) {
-        WARN("SDC crossing not detected — slang multi-driver flaky, passes in isolation");
-    } else {
-        CHECK(p.crossings[0].category == ViolationCategory::Violation);
-        CHECK(p.crossings[0].rule == "Ac_cdc01");
-    }
+    REQUIRE_FALSE(p.crossings.empty());
+    CHECK(p.crossings[0].category == ViolationCategory::Violation);
+    CHECK(p.crossings[0].rule == "Ac_cdc01");
 }
 
 TEST_CASE("E2E SDC: create_generated_clock with divide_by", "[e2e][sdc]") {
@@ -284,11 +280,8 @@ TEST_CASE("E2E SDC: create_generated_clock with divide_by", "[e2e][sdc]") {
     CHECK(found_divided);
 
     // Crossing should be CAUTION (related, not async)
-    if (p.crossings.empty()) {
-        WARN("SDC generated clock crossing not detected — slang multi-driver flaky");
-    } else {
-        CHECK(p.crossings[0].category == ViolationCategory::Caution);
-    }
+    REQUIRE_FALSE(p.crossings.empty());
+    CHECK(p.crossings[0].category == ViolationCategory::Caution);
 }
 
 TEST_CASE("E2E SDC: set_clock_groups -asynchronous vs no SDC", "[e2e][sdc]") {
@@ -328,11 +321,8 @@ TEST_CASE("E2E SDC: set_clock_groups -asynchronous vs no SDC", "[e2e][sdc]") {
 
     // Both should produce VIOLATION (async crossing)
     CHECK(cat_no_sdc == ViolationCategory::Violation);
-    if (p2.crossings.empty()) {
-        WARN("SDC async crossing not detected — slang multi-driver flaky");
-    } else {
-        CHECK(p2.crossings[0].category == ViolationCategory::Violation);
-    }
+    REQUIRE_FALSE(p2.crossings.empty());
+    CHECK(p2.crossings[0].category == ViolationCategory::Violation);
 }
 
 TEST_CASE("E2E SDC: SDC period parsed correctly", "[e2e][sdc]") {
@@ -383,11 +373,8 @@ TEST_CASE("E2E SDC: SDC overrides auto-detect naming", "[e2e][sdc]") {
     E2EPipeline p_sdc;
     p_sdc.run(*c, &sdc);
 
-    if (p_sdc.crossings.empty()) {
-        WARN("SDC override crossing not detected — slang multi-driver flaky");
-    } else {
-        CHECK(p_sdc.crossings[0].severity == Severity::High);
-    }
+    REQUIRE_FALSE(p_sdc.crossings.empty());
+    CHECK(p_sdc.crossings[0].severity == Severity::High);
 }
 
 TEST_CASE("E2E SDC: logically_exclusive clock groups", "[e2e][sdc]") {

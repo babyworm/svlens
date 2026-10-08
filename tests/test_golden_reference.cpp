@@ -108,9 +108,8 @@ static std::string findDir(const std::string& subdir) {
 TEST_CASE("Golden: 01_no_crossing", "[golden]") {
     auto sv_path = findDir("tests/basic") + "/01_no_crossing.sv";
     auto golden_path = findDir("tests/golden") + "/01_no_crossing.json";
-    if (!fs::exists(sv_path) || !fs::exists(golden_path)) {
-        WARN("Fixture or golden not found"); return;
-    }
+    REQUIRE(fs::exists(sv_path));
+    REQUIRE(fs::exists(golden_path));
 
     auto compilation = compileFixture(sv_path);
     auto result = runGoldenPipeline(*compilation);
@@ -123,9 +122,8 @@ TEST_CASE("Golden: 01_no_crossing", "[golden]") {
 TEST_CASE("Golden: 02_missing_sync", "[golden]") {
     auto sv_path = findDir("tests/basic") + "/02_missing_sync.sv";
     auto golden_path = findDir("tests/golden") + "/02_missing_sync.json";
-    if (!fs::exists(sv_path) || !fs::exists(golden_path)) {
-        WARN("Fixture or golden not found"); return;
-    }
+    REQUIRE(fs::exists(sv_path));
+    REQUIRE(fs::exists(golden_path));
 
     auto compilation = compileFixture(sv_path);
     auto result = runGoldenPipeline(*compilation);
@@ -139,9 +137,8 @@ TEST_CASE("Golden: 02_missing_sync", "[golden]") {
 TEST_CASE("Golden: 03_two_ff_sync", "[golden]") {
     auto sv_path = findDir("tests/basic") + "/03_two_ff_sync.sv";
     auto golden_path = findDir("tests/golden") + "/03_two_ff_sync.json";
-    if (!fs::exists(sv_path) || !fs::exists(golden_path)) {
-        WARN("Fixture or golden not found"); return;
-    }
+    REQUIRE(fs::exists(sv_path));
+    REQUIRE(fs::exists(golden_path));
 
     auto compilation = compileFixture(sv_path);
     auto result = runGoldenPipeline(*compilation);
@@ -155,9 +152,8 @@ TEST_CASE("Golden: 03_two_ff_sync", "[golden]") {
 TEST_CASE("Golden: 04_three_ff_sync", "[golden]") {
     auto sv_path = findDir("tests/basic") + "/04_three_ff_sync.sv";
     auto golden_path = findDir("tests/golden") + "/04_three_ff_sync.json";
-    if (!fs::exists(sv_path) || !fs::exists(golden_path)) {
-        WARN("Fixture or golden not found"); return;
-    }
+    REQUIRE(fs::exists(sv_path));
+    REQUIRE(fs::exists(golden_path));
 
     auto compilation = compileFixture(sv_path);
     auto result = runGoldenPipeline(*compilation);
@@ -171,9 +167,8 @@ TEST_CASE("Golden: 04_three_ff_sync", "[golden]") {
 TEST_CASE("Golden: 05_comb_before_sync", "[golden]") {
     auto sv_path = findDir("tests/basic") + "/05_comb_before_sync.sv";
     auto golden_path = findDir("tests/golden") + "/05_comb_before_sync.json";
-    if (!fs::exists(sv_path) || !fs::exists(golden_path)) {
-        WARN("Fixture or golden not found"); return;
-    }
+    REQUIRE(fs::exists(sv_path));
+    REQUIRE(fs::exists(golden_path));
 
     auto compilation = compileFixture(sv_path);
     auto result = runGoldenPipeline(*compilation);

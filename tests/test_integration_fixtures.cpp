@@ -80,7 +80,7 @@ static std::string fixtureDir() {
 TEST_CASE("Integration: 01_no_crossing.sv — zero violations", "[integration]") {
     auto dir = fixtureDir();
     auto path = dir + "/01_no_crossing.sv";
-    if (!fs::exists(path)) { WARN("Fixture not found: " << path); return; }
+    REQUIRE(fs::exists(path));
 
     auto compilation = compileFile(path);
     auto result = runPipeline(*compilation);
@@ -92,7 +92,7 @@ TEST_CASE("Integration: 01_no_crossing.sv — zero violations", "[integration]")
 TEST_CASE("Integration: 02_missing_sync.sv — one VIOLATION", "[integration]") {
     auto dir = fixtureDir();
     auto path = dir + "/02_missing_sync.sv";
-    if (!fs::exists(path)) { WARN("Fixture not found: " << path); return; }
+    REQUIRE(fs::exists(path));
 
     auto compilation = compileFile(path);
     auto result = runPipeline(*compilation);
@@ -104,7 +104,7 @@ TEST_CASE("Integration: 02_missing_sync.sv — one VIOLATION", "[integration]") 
 TEST_CASE("Integration: 03_two_ff_sync.sv — zero violations, one INFO", "[integration]") {
     auto dir = fixtureDir();
     auto path = dir + "/03_two_ff_sync.sv";
-    if (!fs::exists(path)) { WARN("Fixture not found: " << path); return; }
+    REQUIRE(fs::exists(path));
 
     auto compilation = compileFile(path);
     auto result = runPipeline(*compilation);
@@ -116,7 +116,7 @@ TEST_CASE("Integration: 03_two_ff_sync.sv — zero violations, one INFO", "[inte
 TEST_CASE("Integration: 04_three_ff_sync.sv — zero violations, ThreeFF detected", "[integration]") {
     auto dir = fixtureDir();
     auto path = dir + "/04_three_ff_sync.sv";
-    if (!fs::exists(path)) { WARN("Fixture not found: " << path); return; }
+    REQUIRE(fs::exists(path));
 
     auto compilation = compileFile(path);
     auto result = runPipeline(*compilation);
@@ -132,7 +132,7 @@ TEST_CASE("Integration: 04_three_ff_sync.sv — zero violations, ThreeFF detecte
 TEST_CASE("Integration: 05_comb_before_sync.sv — CAUTION for glitch risk", "[integration]") {
     auto dir = fixtureDir();
     auto path = dir + "/05_comb_before_sync.sv";
-    if (!fs::exists(path)) { WARN("Fixture not found: " << path); return; }
+    REQUIRE(fs::exists(path));
 
     auto compilation = compileFile(path);
     auto result = runPipeline(*compilation);

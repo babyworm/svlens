@@ -1,0 +1,100 @@
+name: portability
+
+# Per-OS portability checks are slow (macOS runners, Homebrew updates) and
+# rarely change between ordinary pushes, so they run only for release tags
+# or on demand. Push/PR coverage on Linux stays in ci.yml.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  portable-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Ubuntu prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          ./scripts/ci-apt-install.sh build-essential \
+            cmake \
+            git \
+            python3 \
+            ccache \
+            catch2 \
+            libyaml-cpp-dev
+
+      - name: Install macOS prerequisites
+        if: runner.os == 'macOS'
+        run: |
+          brew install catch2 yaml-cpp fmt ccache
+
+      - name: Cache slang install
+        uses: actions/cache@v5
+        with:
+          path: ~/.local
+          key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}
+
+      - name: Stage slang dependency
+        run: |
+          ./scripts/setup-deps.sh --prefix "$HOME/.local"
+
+      - name: Configure portable smoke build
+        run: |
+          cmake -B build-smoke \
+            -DCMAKE_PREFIX_PATH="$HOME/.local;/opt/homebrew" \
+            -DSVLENS_FETCH_DEPS=OFF
+
+      - name: Build portable smoke binary
+        run: |
+          cmake --build build-smoke -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
+
+      - name: Run portable smoke contract bundle
+        run: |
+          ctest --test-dir build-smoke --output-on-failure \
+            -R "install_smoke|help_contract|schema_contract|integration_shell|integration_svlens|integration_cdc_golden"
+
+  macos-offline-smoke:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install preinstalled dependencies
+        run: |
+          brew update
+          brew install catch2 yaml-cpp fmt ccache
+
+      - name: Cache slang install
+        uses: actions/cache@v5
+        with:
+          path: ~/.local
+          key: ${{ runner.os }}-svlens-slang-${{ hashFiles('scripts/setup-deps.sh') }}
+
+      - name: Stage slang dependency
+        run: |
+          ./scripts/setup-deps.sh --prefix "$HOME/.local"
+
+      - name: Configure offline with preinstalled deps
+        run: |
+          cmake -B build-macos \
+            -DCMAKE_PREFIX_PATH="$HOME/.local;/opt/homebrew" \
+            -DSVLENS_FETCH_DEPS=OFF
+
+      - name: Build offline
+        run: |
+          cmake --build build-macos -j"$(sysctl -n hw.ncpu)"
+
+      - name: Run contract smoke bundle
+        run: |
+          ctest --test-dir build-macos -R "install_smoke|help_contract|schema_contract|integration_shell|integration_svlens|integration_cdc_golden|HtmlReport" --output-on-failure

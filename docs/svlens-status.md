@@ -346,15 +346,15 @@ Dependency bootstrap:
   from being joined through a shared enum constant. A separate benchmark-only
   period projection from the pinned ASIC
   SDC gives all four base-clock domains their expected `period_ns` values
-  (4/4), and 157/243 SoC crossings a reported 4750 ns timing basis while
+  (4/4), and 157/244 SoC crossings a reported 4750 ns timing basis while
   preserving every structural classification; the power-manager path and
   projected root names match 1/1. It does not establish the divided IO
   capture period or data hold time. These selected examples do not measure
   whole-design precision.
   Separately, the older topology-only domain-pair
   probes show 0/6 local and 2/6 root-provenance pairs; their four absent pairs
-  are not established false negatives. Seventy-three of 243 crossing records
-  involve an `auto_port_*` domain, and 23/243 lack at least one root label;
+  are not established false negatives. Seventy-three of 244 crossing records
+  involve an `auto_port_*` domain, and 23/244 lack at least one root label;
   some are mode-dependent SPI/JTAG mux clocks and must not be assigned a root
   by name alone. Mixed constant packed/unpacked mapping adds 215 exact SoC
   range rows before 53 redundant full-width coarse direct rows are removed,

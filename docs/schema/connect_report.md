@@ -49,7 +49,8 @@ until analytical-trust milestones explicitly freeze them.
 - `source`
 - `dest`
 - `kind` -- `direct` when the extracted connection has exact structural
-  evidence, including a sole unconditional blocking `always_comb` copy/select;
+  evidence, including a sole unconditional blocking `always_comb` copy/select
+  or simple same-width combinational forwarding through module ports;
   `approximate` for conditional or unsupported procedural/heuristic dependencies. This is not
   a design-correctness verdict.
 - optional `source_bits`, `dest_bits` -- `{low, high}` ordinal bit offsets within
@@ -59,7 +60,8 @@ until analytical-trust milestones explicitly freeze them.
   packed fields in constant-indexed unpacked elements), direct constant
   whole-interface integral-member slices (also paired with modport members or
   forwarded through direct interface-to-interface slice assignments),
-  whole packed-array port, a sole unconditional `always_comb` copy/select,
+  whole packed-array port, direct module-port forwarding across one or more
+  combinational wrappers, a sole unconditional `always_comb` copy/select,
   positional concatenation flow, a resolved ternary
   arm's positional may-flow, or a simple implicit integral width change or
   explicit size cast of a resolved signal or unsigned concatenation. Signed high
@@ -79,7 +81,8 @@ until analytical-trust milestones explicitly freeze them.
 A full-width exact `direct` row replaces a redundant range-free `direct` row
 for the same source/destination pair. Partial exact rows and `approximate`
 rows remain separate; the connection count is report rows, not unique port
-pairs or verified physical paths.
+pairs or verified physical paths. A clocked register is not treated as a
+combinational module-port forwarding step.
 Runtime-indexed element reads and combinational procedural writes may yield range-free `approximate` rows
 from every structurally bound candidate with the same declaring scope,
 compatible fixed indices, and member names. They are possible dependencies,

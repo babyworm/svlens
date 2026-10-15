@@ -48,3 +48,40 @@ is unchanged. An ASan/Debug run of AES and top_earlgrey CDC completes without
 the ancestor-chain assertion that had stopped the first remote benchmark run.
 This selected path and the other benchmark gates do not estimate whole-SoC
 CDC precision or recall.
+
+## Follow-up: directed flow through ordinary module ports
+
+A clean-tree rerun at 2026-10-15 15:39 UTC used svlens commit
+`2566a5fef9f708be8fefa40492afb7114ecde67b` and binary SHA-256
+`91ec66583bbbf72e18c865c9f751adc34a4523f2e9fe4c630dd8f2dae58b00b8`.
+The [on-demand rerun](https://github.com/babyworm/svlens/actions/runs/38762218763)
+also passed benchmark evaluation, AES/SoC SVA elaboration, and artifact upload.
+The analyzer now follows simple same-width combinational copies across module
+input/output boundaries while leaving clocked-register boundaries intact.
+
+| Scope | Previous connections | New connections (direct / approximate) |
+|---|---:|---:|
+| AES | 642 | 983 (392 / 591) |
+| HMAC | 95 | 107 (51 / 56) |
+| UART | 139 | 165 (82 / 83) |
+| top_earlgrey | 19,349 | 28,010 (13,406 / 14,604) |
+
+The SoC gained 8,661 bit-ranged rows (4,714 direct and 3,947 approximate)
+with no row removed. The direct named-net/source-alias frame remains 358/358;
+it is not an oracle for every new through-module path. Four new rows entered
+the deterministic 20-row connection sample and were checked against pinned
+RTL:
+
+| Newly sampled relation | Source evidence |
+|---|---|
+| Pinmux register-interface write-data bit 0 → `u_dio_pad_sleep_en_20.wd` | `top_earlgrey/ip/pinmux/rtl/autogen/pinmux_reg_top.sv:95,17735–17741,23237` |
+| Lockstep buffer bit 605 → shadow-core boot-address bit 20 | `ibex_top.sv:44,525–617,666–670`; lower 513 bits precede `data_we_o`, then one `data_we_o` bit and 71 control/data bits place boot-address bit 0 at 585 |
+| Ibex cache data-write output → generated RAM-bank `write_i` | `ibex_top.sv:255,394–398`, `ibex_core.sv:84` |
+| PLIC register-interface write-data bit 26 → `u_ie0_4_e_154.wd` | `top_earlgrey/ip/rv_plic/rtl/autogen/rv_plic_reg_top.sv:95,20204–20210,22908` |
+
+The other 16 sample IDs retain their earlier verdicts, leaving 20 confirmed
+and zero contradicted or unresolved. The new population SHA-256 is
+`09758d7ecfa2673c2854697d592d9477571fda60216b6c95c753fe23d8d0cb74`.
+These four checked examples do not establish precision for the other 8,657
+new rows or whole-design recall. CDC counts and pinned CDC/SVA gates are
+unchanged from the first run above.

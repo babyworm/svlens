@@ -192,6 +192,8 @@ modport port forwarding with positional lane mapping across opposite unpacked
 range directions and fixed multidimensional arrays, and isolated generated
 lanes. A simple continuous
 modport-member copy retains directed bit-flow without a reverse port alias.
+Simple same-width module-port copies also carry directed bit lanes through
+multiple wrapper stages; untouched or clocked ports are not bridged.
 These are small RTL probes, not an accuracy measurement on an AXI SoC.
 A one-off 2×2 AXI-Lite crossbar probe against pinned
 [PULP AXI](https://github.com/pulp-platform/axi/tree/70b8e54fd460e3308e58be596ceb3566a6e3576e)
@@ -208,8 +210,8 @@ vector sibling-port paths across seven pinned SoC IP scopes and checks all
 358 in the conn report (vector width capped at 4,096 bits). This includes 355
 shared-net paths and three uniquely driven one-stage continuous aliases. It
 bounds recall for these direct path shapes only; bit-lane correspondence,
-interfaces, sliced/converted buses, procedural glue, and other scopes still
-need their own source-derived frames.
+interfaces, sliced/converted buses, through-module port paths, procedural
+glue, and other scopes still need their own source-derived frames.
 
 **Why**: branch-sensitive mux/decoder glue, legal interface-array composition,
 deep forwarding, and nontrivial bit-range dataflow still need precise signal-level

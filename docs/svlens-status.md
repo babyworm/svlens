@@ -102,12 +102,12 @@ The full local regression on 2026-10-16 passed:
 - `cmake --build build -j8`
 - `ctest --test-dir build --output-on-failure -j8`
 - `ctest --test-dir build-ubsan --output-on-failure -j4`
-- **744 / 744 tests passing** in both builds
+- **746 / 746 tests passing** in both builds
 
 The shared inline-SV test helper now owns the slang driver for the full AST
 lifetime. This removes a dangling-source dependency that could corrupt
 hierarchical names and make CDC regressions depend on allocator behavior.
-The full ASan regression also passes **744 / 744** when svlens is linked to a
+The full ASan regression also passes **746 / 746** when svlens is linked to a
 separately built slang v10 at the same pinned commit with
 `SLANG_USE_MIMALLOC=OFF`. The default installed slang exports mimalloc and the
 same ASan test binary crashes inside `mi_free_block_delayed_mt` on standalone
@@ -170,6 +170,9 @@ Dependency bootstrap:
   unpacked ranges have opposite directions, including fixed multidimensional
   arrays. Direct continuous copies between modport members now retain
   directed bit-flow without reverse aliases.
+  Same-width combinational copies through ordinary module ports also retain
+  positional source-to-sink paths across multiple wrappers; clocked outputs
+  remain a barrier, and untouched ports are not bridged.
   A one-off pinned PULP AXI 2×2 crossbar probe found 76/76 direct boundary
   member paths and no wrong-lane boundary links. It is not a CI benchmark or
   evidence of internal mux/decoder accuracy.
@@ -330,7 +333,7 @@ Dependency bootstrap:
   a shared cross-mode trace view remains absent.
 - The [latest OpenTitan benchmark snapshot](benchmarks/opentitan-2026-10-16.md) records
   semantically elaborated local results, and a scheduled/on-demand workflow
-  uploads raw reports. The [2026-10-16 on-demand run](https://github.com/babyworm/svlens/actions/runs/38756662114)
+  uploads raw reports. The [latest on-demand run](https://github.com/babyworm/svlens/actions/runs/38762218763)
   passed its benchmark and SVA-elaboration steps. The generator substitutes
   generic OpenTitan primitives for source-only analysis. Four manually checked
   SoC FIFO crossings, one
@@ -374,11 +377,14 @@ Dependency bootstrap:
   adjudicated in both hierarchies. Other new rows remain unlabeled.
   A deterministic four-stratum sample of 20 SoC connection rows now has 20
   source-backed confirmations and zero contradictions or unresolved rows. The
-  selected 20 IDs remain unchanged after 53 constant-derived approximate SoC
-  rows were removed; the sample population hash was updated and no direct
-  rows were added or removed. The SoC report now has 19,349 connections
-  (8,692 direct and 10,657 approximate), with 27,175 recorded bit-flow gaps.
-  These changes do not establish whole-design precision. The
+  selected 20 IDs remained unchanged when 53 constant-derived approximate
+  SoC rows were removed. Subsequently, simple module-port bit-flow added
+  8,661 ranged rows (4,714 direct, 3,947 approximate) without removing a
+  previous row. The current SoC report has 28,010 connections (13,406 direct,
+  14,604 approximate) and 27,175 recorded bit-flow gaps. Four newly selected
+  sample rows were checked against pinned RTL; the 20-row sample still has
+  zero contradictions or unresolved rows. These selected checks do not
+  establish whole-design precision. The
   lockstep buffer bit index was independently checked by summing 30 operand
   widths. The evaluator gates annotation freshness and contradictions;
   the sample is too small and correlated to estimate whole-SoC precision or

@@ -46,9 +46,12 @@ python3 sample_connections.py results/top_earlgrey/conn/connect_report.json \
   --annotations golden/top_earlgrey_connection_sample.yaml
 ```
 
-The first 20-row audit has 20 confirmed and zero contradicted or unresolved.
-The lockstep buffer bit 513 was separately checked by summing the widths of
-all 30 lower concatenation operands. It is a deliberately small, correlated sample—not a
+The current 20-row audit has 20 confirmed and zero contradicted or unresolved.
+Four rows entered the sample after through-module bit flow was added; their RTL
+paths are documented in the [2026-10-16 snapshot](../../docs/benchmarks/opentitan-2026-10-16.md).
+The lockstep buffer bit 605 was checked against the earlier independently
+summed bit-513 boundary and the 71 intervening instruction/data bits. It is a
+deliberately small, correlated sample—not a
 whole-design precision or recall estimate. A changed population requires
 fresh manual adjudication rather than silently reusing old verdicts.
 
@@ -63,8 +66,9 @@ rebuilds its expectations from pinned RTL on each benchmark run, writes the
 full pair manifest to `results/top_earlgrey/source_recall.json`, and fails if
 a path is missing, downgraded to `approximate`, or the expected-pair frame hash
 changes without re-adjudication. It checks whole-vector path presence, not
-bit-lane correspondence, and excludes sliced/converted buses, procedural
-glue, interface ports, multi-stage aliases, and unselected SoC scopes. Thus
+bit-lane correspondence, and excludes sliced/converted buses, through-module
+port paths, procedural glue, interface ports, multi-stage aliases, and
+unselected SoC scopes. Thus
 358/358 is not
 whole-design recall. The benchmark requires the `slang` CLI on `PATH` or the
 `SVLENS_SLANG` environment variable pointing to its executable.

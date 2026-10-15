@@ -1546,6 +1546,15 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
     if (captureDeclarations_)
         graph_.instances.push_back({scopePath, std::string(childInst.name), childInst.location});
 
+    struct PortBridge {
+        WireRange parent;
+        WireRange internal;
+        slang::ast::ArgumentDirection direction;
+        uint32_t width;
+    };
+    std::vector<PortBridge> portBridges;
+    const size_t linksBeforeChild = bitFlowLinks_.size();
+
     // Process port connections for the child instance
     auto portConns = childInst.getPortConnections();
     for (auto* conn : portConns) {
@@ -1777,6 +1786,26 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
                         const bool isDriver = pinfo.direction == slang::ast::ArgumentDirection::Out;
                         rangeBindings_.push_back({pinfo, isDriver, *wireRange, netKey});
                     }
+                    if ((pinfo.direction == slang::ast::ArgumentDirection::In ||
+                         pinfo.direction == slang::ast::ArgumentDirection::Out) &&
+                        pinfo.width <= 4096 && !hasNonIdentityConversion(*expr)) {
+                        const auto& port = portSym.as<slang::ast::PortSymbol>();
+                        std::optional<WireRange> internal;
+                        if (const auto* internalExpr = port.getInternalExpr()) {
+                            if (!hasNonIdentityConversion(*internalExpr))
+                                internal = resolveWireRange(*internalExpr, childPath, pinfo.width);
+                        } else if (port.isAnsiPort) {
+                            const auto& type = port.getType();
+                            if (type.isIntegral() && type.hasFixedRange() &&
+                                type.getFixedRange().fullWidth() == pinfo.width) {
+                                const auto range = type.getFixedRange();
+                                internal =
+                                    WireRange{childPath + "::" + std::string(portSym.name), range.left, range.right};
+                            }
+                        }
+                        if (internal)
+                            portBridges.push_back({*wireRange, *internal, pinfo.direction, pinfo.width});
+                    }
                 }
             }
 
@@ -1792,6 +1821,27 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
 
     // Recurse into child instance
     visitInstance(childInst, childPath);
+
+    // Only bridge ports touched by an extracted internal bit-flow link. This
+    // keeps unrelated large ports out of the bit graph while allowing a pure
+    // `assign output_port = input_port` to connect its parent-side endpoints.
+    if (!portBridges.empty()) {
+        std::unordered_set<std::string> internalSources;
+        std::unordered_set<std::string> internalDestinations;
+        for (size_t i = linksBeforeChild; i < bitFlowLinks_.size(); ++i) {
+            internalSources.insert(bitFlowLinks_[i].source.baseKey);
+            internalDestinations.insert(bitFlowLinks_[i].dest.baseKey);
+        }
+        for (const auto& bridge : portBridges) {
+            if (bridge.direction == slang::ast::ArgumentDirection::In &&
+                internalSources.count(bridge.internal.baseKey)) {
+                bitFlowLinks_.push_back({bridge.parent, bridge.internal, 0, 0, bridge.width, false, false});
+            } else if (bridge.direction == slang::ast::ArgumentDirection::Out &&
+                       internalDestinations.count(bridge.internal.baseKey)) {
+                bitFlowLinks_.push_back({bridge.internal, bridge.parent, 0, 0, bridge.width, false, true});
+            }
+        }
+    }
 }
 
 void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAssignSymbol& assignSym,

@@ -149,6 +149,44 @@ TEST_CASE("Extractor: sole always_comb copy preserves direct lanes", "[extractor
     CHECK(foundDirectProceduralConnection);
 }
 
+TEST_CASE("Extractor: simple module port copies preserve a directed multi-stage path", "[extractor][ports]") {
+    auto result = compileFile("sv/port_alias_forward.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "port_alias_forward_top");
+    const auto graph = extractor.extract();
+
+    auto hasEdge = [&](const std::string& source, const std::string& dest) {
+        for (const auto& conn : graph.connections) {
+            if (conn.source.fullPath() == source && conn.dest.fullPath() == dest && conn.kind == ConnectionKind::Direct)
+                return true;
+        }
+        return false;
+    };
+    CHECK(hasEdge("port_alias_forward_top.u_source.data_o", "port_alias_forward_top.u_sink.data_i"));
+    CHECK_FALSE(hasEdge("port_alias_forward_top.u_unrelated.data_o", "port_alias_forward_top.u_sink.data_i"));
+    CHECK_FALSE(hasEdge("port_alias_forward_top.u_glue0.data_o", "port_alias_forward_top.u_glue0.data_i"));
+}
+
+TEST_CASE("Extractor: a registered module output is not a combinational port copy", "[extractor][ports]") {
+    auto result = compileFile("sv/port_alias_forward.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "port_alias_registered_top");
+    const auto graph = extractor.extract();
+
+    bool sourceToRegister = false;
+    bool registerToSink = false;
+    for (const auto& conn : graph.connections) {
+        sourceToRegister |= conn.source.fullPath() == "port_alias_registered_top.u_source.data_o" &&
+                            conn.dest.fullPath() == "port_alias_registered_top.u_register.data_i";
+        registerToSink |= conn.source.fullPath() == "port_alias_registered_top.u_register.data_o" &&
+                          conn.dest.fullPath() == "port_alias_registered_top.u_sink.data_i";
+        CHECK_FALSE((conn.source.fullPath() == "port_alias_registered_top.u_source.data_o" &&
+                     conn.dest.fullPath() == "port_alias_registered_top.u_sink.data_i"));
+    }
+    CHECK(sourceToRegister);
+    CHECK(registerToSink);
+}
+
 TEST_CASE("Extractor: sole unconditional combinational assignment preserves direct lanes",
           "[extractor][procedural][slice]") {
     auto result = compileFile("sv/procedural_exact_glue.sv");

@@ -1,6 +1,6 @@
 # svlens Implementation Status
 
-Updated: 2026-10-15
+Updated: 2026-10-16
 
 ## Summary
 
@@ -97,17 +97,17 @@ Representative scripts:
 
 ## Current Validation Result
 
-The full local regression on 2026-10-15 passed:
+The full local regression on 2026-10-16 passed:
 
 - `cmake --build build -j8`
 - `ctest --test-dir build --output-on-failure -j8`
 - `ctest --test-dir build-ubsan --output-on-failure -j4`
-- **743 / 743 tests passing** in both builds
+- **744 / 744 tests passing** in both builds
 
 The shared inline-SV test helper now owns the slang driver for the full AST
 lifetime. This removes a dangling-source dependency that could corrupt
 hierarchical names and make CDC regressions depend on allocator behavior.
-The full ASan regression also passes **743 / 743** when svlens is linked to a
+The full ASan regression also passes **744 / 744** when svlens is linked to a
 separately built slang v10 at the same pinned commit with
 `SLANG_USE_MIMALLOC=OFF`. The default installed slang exports mimalloc and the
 same ASan test binary crashes inside `mi_free_block_delayed_mt` on standalone
@@ -328,11 +328,14 @@ Dependency bootstrap:
 - Conn HTML has an interactive graph with search and port expansion. CDC HTML
   now supports module/category filtering and a selected crossing trace;
   a shared cross-mode trace view remains absent.
-- The [latest OpenTitan benchmark snapshot](benchmarks/opentitan-2026-10-08.md) records
+- The [latest OpenTitan benchmark snapshot](benchmarks/opentitan-2026-10-16.md) records
   semantically elaborated local results, and a scheduled/on-demand workflow
-  uploads raw reports. The generator substitutes generic OpenTitan primitives
-  for source-only analysis. Four manually checked SoC FIFO crossings and one
-  power-manager bundled-data path are present with expected roots (5/5);
+  uploads raw reports. The [2026-10-16 on-demand run](https://github.com/babyworm/svlens/actions/runs/38756662114)
+  passed its benchmark and SVA-elaboration steps. The generator substitutes
+  generic OpenTitan primitives for source-only analysis. Four manually checked
+  SoC FIFO crossings, one
+  power-manager bundled-data path, and one LC-to-flash RMA seed path are
+  present with expected roots (6/6);
   the power-manager `VIOLATION` category is also pinned (1/1), while path
   presence does not prove the data hold interval. Three SoC CDC guidance probes
   pin review-oriented recommendations for the two SPI paths and the
@@ -353,15 +356,15 @@ Dependency bootstrap:
   from being joined through a shared enum constant. A separate benchmark-only
   period projection from the pinned ASIC
   SDC gives all four base-clock domains their expected `period_ns` values
-  (4/4), and 157/243 SoC crossings a reported 4750 ns timing basis while
+  (4/4), and 157/244 SoC crossings a reported 4750 ns timing basis while
   preserving every structural classification; the power-manager path and
   projected root names match 1/1. It does not establish the divided IO
   capture period or data hold time. These selected examples do not measure
   whole-design precision.
   Separately, the older topology-only domain-pair
   probes show 0/6 local and 2/6 root-provenance pairs; their four absent pairs
-  are not established false negatives. Seventy-three of 243 crossing records
-  involve an `auto_port_*` domain, and 23/243 lack at least one root label;
+  are not established false negatives. Seventy-three of 244 crossing records
+  involve an `auto_port_*` domain, and 23/244 lack at least one root label;
   some are mode-dependent SPI/JTAG mux clocks and must not be assigned a root
   by name alone. Mixed constant packed/unpacked mapping adds 215 exact SoC
   range rows before 53 redundant full-width coarse direct rows are removed,

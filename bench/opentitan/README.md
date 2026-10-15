@@ -7,6 +7,8 @@ checked SoC FIFO crossings gate exact source/destination and top-clock root
 labels. One power-manager cause-bus path also gates source/destination and
 root labels and its `VIOLATION` category; its synchronized toggle control is
 visible in RTL, but data stability is not proven by path presence. A manually
+checked LC-to-flash RMA seed path gates exact FF endpoints and clock roots,
+without treating the reported `CAUTION` as a capture-safety verdict. A manually
 checked HMAC socket-to-register connection and two HMAC FIFO mux influences
 also gate path presence; the selector is control influence, not positional
 data flow. Two HMAC digest/selector-to-ready nonpaths provide paired negative

@@ -75,6 +75,12 @@ reference_crossings:
     category: VIOLATION
     evidence: pwrmgr_slow_fsm.sv:69-85,224; pwrmgr.sv:189,217,295; pwrmgr_cdc.sv:201-230; top_earlgrey.sv:1747-1751
     description: "Bundled-data path gated by a synchronized cause toggle; path and roots checked, stability not proven"
+  - source: top_earlgrey.u_lc_ctrl.transition_token_q
+    dest: top_earlgrey.u_flash_ctrl.u_lfsr.lfsr_q
+    source_root_domain: clk_io_i
+    dest_root_domain: clk_main_i
+    evidence: lc_ctrl.sv:397; top_earlgrey.sv:1666,2084; flash_ctrl.sv:272-276
+    description: "RMA seed path through lc_flash_rma_seed_o/rma_seed_i; exact FF path and roots checked, capture safety not proven"
 
 sva_references:
   - source: top_earlgrey.u_usbdev.usbdev_avfifo.fifo_wptr_gray_q

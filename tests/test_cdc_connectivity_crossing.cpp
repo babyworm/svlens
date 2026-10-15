@@ -54,6 +54,37 @@ TEST_CASE("CDC Connectivity: direct async FF-to-FF crossing is detected", "[cdc]
     CHECK(pipeline.crossings[0].severity == Severity::High);
 }
 
+TEST_CASE("CDC Connectivity: nested port chain survives continuous-alias recursion", "[cdc][connectivity]") {
+    auto compiled = testutils::cdc::compileInlineSV(R"(
+        module alias_leaf(input logic clk_b, rst_n, d_i);
+            logic alias_a, alias_b, sink_q;
+            assign alias_a = d_i;
+            assign alias_b = alias_a;
+            always_ff @(posedge clk_b or negedge rst_n)
+                if (!rst_n) sink_q <= 1'b0; else sink_q <= alias_b;
+        endmodule
+        module alias_mid(input logic clk_b, rst_n, d_i);
+            alias_leaf u_leaf(.clk_b, .rst_n, .d_i);
+        endmodule
+        module alias_chain_top(input logic clk_a, clk_b, rst_n, data_i);
+            logic source_q;
+            always_ff @(posedge clk_a or negedge rst_n)
+                if (!rst_n) source_q <= 1'b0; else source_q <= data_i;
+            alias_mid u_mid(.clk_b, .rst_n, .d_i(source_q));
+        endmodule
+    )",
+                                                    "alias_chain_top");
+    REQUIRE(compiled);
+
+    CDCPipeline pipeline;
+    pipeline.run(*compiled.compilation);
+    const bool linked = std::any_of(pipeline.edges.begin(), pipeline.edges.end(), [](const FFEdge& edge) {
+        return edge.source && edge.dest && edge.source->hier_path == "alias_chain_top.source_q" &&
+               edge.dest->hier_path == "alias_chain_top.u_mid.u_leaf.sink_q";
+    });
+    CHECK(linked);
+}
+
 TEST_CASE("CDC CrossingDetector: unsynchronized bus advice requires a coherent CDC scheme", "[cdc][crossing][wide]") {
     ClockDatabase db;
     auto sourceA = std::make_unique<ClockSource>();

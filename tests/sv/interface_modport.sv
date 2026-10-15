@@ -24,3 +24,17 @@ module interface_modport (
     producer u_prod (.bus(bus_inst));
     consumer u_cons (.bus(bus_inst));
 endmodule
+
+module simple_bus_bridge(simple_bus.slave in_bus, simple_bus.master out_bus);
+    assign out_bus.data = in_bus.data;
+    assign out_bus.valid = in_bus.valid;
+    assign in_bus.ready = out_bus.ready;
+endmodule
+
+module interface_modport_bridge;
+    simple_bus in_bus();
+    simple_bus out_bus();
+    producer u_prod(.bus(in_bus));
+    simple_bus_bridge u_bridge(.in_bus(in_bus), .out_bus(out_bus));
+    consumer u_cons(.bus(out_bus));
+endmodule

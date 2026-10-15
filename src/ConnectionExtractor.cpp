@@ -1587,16 +1587,11 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
                         ifaceInstName = ifaceResolved.netNames.front();
                 }
 
-                for (const auto& member : modport->members()) {
-                    if (member.kind != slang::ast::SymbolKind::ModportPort)
-                        continue;
-
-                    const auto& modportPort = member.as<slang::ast::ModportPortSymbol>();
-
+                auto emitMember = [&](const slang::ast::ModportPortSymbol& modportPort, const std::string& portSuffix,
+                                      bool scopedAlias) {
                     PortInfo signalPort;
                     signalPort.instancePath = childPath;
-                    signalPort.portName = std::string(portSym.name) + "." +
-                                          std::string(modportPort.name);
+                    signalPort.portName = std::string(portSym.name) + portSuffix + "." + std::string(modportPort.name);
                     signalPort.direction = modportPort.direction;
                     signalPort.location = portSym.location;
                     signalPort.width = 0;
@@ -1612,51 +1607,85 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
                     graph_.allPorts.push_back(signalPort);
                     graph_.connectedPorts.insert(signalPort.fullPath());
 
-                    // Map to per-signal net key: scopePath::ifaceInst.signalName
-                    // PLUS, when modportPort.internalSymbol is known, also
-                    // emit at the underlying signal's absolute hier path so
-                    // a consumer-side MemberAccess(ModportPort) resolveExpr
-                    // (which returns that abs path under Round 30 US-R05)
-                    // pairs into the same netMap entry. Direct kind on the
-                    // abs-path entry permits WidthChecker to fire when the
-                    // consumer-side port width differs.
-                    if (!ifaceInstName.empty()) {
-                        auto emit = [&](const std::string& key, ConnectionKind k) {
-                            if (signalPort.direction == slang::ast::ArgumentDirection::InOut) {
-                                netMap_[key].push_back({signalPort, true, k});
-                                netMap_[key].push_back({signalPort, false, k});
-                            } else {
-                                bool isDriver = (signalPort.direction == slang::ast::ArgumentDirection::Out);
-                                netMap_[key].push_back({signalPort, isDriver, k});
-                            }
-                        };
+                    // Scalar ports retain their scope-relative may-flow key.
+                    // Array elements use only the underlying symbol path:
+                    // a port index need not match the connected array index.
+                    if (scopedAlias && ifaceInstName.empty())
+                        return;
+                    auto emit = [&](const std::string& key, ConnectionKind kind) {
+                        if (signalPort.direction == slang::ast::ArgumentDirection::InOut) {
+                            netMap_[key].push_back({signalPort, true, kind});
+                            netMap_[key].push_back({signalPort, false, kind});
+                        } else {
+                            const bool isDriver = signalPort.direction == slang::ast::ArgumentDirection::Out;
+                            netMap_[key].push_back({signalPort, isDriver, kind});
+                        }
+                    };
+                    if (scopedAlias)
                         emit(scopePath + "::" + ifaceInstName + "." +
                                  std::string(modportPort.name),
                              ConnectionKind::Approximate);
-                        if (modportPort.internalSymbol) {
-                            emit(modportPort.internalSymbol->getHierarchicalPath(),
-                                 ConnectionKind::Direct);
-                            const auto& memberType =
-                                modportPort.internalSymbol->as<slang::ast::ValueSymbol>().getType();
-                            if (memberType.isIntegral() && memberType.hasFixedRange() &&
-                                memberType.getFixedRange().fullWidth() == signalPort.width) {
-                                const auto range = memberType.getFixedRange();
-                                auto bindRange = [&](bool isDriver) {
-                                    rangeBindings_.push_back(
-                                        {signalPort, isDriver,
-                                         WireRange{modportPort.internalSymbol->getHierarchicalPath(), range.left,
-                                                   range.right},
-                                         signalPort.fullPath(), range.right, ConnectionKind::Direct});
-                                };
-                                if (signalPort.direction == slang::ast::ArgumentDirection::InOut) {
-                                    bindRange(true);
-                                    bindRange(false);
-                                } else {
-                                    bindRange(signalPort.direction == slang::ast::ArgumentDirection::Out);
-                                }
+                    if (modportPort.internalSymbol) {
+                        emit(modportPort.internalSymbol->getHierarchicalPath(), ConnectionKind::Direct);
+                        const auto& memberType = modportPort.internalSymbol->as<slang::ast::ValueSymbol>().getType();
+                        if (memberType.isIntegral() && memberType.hasFixedRange() &&
+                            memberType.getFixedRange().fullWidth() == signalPort.width) {
+                            const auto range = memberType.getFixedRange();
+                            auto bindRange = [&](bool isDriver) {
+                                rangeBindings_.push_back({signalPort, isDriver,
+                                                          WireRange{modportPort.internalSymbol->getHierarchicalPath(),
+                                                                    range.left, range.right},
+                                                          signalPort.fullPath(), range.right, ConnectionKind::Direct});
+                            };
+                            if (signalPort.direction == slang::ast::ArgumentDirection::InOut) {
+                                bindRange(true);
+                                bindRange(false);
+                            } else {
+                                bindRange(signalPort.direction == slang::ast::ArgumentDirection::Out);
                             }
                         }
                     }
+                };
+                auto emitModport = [&](const slang::ast::ModportSymbol& selected, const std::string& suffix,
+                                       bool scopedAlias) {
+                    for (const auto& member : selected.members()) {
+                        if (member.kind == slang::ast::SymbolKind::ModportPort)
+                            emitMember(member.as<slang::ast::ModportPortSymbol>(), suffix, scopedAlias);
+                    }
+                };
+
+                if (ifaceSym && ifaceSym->kind == slang::ast::SymbolKind::InstanceArray) {
+                    const auto ranges = portSym.as<slang::ast::InterfacePortSymbol>().getDeclaredRange();
+                    if (ranges && !ranges->empty()) {
+                        auto visitArray = [&](auto&& self, const slang::ast::Symbol& symbol, size_t dimension,
+                                              const std::string& suffix) -> void {
+                            if (dimension == ranges->size()) {
+                                if (symbol.kind == slang::ast::SymbolKind::Instance) {
+                                    const auto& instance = symbol.as<slang::ast::InstanceSymbol>();
+                                    const auto* selected = instance.body.find(modport->name);
+                                    if (selected && selected->kind == slang::ast::SymbolKind::Modport)
+                                        emitModport(selected->as<slang::ast::ModportSymbol>(), suffix, false);
+                                }
+                                return;
+                            }
+                            if (symbol.kind != slang::ast::SymbolKind::InstanceArray)
+                                return;
+                            const auto& array = symbol.as<slang::ast::InstanceArraySymbol>();
+                            const auto range = (*ranges)[dimension];
+                            if (array.elements.size() != static_cast<size_t>(range.fullWidth()))
+                                return;
+                            for (size_t ordinal = 0; ordinal < array.elements.size(); ++ordinal) {
+                                // Slang's bound elements are in ascending formal-port index order,
+                                // even when the connected array declares the opposite direction.
+                                const auto index = static_cast<int64_t>(range.lower()) + static_cast<int64_t>(ordinal);
+                                self(self, *array.elements[ordinal], dimension + 1,
+                                     suffix + "[" + std::to_string(index) + "]");
+                            }
+                        };
+                        visitArray(visitArray, *ifaceSym, 0, "");
+                    }
+                } else {
+                    emitModport(*modport, "", true);
                 }
             } else if (ifaceSym && ifaceSym->kind == slang::ast::SymbolKind::Instance) {
                 const auto& iface = ifaceSym->as<slang::ast::InstanceSymbol>();
@@ -1779,9 +1808,18 @@ void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAs
     // unpacked-array element-select read on its RHS (run before the
     // element-select early-return below).
     collectArrayCombReads(&assign.right());
+    const auto isModportMember = [](const slang::ast::Expression& expr) {
+        if (expr.kind == slang::ast::ExpressionKind::MemberAccess)
+            return expr.as<slang::ast::MemberAccessExpression>().member.kind == slang::ast::SymbolKind::ModportPort;
+        if (expr.kind == slang::ast::ExpressionKind::HierarchicalValue)
+            return expr.as<slang::ast::HierarchicalValueExpression>().symbol.kind ==
+                   slang::ast::SymbolKind::ModportPort;
+        return false;
+    };
+    const bool directedModportCopy = isModportMember(assign.left()) && isModportMember(assign.right());
     const bool hasConcat = assign.left().kind == slang::ast::ExpressionKind::Concatenation ||
                            assign.right().kind == slang::ast::ExpressionKind::Concatenation;
-    const bool mappedBitFlow = recordBitFlow(assign.left(), assign.right(), scopePath, false);
+    const bool mappedBitFlow = recordBitFlow(assign.left(), assign.right(), scopePath, false, directedModportCopy);
     if (hasConcat)
         return;
     auto lhs = resolveExpr(&assign.left());
@@ -1819,6 +1857,13 @@ void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAs
                     proceduralDependencies_.emplace_back(ref, lhsKey);
             }
         }
+        return;
+    }
+    if (directedModportCopy) {
+        // A member-to-member assignment is directional. A whole-net alias
+        // would also connect the output port back to the input port.
+        if (!mappedBitFlow)
+            proceduralDependencies_.emplace_back(rhsKey, lhsKey);
         return;
     }
     recordAlias(lhsKey, rhsKey, false);

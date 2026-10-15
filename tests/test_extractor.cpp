@@ -99,6 +99,31 @@ TEST_CASE("Extractor: interface modport ports preserve a bus-level connection", 
     REQUIRE(graph.connections.size() >= 1);
 }
 
+TEST_CASE("Extractor: scalar modport bridge follows assignment direction", "[extractor][interface][modport]") {
+    auto result = compileFile("sv/interface_modport.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "interface_modport_bridge");
+    const auto graph = extractor.extract();
+
+    auto hasEdge = [&](const std::string& source, const std::string& dest) {
+        for (const auto& conn : graph.connections) {
+            if (conn.source.fullPath() == source && conn.dest.fullPath() == dest)
+                return true;
+        }
+        return false;
+    };
+    for (const auto& member : {"data", "valid"}) {
+        const std::string signal(member);
+        CHECK(
+            hasEdge("interface_modport_bridge.u_prod.bus." + signal, "interface_modport_bridge.u_cons.bus." + signal));
+        CHECK_FALSE(hasEdge("interface_modport_bridge.u_bridge.out_bus." + signal,
+                            "interface_modport_bridge.u_bridge.in_bus." + signal));
+    }
+    CHECK(hasEdge("interface_modport_bridge.u_cons.bus.ready", "interface_modport_bridge.u_prod.bus.ready"));
+    CHECK_FALSE(
+        hasEdge("interface_modport_bridge.u_bridge.in_bus.ready", "interface_modport_bridge.u_bridge.out_bus.ready"));
+}
+
 TEST_CASE("Extractor: sole always_comb copy preserves direct lanes", "[extractor][procedural]") {
     auto result = compileFile("sv/procedural_glue.sv");
     REQUIRE(result);
@@ -1066,6 +1091,93 @@ TEST_CASE("Extractor: parameterized interface-array elements do not cross-connec
         }
     }
     CHECK(foundParameterizedWidth);
+}
+
+TEST_CASE("Extractor: whole modport arrays bind every descending interface lane", "[extractor][interface][array]") {
+    auto result = compileFile("sv/interface_array_modport.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "interface_array_forward_top");
+    const auto graph = extractor.extract();
+
+    auto hasEdge = [&](const std::string& source, const std::string& dest, bool directOnly = false) {
+        for (const auto& conn : graph.connections) {
+            if (conn.source.fullPath() == source && conn.dest.fullPath() == dest &&
+                (!directOnly || conn.kind == ConnectionKind::Direct))
+                return true;
+        }
+        return false;
+    };
+    for (int lane = 0; lane < 2; ++lane) {
+        const std::string index = std::to_string(lane);
+        const std::string other = std::to_string(1 - lane);
+        for (const auto& member : {"data", "valid"}) {
+            const std::string signal(member);
+            INFO("lane " << lane << " member " << signal);
+            const std::string writer = "interface_array_forward_top.u_w" + index + ".bus." + signal;
+            const std::string input = "interface_array_forward_top.u_bridge.in_bus[" + index + "]." + signal;
+            const std::string output = "interface_array_forward_top.u_bridge.out_bus[" + index + "]." + signal;
+            const std::string reader = "interface_array_forward_top.u_r" + index + ".bus." + signal;
+            CHECK(hasEdge(writer, input, true));
+            CHECK(hasEdge(output, reader, true));
+            CHECK(hasEdge(writer, reader, true));
+            CHECK_FALSE(hasEdge(output, input));
+            CHECK_FALSE(hasEdge(writer, "interface_array_forward_top.u_bridge.in_bus[" + other + "]." + signal));
+            CHECK_FALSE(hasEdge("interface_array_forward_top.u_bridge.out_bus[" + other + "]." + signal, reader));
+            CHECK_FALSE(hasEdge(writer, "interface_array_forward_top.u_r" + other + ".bus." + signal));
+        }
+    }
+}
+
+TEST_CASE("Extractor: whole modport arrays map opposite index directions positionally",
+          "[extractor][interface][array]") {
+    auto result = compileFile("sv/interface_array_modport.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "interface_array_reversed_top");
+    const auto graph = extractor.extract();
+
+    auto hasEdge = [&](const std::string& source, const std::string& dest) {
+        for (const auto& conn : graph.connections) {
+            if (conn.source.fullPath() == source && conn.dest.fullPath() == dest && conn.kind == ConnectionKind::Direct)
+                return true;
+        }
+        return false;
+    };
+    for (int lane = 0; lane < 2; ++lane) {
+        const std::string writer = "interface_array_reversed_top.u_w" + std::to_string(lane) + ".bus.data";
+        const std::string expected = "interface_array_reversed_top.u_tap.buses[" + std::to_string(1 - lane) + "].data";
+        const std::string wrong = "interface_array_reversed_top.u_tap.buses[" + std::to_string(lane) + "].data";
+        INFO("source lane " << lane);
+        CHECK(hasEdge(writer, expected));
+        CHECK_FALSE(hasEdge(writer, wrong));
+    }
+}
+
+TEST_CASE("Extractor: multidimensional modport arrays retain each lane", "[extractor][interface][array]") {
+    auto result = compileFile("sv/interface_array_modport.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "interface_array_matrix_top");
+    const auto graph = extractor.extract();
+
+    auto hasDirectEdge = [&](const std::string& source, const std::string& dest) {
+        for (const auto& conn : graph.connections) {
+            if (conn.source.fullPath() == source && conn.dest.fullPath() == dest && conn.kind == ConnectionKind::Direct)
+                return true;
+        }
+        return false;
+    };
+    for (int row = 0; row < 2; ++row) {
+        for (int column = 0; column < 2; ++column) {
+            const std::string writer =
+                "interface_array_matrix_top.u_w" + std::to_string(row) + std::to_string(column) + ".bus.data";
+            const std::string expected = "interface_array_matrix_top.u_tap.buses[" + std::to_string(row) + "][" +
+                                         std::to_string(column) + "].data";
+            const std::string wrong = "interface_array_matrix_top.u_tap.buses[" + std::to_string(1 - row) + "][" +
+                                      std::to_string(column) + "].data";
+            INFO("matrix lane " << row << "," << column);
+            CHECK(hasDirectEdge(writer, expected));
+            CHECK_FALSE(hasDirectEdge(writer, wrong));
+        }
+    }
 }
 
 TEST_CASE("Extractor: generated interface-array lanes keep elaborated indexes", "[extractor][interface][array]") {

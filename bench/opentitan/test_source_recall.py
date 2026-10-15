@@ -1,6 +1,6 @@
 import unittest
 
-from source_recall import compare_report, expected_simple_edges, simple_logic_width
+from source_recall import compare_report, expected_passthrough_edges, expected_simple_edges, simple_logic_width
 
 
 def port(name, direction, symbol, type_name="logic", net_type=None):
@@ -11,6 +11,51 @@ def port(name, direction, symbol, type_name="logic", net_type=None):
 
 
 class SourceRecallTests(unittest.TestCase):
+    def test_direct_module_copy_oracle_excludes_clocked_and_extra_drivers(self):
+        def wrapper(name, source, dest, *, clocked=False, extra_write=False):
+            input_symbol = f"{name}.data_i"
+            output_symbol = f"{name}.data_o"
+            assignment = {"kind": "Assignment",
+                          "left": {"kind": "NamedValue", "type": "logic[7:0]", "symbol": output_symbol},
+                          "right": {"kind": "NamedValue", "type": "logic[7:0]", "symbol": input_symbol}}
+            members = [
+                {"kind": "Port", "name": "data_i", "type": "logic[7:0]", "direction": "In",
+                 "internalSymbol": input_symbol},
+                {"kind": "Port", "name": "data_o", "type": "logic[7:0]", "direction": "Out",
+                 "internalSymbol": output_symbol},
+                {"kind": "ProceduralBlock", "body": assignment} if clocked else
+                {"kind": "ContinuousAssign", "assignment": assignment},
+            ]
+            if extra_write:
+                members.append({"kind": "ProceduralBlock", "body": assignment})
+            return {"kind": "Instance", "name": name,
+                    "connections": [port("data_i", "In", source, "logic[7:0]"),
+                                    port("data_o", "Out", dest, "logic[7:0]")],
+                    "body": {"kind": "InstanceBody", "members": members}}
+
+        scope = {"kind": "Instance", "body": {"members": [
+            {"kind": "Instance", "name": "u_source",
+             "connections": [port("data_o", "Out", "first", "logic[7:0]")]},
+            wrapper("u_copy0", "first", "second"),
+            wrapper("u_copy1", "second", "third"),
+            {"kind": "Instance", "name": "u_sink",
+             "connections": [port("data_i", "In", "third", "logic[7:0]")]},
+        ]}}
+        self.assertEqual(expected_passthrough_edges(scope, "top"), [
+            ("top.u_copy0.data_o[7:0]", "top.u_sink.data_i[7:0]"),
+            ("top.u_source.data_o[7:0]", "top.u_copy1.data_i[7:0]"),
+            ("top.u_source.data_o[7:0]", "top.u_sink.data_i[7:0]"),
+        ])
+
+        for unsafe in (wrapper("u_copy1", "second", "third", clocked=True),
+                       wrapper("u_copy1", "second", "third", extra_write=True)):
+            altered = {"kind": "Instance", "body": {"members": [
+                *scope["body"]["members"][:2], unsafe, scope["body"]["members"][-1],
+            ]}}
+            self.assertEqual(expected_passthrough_edges(altered, "top"), [
+                ("top.u_source.data_o[7:0]", "top.u_copy1.data_i[7:0]"),
+            ])
+
     def test_whole_vector_wires_use_report_width_spelling_and_reject_conversions(self):
         self.assertIsNone(simple_logic_width("logic[1:0][3:0]"))
         self.assertIsNone(simple_logic_width("logic[4096:0]"))

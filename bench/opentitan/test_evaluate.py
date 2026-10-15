@@ -106,6 +106,40 @@ class EvaluateTests(unittest.TestCase):
                 with (mock.patch.object(benchmark_evaluate, "audit_source_recall", return_value=oracle),
                       self.assertRaisesRegex(SystemExit, "pass-through frame changed")):
                     benchmark_evaluate.main()
+                oracle["passthrough"]["expected_sha256"] = "through-hash"
+                (root / "targets.yaml").write_text(
+                    "targets:\n  - name: soc\n    level: L4\n    top_module: soc\n"
+                    "    sample_annotations: golden/sample.yaml\n"
+                    "    source_recall_scopes: [soc.u_child]\n"
+                    "    source_recall_expected_sha256: hash\n"
+                    "    source_passthrough_expected_sha256: through-hash\n"
+                    "    source_control_scopes: [soc.u_child]\n"
+                    "    source_control_expected_sha256: control-hash\n")
+                oracle["ternary_control"] = {
+                    "scope_results": {"soc.u_child": {"expected": 1, "found_approximate": 0,
+                                                       "not_coarse": 0, "missing": 1}},
+                    "expected": 1, "found_approximate": 0, "not_coarse": [],
+                    "missing": [("e", "f")], "expected_sha256": "control-hash"}
+                with (mock.patch.object(benchmark_evaluate, "audit_source_recall", return_value=oracle),
+                      self.assertRaisesRegex(SystemExit, "ternary control paths missing")):
+                    benchmark_evaluate.main()
+                oracle["ternary_control"].update({"missing": [],
+                                                   "not_coarse": [("e", "f")]})
+                oracle["ternary_control"]["scope_results"]["soc.u_child"] = {
+                    "expected": 1, "found_approximate": 0, "not_coarse": 1, "missing": 0}
+                with (mock.patch.object(benchmark_evaluate, "audit_source_recall", return_value=oracle),
+                      self.assertRaisesRegex(SystemExit, "ternary control paths missing")):
+                    benchmark_evaluate.main()
+                oracle["ternary_control"].update({"found_approximate": 1, "not_coarse": [],
+                                                   "expected_sha256": "changed"})
+                oracle["ternary_control"]["scope_results"]["soc.u_child"] = {
+                    "expected": 1, "found_approximate": 1, "not_coarse": 0, "missing": 0}
+                with (mock.patch.object(benchmark_evaluate, "audit_source_recall", return_value=oracle),
+                      self.assertRaisesRegex(SystemExit, "ternary control frame changed")):
+                    benchmark_evaluate.main()
+                oracle["ternary_control"]["expected_sha256"] = "control-hash"
+                with mock.patch.object(benchmark_evaluate, "audit_source_recall", return_value=oracle):
+                    benchmark_evaluate.main()
 
     def test_sva_probe_checks_secondary_fifo_label_and_full_label_bijection(self):
         crossing = {"source": "top.fifo.fifo_wptr_gray_q", "dest": "top.fifo.sync_wptr.u_sync_1.q_o",

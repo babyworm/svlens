@@ -218,6 +218,10 @@ up to four hops and currently finds 16/16 `direct` paths across three selected
 SoC scopes. Both frames pin their expected-pair hashes. Bit-lane
 correspondence, interfaces, sliced/converted buses, procedural glue,
 other through-module shapes, and other scopes still need source-derived checks.
+A third frame scans those seven scopes plus one I2C scope and finds six
+source-derived one-bit ternary-selector control paths, all reported as
+range-free `approximate` rows. It checks a narrow continuous-mux shape, not
+procedural muxes, branch reachability, or control-path recall for the whole SoC.
 
 **Why**: branch-sensitive mux/decoder glue, legal interface-array composition,
 deep forwarding, and nontrivial bit-range dataflow still need precise signal-level

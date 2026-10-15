@@ -135,3 +135,19 @@ the FF fix. An I2C FIFO-valid → format-byte mux control path is a new positive
 SoC reference (`i2c_core.sv:285,311,420`), bringing exact-path gates to 17/17.
 All seven negative probes, 358/358 direct-wiring paths, and 16/16 pass-through
 paths remain gated. The bit-flow gap count remains 27,175.
+
+## Follow-up: source-derived mux-control frame
+
+An independent Slang-AST probe now identifies a unique one-bit sibling
+output controlling a sole, same-width continuous ternary assignment whose
+result feeds a sibling input. It scans the earlier seven SoC IP scopes and
+`top_earlgrey.u_i2c0`; six I2C format-byte/flag relations qualify
+(`i2c_core.sv:285–290,311,420–425`). All six appear as range-free
+`approximate` control rows. A direct-only or bit-ranged data row does not
+satisfy this gate. The source-pair frame SHA-256 is
+`44efa6efc71056585d5d3d98cea266a220829b03f48971309fc9331697c9b3de`.
+The two earlier source-derived frame hashes and analyzer counts are unchanged.
+This narrow control-path check does not establish runtime branch reachability,
+procedural mux completeness, or whole-SoC recall. Slang's scoped JSON for
+`u_i2c1` and `u_i2c2` refers to the first instance's shared body rather than
+serializing it again, so those two instances are not independently audited.

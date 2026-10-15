@@ -394,15 +394,18 @@ Dependency bootstrap:
   widths. The evaluator gates annotation freshness and contradictions;
   the sample is too small and correlated to estimate whole-SoC precision or
   recall. A separate elaborated-AST oracle finds 358/358 direct scalar or
-  whole-width one-dimensional vector sibling-port paths (up to 4,096 bits) across seven selected
-  SoC IP scopes, with an explicit expected-pair manifest and pinned frame hash.
+  whole-width one-dimensional vector sibling-port paths (up to 4,096 bits)
+  across seven selected SoC IP scopes, with an explicit expected-pair manifest
+  and pinned frame hash.
   Three paths cross one uniquely driven direct continuous alias; the other
   355 share a named net. The probe checks path presence, not vector bit
   correspondence. A separate four-hop direct module-copy oracle finds 16/16
   `direct` pass-through paths across three selected SoC scopes, with its own
-  pinned expected-pair hash. Both probes exclude sliced or converted buses,
-  procedural glue, interfaces, and other scopes; whole-design recall remains
-  unmeasured. The
+  pinned expected-pair hash. A separate I2C continuous-ternary control frame
+  finds six source-derived one-bit selector paths, all as range-free
+  `approximate` rows, and pins a third expected-pair hash. These probes exclude
+  sliced or converted buses, procedural glue, interfaces, and other scopes;
+  whole-design recall remains unmeasured. The
   [2026-09-26 snapshot](benchmarks/opentitan-2026-09-26.md) preserves the
   earlier baseline before direct clock-alias propagation.
 

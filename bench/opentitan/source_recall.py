@@ -1,4 +1,4 @@
-"""Bounded RTL-source oracle for simple integral sibling-port connections."""
+"""Bounded RTL-source oracles for simple integral sibling-port paths."""
 
 import hashlib
 import json
@@ -297,6 +297,186 @@ def expected_passthrough_edges(scope: dict, path: str, max_hops: int = 4) -> lis
     return sorted(expected)
 
 
+def expected_ternary_control_edges(scope: dict, path: str) -> list[tuple[str, str]]:
+    """Find direct one-bit selectors controlling a sole same-width continuous mux."""
+    def objects(value):
+        if isinstance(value, dict):
+            yield value
+            for child in value.values():
+                yield from objects(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from objects(child)
+
+    bodies = {str(item["addr"]): item for item in objects(scope)
+              if item.get("kind") == "InstanceBody" and isinstance(item.get("addr"), int)}
+
+    def members_of(node):
+        body = node.get("body")
+        if isinstance(body, str):
+            body = bodies.get(body.split()[0])
+        members = body.get("members", []) if isinstance(body, dict) else node.get("members", [])
+        return members if isinstance(members, list) else []
+
+    def binding(connection):
+        port = connection.get("port") or {}
+        expr = connection.get("expr") or {}
+        if port.get("direction") in ("Out", "InOut") and expr.get("kind") == "Assignment":
+            expr = expr.get("left") or {}
+        width = simple_logic_width(port.get("type"))
+        if (width is not None and expr.get("kind") == "NamedValue" and
+                simple_logic_width(expr.get("type")) == width):
+            return expr.get("symbol"), width
+        return None
+
+    def same_simple_arm(left, right):
+        if left.get("kind") == right.get("kind") == "NamedValue":
+            return left.get("symbol") == right.get("symbol") and left.get("type") == right.get("type")
+        if left.get("kind") == right.get("kind") and left.get("kind") in (
+                "IntegerLiteral", "UnbasedUnsizedIntegerLiteral"):
+            return left.get("value") == right.get("value") and left.get("type") == right.get("type")
+        return left == right
+
+    def output_targets(instance):
+        for connection in instance.get("connections", []):
+            port = connection.get("port") or {}
+            if port.get("direction") not in ("Out", "InOut"):
+                continue
+            expr = connection.get("expr") or {}
+            target = (expr.get("left") or {}) if expr.get("kind") == "Assignment" else expr
+            yield from (item["symbol"] for item in objects(target)
+                        if item.get("kind") == "NamedValue" and isinstance(item.get("symbol"), str))
+
+    def generated_instances(value):
+        if not isinstance(value, dict):
+            return
+        if value.get("kind") == "Instance":
+            yield value
+        elif value.get("kind") in ("GenerateBlock", "GenerateBlockArray"):
+            for child in value.get("members", []):
+                yield from generated_instances(child)
+
+    def scope_assignments(value):
+        if isinstance(value, dict):
+            if value.get("kind") == "Instance":
+                return
+            if value.get("kind") == "Assignment":
+                yield value
+            for child in value.values():
+                yield from scope_assignments(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from scope_assignments(child)
+
+    expected = set()
+
+    def visit(node, scope_path):
+        members = members_of(node)
+        outputs = defaultdict(list)
+        inputs = defaultdict(list)
+        port_writers = Counter()
+        local_writes = Counter()
+        for member in members:
+            if not isinstance(member, dict):
+                continue
+            if member.get("kind") == "Instance" and member.get("name"):
+                port_writers.update(output_targets(member))
+                for connection in member.get("connections", []):
+                    port = connection.get("port") or {}
+                    direction = port.get("direction")
+                    resolved = binding(connection)
+                    if resolved and direction in ("Out", "In"):
+                        symbol, width = resolved
+                        if isinstance(symbol, str):
+                            (outputs if direction == "Out" else inputs)[symbol].append(
+                                (member["name"], port.get("name"), width))
+            else:
+                for instance in generated_instances(member):
+                    port_writers.update(output_targets(instance))
+                for item in scope_assignments(member):
+                    local_writes.update(ref["symbol"] for ref in objects(item.get("left"))
+                                        if ref.get("kind") == "NamedValue" and
+                                        isinstance(ref.get("symbol"), str))
+
+        for member in members:
+            if not isinstance(member, dict) or member.get("kind") != "ContinuousAssign":
+                continue
+            assignment = member.get("assignment") or {}
+            lhs = assignment.get("left") or {}
+            rhs = assignment.get("right") or {}
+            conditions = rhs.get("conditions") or []
+            width = simple_logic_width(lhs.get("type"))
+            if (assignment.get("kind") != "Assignment" or lhs.get("kind") != "NamedValue" or
+                    rhs.get("kind") != "ConditionalOp" or width is None or
+                    simple_logic_width(rhs.get("type")) != width or len(conditions) != 1 or
+                    not isinstance(conditions[0], dict) or conditions[0].get("pattern") or
+                    simple_logic_width((rhs.get("left") or {}).get("type")) != width or
+                    simple_logic_width((rhs.get("right") or {}).get("type")) != width or
+                    same_simple_arm(rhs.get("left") or {}, rhs.get("right") or {})):
+                continue
+            condition = conditions[0].get("expr") or {}
+            if condition.get("kind") != "NamedValue" or simple_logic_width(condition.get("type")) != 1:
+                continue
+            dest_symbol = lhs.get("symbol")
+            selector_symbol = condition.get("symbol")
+            if (not isinstance(dest_symbol, str) or not isinstance(selector_symbol, str) or
+                    local_writes[dest_symbol] != 1 or port_writers[dest_symbol] or
+                    local_writes[selector_symbol] or port_writers[selector_symbol] != 1 or
+                    len(outputs[selector_symbol]) != 1):
+                continue
+            source_instance, source_port, source_width = outputs[selector_symbol][0]
+            if source_width != 1:
+                continue
+            for dest_instance, dest_port, dest_width in inputs[dest_symbol]:
+                if dest_width == width and dest_instance != source_instance:
+                    source = f"{scope_path}.{source_instance}.{source_port}"
+                    dest = f"{scope_path}.{dest_instance}.{dest_port}"
+                    if width > 1:
+                        dest += f"[{width - 1}:0]"
+                    expected.add((source, dest))
+
+        for child in members:
+            if not isinstance(child, dict):
+                continue
+            kind = child.get("kind")
+            if kind == "Instance" and child.get("name"):
+                visit(child, f"{scope_path}.{child['name']}")
+            elif kind == "GenerateBlock":
+                suffix = f".{child['name']}" if child.get("name") else ""
+                visit(child, scope_path + suffix)
+            elif kind == "GenerateBlockArray" and child.get("name"):
+                for block in child.get("members", []):
+                    index = block.get("constructIndex") if isinstance(block, dict) else None
+                    if isinstance(index, int) and block.get("kind") == "GenerateBlock":
+                        visit(block, f"{scope_path}.{child['name']}[{index}]")
+
+    visit(scope, path)
+    return sorted(expected)
+
+
+def compare_control_report(report: dict, by_scope: dict[str, list[tuple[str, str]]]) -> dict:
+    """Require range-free approximate evidence for source-derived mux controls."""
+    rows = report.get("connections", [])
+    coarse = {(row["source"], row["dest"]) for row in rows
+              if row.get("kind") == "approximate" and "source_bits" not in row and "dest_bits" not in row}
+    observed = {(row["source"], row["dest"]) for row in rows}
+    expected = sorted({pair for pairs in by_scope.values() for pair in pairs})
+    missing = [pair for pair in expected if pair not in observed]
+    not_coarse = [pair for pair in expected if pair in observed and pair not in coarse]
+    scope_results = {}
+    for scope, pairs in by_scope.items():
+        unique = set(pairs)
+        scope_results[scope] = {"expected": len(unique), "found_approximate": len(unique & coarse),
+                                "not_coarse": len((unique & observed) - coarse),
+                                "missing": len(unique - observed)}
+    fingerprint = hashlib.sha256("\n".join(" -> ".join(pair) for pair in expected).encode()).hexdigest()
+    return {"scope_results": scope_results, "expected": len(expected),
+            "found_approximate": len(expected) - len(not_coarse) - len(missing),
+            "not_coarse": not_coarse, "missing": missing,
+            "expected_pairs": [{"source": source, "dest": dest} for source, dest in expected],
+            "expected_sha256": fingerprint}
+
+
 def compare_report(report: dict, by_scope: dict[str, list[tuple[str, str]]]) -> dict:
     direct = {(row["source"], row["dest"]) for row in report.get("connections", [])
               if row.get("kind") == "direct"}
@@ -322,16 +502,22 @@ def compare_report(report: dict, by_scope: dict[str, list[tuple[str, str]]]) -> 
 
 
 def audit_source_recall(report: dict, filelist: Path, top: str, scopes: list[str],
-                        slang_binary: str | None = None) -> dict:
+                        slang_binary: str | None = None,
+                        control_scopes: list[str] | None = None) -> dict:
     binary = slang_binary or os.environ.get("SVLENS_SLANG") or shutil.which("slang")
     if not binary:
         raise FileNotFoundError("slang CLI not found; set SVLENS_SLANG")
     if not scopes or len(set(scopes)) != len(scopes):
         raise ValueError("source-recall scopes must be nonempty and distinct")
+    if control_scopes is not None and (not control_scopes or len(set(control_scopes)) != len(control_scopes)):
+        raise ValueError("source-control scopes must be nonempty and distinct")
     by_scope = {}
     passthrough_by_scope = {}
+    control_by_scope = {}
+    regular_scopes = set(scopes)
+    selected_controls = set(control_scopes or [])
     with tempfile.TemporaryDirectory(prefix="svlens-source-recall-") as directory:
-        for index, scope in enumerate(scopes):
+        for index, scope in enumerate(dict.fromkeys([*scopes, *(control_scopes or [])])):
             ast_path = Path(directory) / f"scope-{index}.json"
             command = [binary, "--single-unit", "-F", str(filelist.resolve()), "--top", top,
                        "--ast-json-scope", scope, "--ast-json", str(ast_path)]
@@ -343,12 +529,19 @@ def audit_source_recall(report: dict, filelist: Path, top: str, scopes: list[str
             ast = json.loads(ast_path.read_text())
             if ast.get("kind") != "Instance" or ast.get("name") != scope.rsplit(".", 1)[-1]:
                 raise ValueError(f"source-recall scope {scope} was not found")
-            by_scope[scope] = expected_simple_edges(ast, scope)
-            passthrough_by_scope[scope] = expected_passthrough_edges(ast, scope)
+            if scope in regular_scopes:
+                by_scope[scope] = expected_simple_edges(ast, scope)
+                passthrough_by_scope[scope] = expected_passthrough_edges(ast, scope)
+            if scope in selected_controls:
+                control_by_scope[scope] = expected_ternary_control_edges(ast, scope)
     result = compare_report(report, by_scope)
     if not result["expected"]:
         raise ValueError("source-recall oracle found no eligible paths")
     result["passthrough"] = compare_report(report, passthrough_by_scope)
     if not result["passthrough"]["expected"]:
         raise ValueError("source-recall pass-through oracle found no eligible paths")
+    if control_scopes is not None:
+        result["ternary_control"] = compare_control_report(report, control_by_scope)
+        if not result["ternary_control"]["expected"]:
+            raise ValueError("source-control oracle found no eligible paths")
     return result

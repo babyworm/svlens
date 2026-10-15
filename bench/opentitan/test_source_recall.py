@@ -1,6 +1,7 @@
 import unittest
 
-from source_recall import compare_report, expected_passthrough_edges, expected_simple_edges, simple_logic_width
+from source_recall import (compare_control_report, compare_report, expected_passthrough_edges,
+                           expected_simple_edges, expected_ternary_control_edges, simple_logic_width)
 
 
 def port(name, direction, symbol, type_name="logic", net_type=None):
@@ -11,6 +12,78 @@ def port(name, direction, symbol, type_name="logic", net_type=None):
 
 
 class SourceRecallTests(unittest.TestCase):
+    def test_ternary_control_oracle_requires_unique_direct_selector_and_output(self):
+        conditional = {"kind": "ConditionalOp", "type": "logic[7:0]",
+                       "conditions": [{"expr": {"kind": "NamedValue", "type": "logic", "symbol": "sel"}}],
+                       "left": {"kind": "NamedValue", "type": "logic[7:0]", "symbol": "a"},
+                       "right": {"kind": "NamedValue", "type": "logic[7:0]", "symbol": "b"}}
+        assignment = {"kind": "ContinuousAssign", "assignment": {
+            "kind": "Assignment",
+            "left": {"kind": "NamedValue", "type": "logic[7:0]", "symbol": "out"},
+            "right": conditional}}
+        members = [
+            {"kind": "Instance", "name": "u_selector", "connections": [port("sel_o", "Out", "sel")]},
+            {"kind": "Instance", "name": "u_data_a", "connections": [port("data_o", "Out", "a", "logic[7:0]")]},
+            {"kind": "Instance", "name": "u_data_b", "connections": [port("data_o", "Out", "b", "logic[7:0]")]},
+            {"kind": "Instance", "name": "u_sink", "connections": [port("data_i", "In", "out", "logic[7:0]")]},
+            assignment,
+        ]
+        scope = {"kind": "Instance", "body": {"kind": "InstanceBody", "members": members}}
+        pair = ("top.u_selector.sel_o", "top.u_sink.data_i[7:0]")
+        self.assertEqual(expected_ternary_control_edges(scope, "top"), [pair])
+        duplicate_selector = {"kind": "Instance", "name": "u_second_selector",
+                              "connections": [port("sel_o", "Out", "sel")]}
+        self.assertEqual(expected_ternary_control_edges(
+            {"kind": "Instance", "body": {"members": members + [duplicate_selector]}}, "top"), [])
+        generated_selector = {"kind": "GenerateBlock", "name": "gen_driver",
+                              "members": [duplicate_selector]}
+        self.assertEqual(expected_ternary_control_edges(
+            {"kind": "Instance", "body": {"members": members + [generated_selector]}}, "top"), [])
+        extra_write = {"kind": "ProceduralBlock", "body": {"kind": "Assignment",
+                       "left": {"kind": "NamedValue", "type": "logic[7:0]", "symbol": "out"}}}
+        self.assertEqual(expected_ternary_control_edges(
+            {"kind": "Instance", "body": {"members": members + [extra_write]}}, "top"), [])
+        generated_write = {"kind": "GenerateBlock", "name": "gen_write", "members": [extra_write]}
+        self.assertEqual(expected_ternary_control_edges(
+            {"kind": "Instance", "body": {"members": members + [generated_write]}}, "top"), [])
+        constant = {**conditional, "conditions": [{"expr": {"kind": "IntegerLiteral", "type": "logic",
+                                                           "value": "1'b1"}}]}
+        self.assertEqual(expected_ternary_control_edges(
+            {"kind": "Instance", "body": {"members": members[:-1] + [{
+                "kind": "ContinuousAssign", "assignment": {**assignment["assignment"], "right": constant}}]}},
+            "top"), [])
+        same_arms = {**conditional, "right": {**conditional["left"], "addr": 42}}
+        self.assertEqual(expected_ternary_control_edges(
+            {"kind": "Instance", "body": {"members": members[:-1] + [{
+                "kind": "ContinuousAssign", "assignment": {**assignment["assignment"], "right": same_arms}}]}},
+            "top"), [])
+        same_literals = {**conditional,
+                         "left": {"kind": "IntegerLiteral", "type": "logic[7:0]", "value": "8'h00", "addr": 1},
+                         "right": {"kind": "IntegerLiteral", "type": "logic[7:0]", "value": "8'h00", "addr": 2}}
+        self.assertEqual(expected_ternary_control_edges(
+            {"kind": "Instance", "body": {"members": members[:-1] + [{
+                "kind": "ContinuousAssign", "assignment": {**assignment["assignment"], "right": same_literals}}]}},
+            "top"), [])
+        narrow_arm = {**conditional, "right": {"kind": "NamedValue", "type": "logic[3:0]", "symbol": "b"}}
+        self.assertEqual(expected_ternary_control_edges(
+            {"kind": "Instance", "body": {"members": members[:-1] + [{
+                "kind": "ContinuousAssign", "assignment": {**assignment["assignment"], "right": narrow_arm}}]}},
+            "top"), [])
+
+    def test_control_report_requires_range_free_approximate_evidence(self):
+        pair = ("top.u_selector.sel_o", "top.u_sink.data_i[7:0]")
+        by_scope = {"top": [pair]}
+        direct = {"source": pair[0], "dest": pair[1], "kind": "direct"}
+        self.assertEqual(compare_control_report({"connections": [direct]}, by_scope)["not_coarse"], [pair])
+        ranged = {**direct, "kind": "approximate", "source_bits": {"low": 0, "high": 0},
+                  "dest_bits": {"low": 0, "high": 7}}
+        self.assertEqual(compare_control_report({"connections": [ranged]}, by_scope)["not_coarse"], [pair])
+        coarse = {**direct, "kind": "approximate"}
+        checked = compare_control_report({"connections": [coarse]}, by_scope)
+        self.assertEqual(checked["found_approximate"], 1)
+        self.assertEqual(checked["missing"], [])
+        self.assertEqual(checked["not_coarse"], [])
+
     def test_direct_module_copy_oracle_excludes_clocked_and_extra_drivers(self):
         def wrapper(name, source, dest, *, clocked=False, extra_write=False):
             input_symbol = f"{name}.data_i"

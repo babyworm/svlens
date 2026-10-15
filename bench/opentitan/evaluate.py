@@ -621,6 +621,26 @@ def generate_report(evals: list) -> str:
                          f"{result['found_direct']} | {len(result['approximate_only'])} | "
                          f"{len(result['missing'])} |")
             lines += ["", f"Pass-through expected-pair SHA-256: `{result['expected_sha256']}`."]
+        control_audits = [ev for ev in source_audits if ev["source_recall"].get("ternary_control")]
+        if control_audits:
+            lines += ["", "## Source-Derived Ternary Control Recall", "",
+                      "This AST frame identifies a unique one-bit sibling output controlling a",
+                      "same-width continuous ternary whose uniquely written result feeds a sibling input.",
+                      "It requires a range-free `approximate` control row; a direct or ranged",
+                      "data-flow row alone does not satisfy the check. The frame does not prove",
+                      "runtime branch reachability or whole-design recall.", "",
+                      "| Target | Scope | Expected | Approximate | Other evidence only | Missing |",
+                      "|--------|-------|---------:|------------:|--------------------:|--------:|"]
+            for ev in control_audits:
+                result = ev["source_recall"]["ternary_control"]
+                for scope, counts in result["scope_results"].items():
+                    lines.append(f"| {ev['name']} | `{scope}` | {counts['expected']} | "
+                                 f"{counts['found_approximate']} | {counts['not_coarse']} | "
+                                 f"{counts['missing']} |")
+                lines.append(f"| {ev['name']} | **total** | {result['expected']} | "
+                             f"{result['found_approximate']} | {len(result['not_coarse'])} | "
+                             f"{len(result['missing'])} |")
+                lines += ["", f"Ternary-control expected-pair SHA-256: `{result['expected_sha256']}`."]
     lines += ["", "---", ""]
     return "\n".join(lines)
 
@@ -640,6 +660,9 @@ def main():
         if target.get("source_recall_scopes") and not (target.get("source_recall_expected_sha256") and
                                                         target.get("source_passthrough_expected_sha256")):
             raise SystemExit(f"{name} source-recall probe requires both expected frame hashes")
+        if target.get("source_control_scopes") and not (target.get("source_recall_scopes") and
+                                                         target.get("source_control_expected_sha256")):
+            raise SystemExit(f"{name} source-control probe requires source-recall scopes and a frame hash")
         base_cdc = (load_json_report(name, "cdc", "cdc_report.json")
                     if metrics.get("cdc_status") == "reported" else {})
         timed_cdc = (load_json_report(name, "cdc_periods", "cdc_report.json")
@@ -658,7 +681,8 @@ def main():
         source_recall = None
         if target.get("source_recall_scopes") and conn_report:
             source_recall = audit_source_recall(conn_report, FILELIST_DIR / f"{name}.f",
-                                                target["top_module"], target["source_recall_scopes"])
+                                                target["top_module"], target["source_recall_scopes"],
+                                                control_scopes=target.get("source_control_scopes"))
             (RESULTS_DIR / name / "source_recall.json").write_text(json.dumps(source_recall, indent=2) + "\n")
         evals.append({
             "name": name,
@@ -677,6 +701,7 @@ def main():
             "source_recall": source_recall,
             "source_recall_expected_sha256": target.get("source_recall_expected_sha256"),
             "source_passthrough_expected_sha256": target.get("source_passthrough_expected_sha256"),
+            "source_control_expected_sha256": target.get("source_control_expected_sha256"),
         })
     report = generate_report(evals)
     out = RESULTS_DIR / "bench_report.md"
@@ -708,6 +733,13 @@ def main():
     if changed_passthrough_frames:
         raise SystemExit("Source-derived pass-through frame changed; re-adjudicate RTL paths: " +
                          ", ".join(changed_passthrough_frames))
+    changed_control_frames = [ev["name"] for ev in evals if ev["source_recall"] and
+                              ev["source_recall"].get("ternary_control") and
+                              ev["source_recall"]["ternary_control"]["expected_sha256"] !=
+                              ev["source_control_expected_sha256"]]
+    if changed_control_frames:
+        raise SystemExit("Source-derived ternary control frame changed; re-adjudicate RTL paths: " +
+                         ", ".join(changed_control_frames))
     missing_source_recall = [ev["name"] for ev in evals if ev["source_recall"] and
                              (ev["source_recall"]["missing"] or ev["source_recall"]["approximate_only"])]
     if missing_source_recall:
@@ -719,6 +751,13 @@ def main():
     if missing_passthrough_recall:
         raise SystemExit("Source-derived pass-through paths missing or downgraded: " +
                          ", ".join(missing_passthrough_recall))
+    missing_controls = [ev["name"] for ev in evals if ev["source_recall"] and
+                        ev["source_recall"].get("ternary_control") and
+                        (ev["source_recall"]["ternary_control"]["missing"] or
+                         ev["source_recall"]["ternary_control"]["not_coarse"])]
+    if missing_controls:
+        raise SystemExit("Source-derived ternary control paths missing or unsupported: " +
+                         ", ".join(missing_controls))
     contradicted_samples = [ev["name"] for ev in evals if ev["conn_sample"] and
                             ev["conn_sample"]["overall"]["contradicted"]]
     if contradicted_samples:

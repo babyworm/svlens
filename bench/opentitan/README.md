@@ -79,8 +79,19 @@ input-to-output copies for up to four module hops. Its 16 expected paths
 across three selected SoC scopes all appear as `direct` rows; the evaluator
 pins its own frame hash and fails on a missing or downgraded path. Clocked,
 computed, multiply driven, and interface paths are excluded. Neither 358/358
-nor 16/16 is whole-design recall. The benchmark requires the `slang` CLI on `PATH` or the
-`SVLENS_SLANG` environment variable pointing to its executable.
+nor 16/16 is whole-design recall. The benchmark requires the `slang` CLI on
+`PATH` or the `SVLENS_SLANG` environment variable pointing to its executable.
+
+A third source-derived frame scans those seven scopes and `u_i2c0` for a
+unique one-bit sibling output selecting a same-width continuous `?:` result
+with one writer and a sibling input load. Six I2C format-byte/flag control
+paths qualify. All six have range-free `approximate` rows, while direct-only
+or bit-ranged rows do not satisfy this control-flow check. Its own pinned
+expected-pair hash fails the benchmark on RTL drift or lost control edges.
+The frame does not cover procedural muxes, cascaded selectors, or whole-design
+control-path recall. In scoped Slang JSON the other two I2C instances reuse
+the first instance's body by reference, so this frame does not independently
+audit their six corresponding controls.
 
 `reference_crossings[*]` checks exact FF endpoints and top-clock root labels.
 An optional `category` pins the classification on the same rooted path; this

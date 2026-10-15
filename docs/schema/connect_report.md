@@ -74,7 +74,9 @@ until analytical-trust milestones explicitly freeze them.
   provide positional `approximate` ranges while retaining a range-free may-flow
   row for transitive paths through unsupported conversions. A compile-time-known
   `if`, `case`, `casez`, or `casex` contributes only its selected branch; runtime selectors
-  retain may-flow from all possible branches. Ranges are omitted when even the
+  retain may-flow from all possible branches. A runtime `?:` selector is a
+  separate range-free `approximate` control dependency on the affected output;
+  it does not supply the selected data bits. Ranges are omitted when even the
   accessed lanes are unknown.
 - `status`
 
@@ -82,7 +84,7 @@ A full-width exact `direct` row replaces a redundant range-free `direct` row
 for the same source/destination pair. Partial exact rows and `approximate`
 rows remain separate; the connection count is report rows, not unique port
 pairs or verified physical paths. A clocked register is not treated as a
-combinational module-port forwarding step.
+combinational forwarding step, whether inside one scope or across a module port.
 Runtime-indexed element reads and combinational procedural writes may yield range-free `approximate` rows
 from every structurally bound candidate with the same declaring scope,
 compatible fixed indices, and member names. They are possible dependencies,

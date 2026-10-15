@@ -103,3 +103,35 @@ or whole-SoC recall. Eleven expected paths fan out from the SPI device clock
 mux output, three are SPI host handshake relations, and two are Ibex ready
 relations. It does not cover AXI/modport signal lanes, computed or procedural
 glue, multiply driven paths, or modules outside the selected seven scopes.
+
+## Follow-up: mux controls and clocked-state boundary
+
+An RTL-backed negative test exposed a false combinational path through an
+`always_ff` D/Q alias in the same scope. Removing that alias and adding
+range-free `approximate` dependencies from runtime `?:` selectors changed the
+SoC report from 28,010 to 24,095 connections (13,407 direct, 10,688
+approximate). Relative to the preceding committed artifact, 3,989 coarse
+approximate rows disappeared and 74 rows appeared, including one direct row
+previously tainted by an approximate alias. The initial new sample had a
+flash-read-ready → request-type path through an FSM register; the source RTL
+contradicted that combinational interpretation, and the FF-boundary fix
+removed it. This is a correctness repair, not a measured whole-SoC precision
+improvement.
+
+Three old sampled D→Q rows were previously labeled confirmed. Their values
+may change across clock edges, but they are not combinational connections
+and have been retired from the refreshed 20-row sample. The three replacement
+rows are source-backed: two Ibex counter outputs can reach other counters'
+`counter_val_i` ports through the indexed CSR read and shared SET/CLEAR
+write-data mux (`ibex_cs_registers.sv:435–449,729–745,1251–1262`), without
+implying their write-enable is asserted; the alert receiver ACK buffer's
+aggregate output reaches the decoder's `diff_ni` input through `ack_n`
+(`prim_alert_sender.sv:100–116`). The new sample population SHA-256 is
+`ee49c6049046584911430013ebe88962f66a1e65b50f42d0cc0e02c9b4ce9f14`;
+20/20 selected rows are confirmed. Two negative SHA3 cross-instance probes
+now use `keccak_complete_i`, an observed endpoint with a direct local source,
+instead of `process_i`, which ceased appearing in any connection row after
+the FF fix. An I2C FIFO-valid → format-byte mux control path is a new positive
+SoC reference (`i2c_core.sv:285,311,420`), bringing exact-path gates to 17/17.
+All seven negative probes, 358/358 direct-wiring paths, and 16/16 pass-through
+paths remain gated. The bit-flow gap count remains 27,175.

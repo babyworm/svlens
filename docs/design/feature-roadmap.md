@@ -182,7 +182,10 @@ as approximate evidence; unsupported expressions stay whole-member may-flow.
 Equal-width ternary arms with resolved source ranges now emit positional
 approximate may-flow through direct or multi-stage assignments; a known
 constant condition selects one arm, including whole-interface member-use
-inference. Other computed expressions remain limited.
+inference. Runtime ternary selector signals add range-free control dependencies
+to the affected output (or output part in a concatenation). Clocked assignments
+no longer join D and Q in the combinational connection graph. Other computed
+expressions remain limited.
 Generated if/for scopes are visited for directly used whole-interface members;
 procedural and continuous aliases use the referenced signal's declaring scope
 and skip uninstantiated branches. Fixtures now include AXI-lite-style

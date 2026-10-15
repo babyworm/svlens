@@ -187,6 +187,18 @@ TEST_CASE("Extractor: a registered module output is not a combinational port cop
     CHECK(registerToSink);
 }
 
+TEST_CASE("Extractor: same-scope FF does not alias data input to registered output", "[extractor][ports]") {
+    auto result = compileFile("sv/port_alias_forward.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "same_scope_ff_barrier_top");
+    const auto graph = extractor.extract();
+
+    for (const auto& conn : graph.connections) {
+        CHECK_FALSE((conn.source.fullPath() == "same_scope_ff_barrier_top.u_source.data_o" &&
+                     conn.dest.fullPath() == "same_scope_ff_barrier_top.u_sink.data_i"));
+    }
+}
+
 TEST_CASE("Extractor: sole unconditional combinational assignment preserves direct lanes",
           "[extractor][procedural][slice]") {
     auto result = compileFile("sv/procedural_exact_glue.sv");
@@ -958,9 +970,17 @@ TEST_CASE("Extractor: ordinary ternary bus forwards both sources approximately",
 
     bool sourceA = false;
     bool sourceB = false;
+    bool selector = false;
     for (const auto& conn : graph.connections) {
         if (conn.dest.fullPath() != "ternary_bit_flow.u_sink.data_i")
             continue;
+        if (conn.source.fullPath() == "ternary_bit_flow.u_select.select_o") {
+            CHECK(conn.kind == ConnectionKind::Approximate);
+            CHECK_FALSE(conn.sourceBits);
+            CHECK_FALSE(conn.destBits);
+            selector = true;
+            continue;
+        }
         if (conn.source.fullPath() != "ternary_bit_flow.u_a.data_o" &&
             conn.source.fullPath() != "ternary_bit_flow.u_b.data_o")
             continue;
@@ -976,6 +996,31 @@ TEST_CASE("Extractor: ordinary ternary bus forwards both sources approximately",
     }
     CHECK(sourceA);
     CHECK(sourceB);
+    CHECK(selector);
+}
+
+TEST_CASE("Extractor: ternary selector in a concatenation affects only its output part",
+          "[extractor][bit_flow][ternary]") {
+    auto result = compileFile("sv/ternary_bit_flow.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "ternary_concat_control_top");
+    const auto graph = extractor.extract();
+
+    bool high = false;
+    bool low = false;
+    for (const auto& conn : graph.connections) {
+        if (conn.source.fullPath() != "ternary_concat_control_top.u_select.select_o")
+            continue;
+        if (conn.dest.fullPath() == "ternary_concat_control_top.u_high.data_i") {
+            CHECK(conn.kind == ConnectionKind::Approximate);
+            CHECK_FALSE(conn.sourceBits);
+            CHECK_FALSE(conn.destBits);
+            high = true;
+        }
+        low |= conn.dest.fullPath() == "ternary_concat_control_top.u_low.data_i";
+    }
+    CHECK(high);
+    CHECK_FALSE(low);
 }
 
 TEST_CASE("Extractor: generated-scope whole-interface member use stays directed", "[extractor][interface][whole]") {

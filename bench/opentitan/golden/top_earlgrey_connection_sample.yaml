@@ -1,6 +1,6 @@
 seed: svlens-accuracy-v1
 per_stratum: 5
-population_sha256: 09758d7ecfa2673c2854697d592d9477571fda60216b6c95c753fe23d8d0cb74
+population_sha256: ee49c6049046584911430013ebe88962f66a1e65b50f42d0cc0e02c9b4ce9f14
 labels:
   - id: 000fbc0a685357f0
     verdict: confirmed
@@ -33,12 +33,18 @@ labels:
   - id: 0034f9869a021118
     verdict: confirmed
     evidence: top_earlgrey/ip/rv_plic/rtl/autogen/rv_plic_reg_top.sv:95,20204-20210,22908
-  - id: 00191a50cb77698a
+  - id: 009a89bac0c940eb
     verdict: confirmed
-    evidence: prim_subreg.sv:30-58, alert_handler_reg_top.sv:9710-9720
-  - id: 001925ee5baa4073
+    evidence: ibex_cs_registers.sv:435-449,729-745,1251-1262
+    note: The indexed CSR read mux can place another counter value on the shared CSR SET/CLEAR write-data bus; this does not imply the target counter write-enable is asserted
+  - id: 00b30b43bef1bbed
     verdict: confirmed
-    evidence: prim_subreg.sv:30-58, rv_plic_reg_top.sv:2941-2951
+    evidence: ibex_cs_registers.sv:435-449,729-745,1251-1262
+    note: The selected counter read value may reach every counter_val_i port through the shared CSR write-data bus, independent of the per-counter write-enable
+  - id: 00cae7a2bef0eb5e
+    verdict: confirmed
+    evidence: prim_alert_sender.sv:100-116
+    note: The two-bit buffer output concatenation carries ack_n to the decoder diff_ni input; the coarse row does not certify the exact bit index
   - id: 0020789ae0cfe1c4
     verdict: confirmed
     evidence: ibex_cs_registers.sv:278,435-449,729-745,1222-1229,1250-1262
@@ -46,9 +52,6 @@ labels:
   - id: 003e80a7a9551a45
     verdict: confirmed
     evidence: prim_alert_receiver.sv:61-78
-  - id: 004eb55db3e9b70c
-    verdict: confirmed
-    evidence: prim_subreg.sv:30-58, pinmux_reg_top.sv
   - id: 00029290f413b192
     verdict: confirmed
     evidence: rv_plic_reg_top.sv:95-101,23286

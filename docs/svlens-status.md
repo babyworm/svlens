@@ -352,7 +352,8 @@ Dependency bootstrap:
   bringing the bounded SoC connectivity references to 10/10. The AES
   `crypt_q` feedback through sparse-signal checking to `crypt_d` adds one
   transitive approximate reference; with the five PRNG lanes, the current
-  SoC connectivity total is 16/16.
+  SoC connectivity total is 17/17 after adding an I2C FIFO-valid control
+  path to the format-byte mux.
   Seven manually checked SoC absent-path probes (and two standalone AES probes)
   also pass; the evaluator requires both endpoints to occur elsewhere in the
   report. Two new probes keep separate KMAC and entropy-source SHA3 controls
@@ -380,11 +381,15 @@ Dependency bootstrap:
   selected 20 IDs remained unchanged when 53 constant-derived approximate
   SoC rows were removed. Subsequently, simple module-port bit-flow added
   8,661 ranged rows (4,714 direct, 3,947 approximate) without removing a
-  previous row. The current SoC report has 28,010 connections (13,406 direct,
-  14,604 approximate) and 27,175 recorded bit-flow gaps. Four newly selected
-  sample rows were checked against pinned RTL; the 20-row sample still has
-  zero contradictions or unresolved rows. These selected checks do not
-  establish whole-design precision. The
+  previous row. That first through-module report had 28,010 connections
+  (13,406 direct, 14,604 approximate). A later audit found that same-scope
+  clocked D/Q aliases inflated the coarse connection population. Removing
+  those aliases and adding runtime ternary-selector control dependencies
+  leaves 24,095 SoC connections (13,407 direct, 10,688 approximate), with
+  27,175 recorded bit-flow gaps. Three old sampled D/Q rows were retired and
+  three newly selected rows were checked against pinned RTL; the current
+  20-row sample has zero contradictions or unresolved rows. These selected
+  checks do not establish whole-design precision. The
   lockstep buffer bit index was independently checked by summing 30 operand
   widths. The evaluator gates annotation freshness and contradictions;
   the sample is too small and correlated to estimate whole-SoC precision or

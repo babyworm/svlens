@@ -49,6 +49,12 @@ python3 sample_connections.py results/top_earlgrey/conn/connect_report.json \
 The current 20-row audit has 20 confirmed and zero contradicted or unresolved.
 Four rows entered the sample after through-module bit flow was added; their RTL
 paths are documented in the [2026-10-16 snapshot](../../docs/benchmarks/opentitan-2026-10-16.md).
+After a clocked D/Q alias was removed from the combinational graph, three
+previously sampled sequential-influence rows left the population. Three new
+rows were adjudicated, and the current SoC report has 24,095 connections with
+20/20 source-backed sample confirmations and 17/17 positive path gates. The
+same snapshot documents the population change and the separate
+ternary-selector control dependencies.
 The lockstep buffer bit 605 was checked against the earlier independently
 summed bit-513 boundary and the 71 intervening instruction/data bits. It is a
 deliberately small, correlated sample—not a

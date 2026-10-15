@@ -30,3 +30,10 @@ module port_alias_registered_top(input logic clk_i);
     port_alias_register u_register(.clk_i, .data_i(source_bus), .data_o(dest_bus));
     port_alias_sink u_sink(.data_i(dest_bus));
 endmodule
+
+module same_scope_ff_barrier_top(input logic clk_i);
+    logic [7:0] data_d, data_q;
+    port_alias_source u_source(.data_o(data_d));
+    always_ff @(posedge clk_i) data_q <= data_d;
+    port_alias_sink u_sink(.data_i(data_q));
+endmodule

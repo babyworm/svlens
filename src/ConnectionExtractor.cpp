@@ -1031,6 +1031,12 @@ bool ConnectionExtractor::recordBitFlow(const slang::ast::Expression& lhs, const
     bool stateChangingConversion = false;
     bool mappedWidthConversion = false;
     bool mappedConditional = false;
+    struct ConditionalControl {
+        const slang::ast::Expression* expr;
+        uint32_t offset;
+        uint32_t width;
+    };
+    std::vector<ConditionalControl> controls;
     auto flatten = [&](auto&& self, const slang::ast::Expression& expr, uint32_t offset, std::vector<Part>& parts,
                        bool sourceSide) -> bool {
         using EK = slang::ast::ExpressionKind;
@@ -1111,6 +1117,8 @@ bool ConnectionExtractor::recordBitFlow(const slang::ast::Expression& lhs, const
                 conditional.right().type->getBitWidth() != current->type->getBitWidth())
                 return false;
             mappedConditional = true;
+            for (const auto& condition : conditional.conditions)
+                controls.push_back({condition.expr, offset, current->type->getBitWidth()});
             const size_t leftStart = parts.size();
             if (!self(self, conditional.left(), offset, parts, sourceSide))
                 return false;
@@ -1155,6 +1163,22 @@ bool ConnectionExtractor::recordBitFlow(const slang::ast::Expression& lhs, const
         interesting |= part.selected;
     for (const auto& part : sources)
         interesting |= part.selected;
+
+    for (const auto& target : targets) {
+        if (!target.wire)
+            continue;
+        for (const auto& control : controls) {
+            if (std::max(target.offset, control.offset) >=
+                std::min(target.offset + target.width, control.offset + control.width))
+                continue;
+            std::vector<std::string> refs;
+            collectDependencyKeys(*control.expr, scopePath, refs);
+            for (const auto& ref : refs) {
+                if (ref != target.wire->baseKey)
+                    proceduralDependencies_.emplace_back(ref, target.wire->baseKey);
+            }
+        }
+    }
 
     bool emitted = false;
     for (const auto& target : targets) {
@@ -1216,7 +1240,6 @@ ConnectionGraph ConnectionExtractor::extract() {
     rangeBindings_.clear();
     bitFlowLinks_.clear();
     netAliases_.clear();
-    approximateAliases_.clear();
     proceduralDependencies_.clear();
 
     auto& root = compilation_.getRoot();
@@ -1916,7 +1939,7 @@ void ConnectionExtractor::processContinuousAssign(const slang::ast::ContinuousAs
             proceduralDependencies_.emplace_back(rhsKey, lhsKey);
         return;
     }
-    recordAlias(lhsKey, rhsKey, false);
+    recordAlias(lhsKey, rhsKey);
 }
 
 void ConnectionExtractor::processProceduralBlock(const slang::ast::ProceduralBlockSymbol& block,
@@ -2536,13 +2559,8 @@ void ConnectionExtractor::processProceduralStatement(const slang::ast::Statement
                 }
                 return;
             }
-            auto rhs = resolveExpr(&assign.right());
-            if (lhs.tieOff || rhs.tieOff ||
-                lhs.netNames.size() != 1 || rhs.netNames.size() != 1)
-                return;
-
-            recordAlias(netKeyForExpression(assign.left(), lhs.netNames.front(), lhs.is_absolute, scopePath),
-                        netKeyForExpression(assign.right(), rhs.netNames.front(), rhs.is_absolute, scopePath), true);
+            // A clocked assignment changes state; D and Q are not aliases in
+            // the combinational connection graph, even approximately.
             return;
         }
         case SK::Timed: {
@@ -2641,21 +2659,13 @@ void ConnectionExtractor::processProceduralStatement(const slang::ast::Statement
     }
 }
 
-void ConnectionExtractor::recordAlias(const std::string& lhsKey,
-                                      const std::string& rhsKey,
-                                      bool approximate) {
+void ConnectionExtractor::recordAlias(const std::string& lhsKey, const std::string& rhsKey) {
     std::string lhsCanon = findCanonical(lhsKey);
     std::string rhsCanon = findCanonical(rhsKey);
-    if (lhsCanon == rhsCanon) {
-        if (approximate)
-            approximateAliases_.insert(lhsCanon);
+    if (lhsCanon == rhsCanon)
         return;
-    }
 
     netAliases_[rhsCanon] = lhsCanon;
-    if (approximate || approximateAliases_.count(lhsCanon) || approximateAliases_.count(rhsCanon))
-        approximateAliases_.insert(lhsCanon);
-    approximateAliases_.erase(rhsCanon);
 }
 
 std::string ConnectionExtractor::findCanonical(const std::string& key) {
@@ -2755,9 +2765,7 @@ void ConnectionExtractor::resolveConnections() {
                 Connection conn;
                 conn.source = driver->port;
                 conn.dest = load->port;
-                if (driver->kind == ConnectionKind::Approximate ||
-                    load->kind == ConnectionKind::Approximate ||
-                    approximateAliases_.count(canon)) {
+                if (driver->kind == ConnectionKind::Approximate || load->kind == ConnectionKind::Approximate) {
                     conn.kind = ConnectionKind::Approximate;
                 }
                 graph_.connections.push_back(conn);

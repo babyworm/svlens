@@ -77,7 +77,7 @@ private:
                        const std::string& scopePath, bool approximate, bool forceInteresting = false);
     static void collectDependencyKeys(const slang::ast::Expression& expr, const std::string& scopePath,
                                       std::vector<std::string>& keys);
-    void recordAlias(const std::string& lhsKey, const std::string& rhsKey, bool approximate);
+    void recordAlias(const std::string& lhsKey, const std::string& rhsKey);
 
     // Round 39 review: fill in StyleObservation::lineNumber/columnNumber
     // from the location's source manager so JSON consumers do not need
@@ -177,9 +177,8 @@ private:
     std::unordered_set<std::string> combinational_d_bases_;
     bool has_comb_context_ = false;
 
-    // net alias map: key -> parent key (union-find without path compression)
+    // Net alias map: key -> parent key; findCanonical compresses paths.
     std::unordered_map<std::string, std::string> netAliases_;
-    std::unordered_set<std::string> approximateAliases_;
     // Directed signal dependencies from combinational procedural assignments.
     // Unlike aliases, multiple mux inputs must not merge into one net.
     std::vector<std::pair<std::string, std::string>> proceduralDependencies_;

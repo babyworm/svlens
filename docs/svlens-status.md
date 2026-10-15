@@ -1,6 +1,6 @@
 # svlens Implementation Status
 
-Updated: 2026-10-08
+Updated: 2026-10-15
 
 ## Summary
 
@@ -97,17 +97,17 @@ Representative scripts:
 
 ## Current Validation Result
 
-The full local regression on 2026-10-08 passed:
+The full local regression on 2026-10-15 passed:
 
 - `cmake --build build -j8`
 - `ctest --test-dir build --output-on-failure -j8`
 - `ctest --test-dir build-ubsan --output-on-failure -j4`
-- **739 / 739 tests passing** in both builds
+- **743 / 743 tests passing** in both builds
 
 The shared inline-SV test helper now owns the slang driver for the full AST
 lifetime. This removes a dangling-source dependency that could corrupt
 hierarchical names and make CDC regressions depend on allocator behavior.
-The full ASan regression also passes **739 / 739** when svlens is linked to a
+The full ASan regression also passes **743 / 743** when svlens is linked to a
 separately built slang v10 at the same pinned commit with
 `SLANG_USE_MIMALLOC=OFF`. The default installed slang exports mimalloc and the
 same ASan test binary crashes inside `mi_free_block_delayed_mt` on standalone
@@ -165,7 +165,14 @@ Dependency bootstrap:
   member-use inference; runtime selectors stay conservative. Generated
   if/for member uses and declaring-scope procedural aliases are covered by
   small positive/negative fixtures, along with nested forwarding, AXI-lite
-  modports, and fixed/genvar-indexed parameterized interface-array elements.
+  modports, fixed/genvar-indexed parameterized interface-array elements, and
+  whole-array modport ports with positional lane mapping even when connected
+  unpacked ranges have opposite directions, including fixed multidimensional
+  arrays. Direct continuous copies between modport members now retain
+  directed bit-flow without reverse aliases.
+  A one-off pinned PULP AXI 2×2 crossbar probe found 76/76 direct boundary
+  member paths and no wrong-lane boundary links. It is not a CI benchmark or
+  evidence of internal mux/decoder accuracy.
   Direct constant slices, elaborated indexed `+:` / `-:` part-selects (including
   generated banks and modport members), constant-indexed integral unpacked-array elements,
   nested constant-indexed packed-array elements/bits (including packed fields

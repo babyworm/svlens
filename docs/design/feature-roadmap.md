@@ -187,9 +187,18 @@ Generated if/for scopes are visited for directly used whole-interface members;
 procedural and continuous aliases use the referenced signal's declaring scope
 and skip uninstantiated branches. Fixtures now include AXI-lite-style
 multi-channel modports, nested whole-interface forwarding, two-element
-parameterized interface arrays (including genvar-indexed lanes), and isolated
-generated lanes. These are small RTL probes, not an accuracy measurement on
-an AXI SoC.
+parameterized interface arrays (including genvar-indexed lanes), whole-array
+modport port forwarding with positional lane mapping across opposite unpacked
+range directions and fixed multidimensional arrays, and isolated generated
+lanes. A simple continuous
+modport-member copy retains directed bit-flow without a reverse port alias.
+These are small RTL probes, not an accuracy measurement on an AXI SoC.
+A one-off 2×2 AXI-Lite crossbar probe against pinned
+[PULP AXI](https://github.com/pulp-platform/axi/tree/70b8e54fd460e3308e58be596ceb3566a6e3576e)
+and [common_cells](https://github.com/pulp-platform/common_cells/tree/e73baaec2ca665cd80c3c384e9258e35242b829c)
+found 76/76 direct boundary-member paths and no wrong-lane boundary links.
+It is not a committed benchmark gate and does not assess the internal
+mux/decoder paths.
 A pinned 20-row OpenTitan SoC connection sample has 20 source-backed
 confirmations, including an independently checked buffer bit index. It is a narrow audit with
 correlated generated-register rows, not a whole-design precision/recall value

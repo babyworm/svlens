@@ -230,6 +230,7 @@ def expected_passthrough_edges(scope: dict, path: str, max_hops: int = 4) -> lis
     def visit(node, scope_path):
         members = members_of(node)
         by_symbol = defaultdict(lambda: {"Out": [], "In": []})
+        output_writers = Counter()
         parent_writes = Counter(symbol for member in members if isinstance(member, dict) and
                                 member.get("kind") not in ("Instance", "InstanceArray")
                                 for assignment in assignments(member)
@@ -241,6 +242,10 @@ def expected_passthrough_edges(scope: dict, path: str, max_hops: int = 4) -> lis
             for connection in child.get("connections", []):
                 port = connection.get("port") or {}
                 direction = port.get("direction")
+                expr = connection.get("expr") or {}
+                if direction == "Out":
+                    output_expr = (expr.get("left") or {}) if expr.get("kind") == "Assignment" else expr
+                    output_writers.update(named_values(output_expr))
                 width = simple_logic_width(port.get("type"))
                 if direction not in ("In", "Out") or width is None:
                     continue
@@ -251,7 +256,7 @@ def expected_passthrough_edges(scope: dict, path: str, max_hops: int = 4) -> lis
                 copies[source_net].append((dest_net, width, child["name"], output_port))
 
         for start_net, ports in by_symbol.items():
-            if len(ports["Out"]) != 1 or parent_writes[start_net]:
+            if len(ports["Out"]) != 1 or output_writers[start_net] != 1 or parent_writes[start_net]:
                 continue
             source_instance, source_port, source_width = ports["Out"][0]
             pending = [(start_net, 0)]
@@ -262,7 +267,8 @@ def expected_passthrough_edges(scope: dict, path: str, max_hops: int = 4) -> lis
                     continue
                 for next_net, width, bridge_instance, output_port in copies[current]:
                     drivers = by_symbol[next_net]["Out"]
-                    if (width != source_width or parent_writes[next_net] or len(drivers) != 1 or
+                    if (width != source_width or parent_writes[next_net] or output_writers[next_net] != 1 or
+                            len(drivers) != 1 or
                             drivers[0] != (bridge_instance, output_port, width) or next_net in visited):
                         continue
                     visited.add(next_net)
@@ -323,6 +329,7 @@ def audit_source_recall(report: dict, filelist: Path, top: str, scopes: list[str
     if not scopes or len(set(scopes)) != len(scopes):
         raise ValueError("source-recall scopes must be nonempty and distinct")
     by_scope = {}
+    passthrough_by_scope = {}
     with tempfile.TemporaryDirectory(prefix="svlens-source-recall-") as directory:
         for index, scope in enumerate(scopes):
             ast_path = Path(directory) / f"scope-{index}.json"
@@ -337,7 +344,11 @@ def audit_source_recall(report: dict, filelist: Path, top: str, scopes: list[str
             if ast.get("kind") != "Instance" or ast.get("name") != scope.rsplit(".", 1)[-1]:
                 raise ValueError(f"source-recall scope {scope} was not found")
             by_scope[scope] = expected_simple_edges(ast, scope)
+            passthrough_by_scope[scope] = expected_passthrough_edges(ast, scope)
     result = compare_report(report, by_scope)
     if not result["expected"]:
         raise ValueError("source-recall oracle found no eligible paths")
+    result["passthrough"] = compare_report(report, passthrough_by_scope)
+    if not result["passthrough"]["expected"]:
+        raise ValueError("source-recall pass-through oracle found no eligible paths")
     return result

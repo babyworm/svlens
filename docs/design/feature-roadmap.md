@@ -209,9 +209,12 @@ An independent AST probe enumerates 358 scalar or whole-width one-dimensional
 vector sibling-port paths across seven pinned SoC IP scopes and checks all
 358 in the conn report (vector width capped at 4,096 bits). This includes 355
 shared-net paths and three uniquely driven one-stage continuous aliases. It
-bounds recall for these direct path shapes only; bit-lane correspondence,
-interfaces, sliced/converted buses, through-module port paths, procedural
-glue, and other scopes still need their own source-derived frames.
+bounds recall for these direct path shapes only. A separate source-derived
+frame follows sole same-width continuous module input-to-output copies for
+up to four hops and currently finds 16/16 `direct` paths across three selected
+SoC scopes. Both frames pin their expected-pair hashes. Bit-lane
+correspondence, interfaces, sliced/converted buses, procedural glue,
+other through-module shapes, and other scopes still need source-derived checks.
 
 **Why**: branch-sensitive mux/decoder glue, legal interface-array composition,
 deep forwarding, and nontrivial bit-range dataflow still need precise signal-level

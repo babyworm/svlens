@@ -56,6 +56,23 @@ class SourceRecallTests(unittest.TestCase):
                 ("top.u_source.data_o[7:0]", "top.u_copy1.data_i[7:0]"),
             ])
 
+        canonical = wrapper("u_copy0", "first", "second")
+        canonical["body"]["addr"] = 123
+        reused = wrapper("u_copy1", "second", "third")
+        reused["body"] = "123 copy_body"
+        shared_body = {"kind": "Instance", "body": {"members": [
+            scope["body"]["members"][0], canonical, reused, scope["body"]["members"][-1],
+        ]}}
+        self.assertEqual(expected_passthrough_edges(shared_body, "top"),
+                         expected_passthrough_edges(scope, "top"))
+
+        second_driver = {"kind": "Instance", "name": "u_extra",
+                         "connections": [port("data_o", "Out", "third", "logic[3:0]", "logic[7:0]")]}
+        shared_body["body"]["members"].append(second_driver)
+        self.assertEqual(expected_passthrough_edges(shared_body, "top"), [
+            ("top.u_source.data_o[7:0]", "top.u_copy1.data_i[7:0]"),
+        ])
+
     def test_whole_vector_wires_use_report_width_spelling_and_reject_conversions(self):
         self.assertIsNone(simple_logic_width("logic[1:0][3:0]"))
         self.assertIsNone(simple_logic_width("logic[4096:0]"))

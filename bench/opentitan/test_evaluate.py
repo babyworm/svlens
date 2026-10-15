@@ -71,11 +71,18 @@ class EvaluateTests(unittest.TestCase):
                     "targets:\n  - name: soc\n    level: L4\n    top_module: soc\n"
                     "    sample_annotations: golden/sample.yaml\n"
                     "    source_recall_scopes: [soc.u_child]\n"
-                    "    source_recall_expected_sha256: hash\n")
+                    "    source_recall_expected_sha256: hash\n"
+                    "    source_passthrough_expected_sha256: through-hash\n")
                 oracle = {"scope_results": {"soc.u_child": {"expected": 1, "found_direct": 0,
                                                               "approximate_only": 0, "missing": 1}},
                           "expected": 1, "found_direct": 0, "approximate_only": [],
-                          "missing": [("a", "b")], "expected_sha256": "hash"}
+                          "missing": [("a", "b")], "expected_sha256": "hash",
+                          "passthrough": {"scope_results": {"soc.u_child": {"expected": 1,
+                                                                                "found_direct": 0,
+                                                                                "approximate_only": 0,
+                                                                                "missing": 1}},
+                                          "expected": 1, "found_direct": 0, "approximate_only": [],
+                                          "missing": [("c", "d")], "expected_sha256": "through-hash"}}
                 with (mock.patch.object(benchmark_evaluate, "audit_source_recall", return_value=oracle),
                       self.assertRaisesRegex(SystemExit, "Source-derived direct wiring paths missing")):
                     benchmark_evaluate.main()
@@ -86,6 +93,18 @@ class EvaluateTests(unittest.TestCase):
                 oracle["expected_sha256"] = "changed"
                 with (mock.patch.object(benchmark_evaluate, "audit_source_recall", return_value=oracle),
                       self.assertRaisesRegex(SystemExit, "recall frame changed")):
+                    benchmark_evaluate.main()
+                oracle["expected_sha256"] = "hash"
+                with (mock.patch.object(benchmark_evaluate, "audit_source_recall", return_value=oracle),
+                      self.assertRaisesRegex(SystemExit, "pass-through paths missing")):
+                    benchmark_evaluate.main()
+                oracle["passthrough"]["missing"] = []
+                oracle["passthrough"]["found_direct"] = 1
+                oracle["passthrough"]["scope_results"]["soc.u_child"] = {
+                    "expected": 1, "found_direct": 1, "approximate_only": 0, "missing": 0}
+                oracle["passthrough"]["expected_sha256"] = "changed"
+                with (mock.patch.object(benchmark_evaluate, "audit_source_recall", return_value=oracle),
+                      self.assertRaisesRegex(SystemExit, "pass-through frame changed")):
                     benchmark_evaluate.main()
 
     def test_sva_probe_checks_secondary_fifo_label_and_full_label_bijection(self):

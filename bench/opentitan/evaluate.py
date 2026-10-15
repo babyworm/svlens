@@ -604,6 +604,23 @@ def generate_report(evals: list) -> str:
                          f"{result['found_direct']} | {len(result['approximate_only'])} | "
                          f"{len(result['missing'])} |")
             lines += ["", f"Expected-pair SHA-256: `{result['expected_sha256']}`."]
+        lines += ["", "## Source-Derived Module Pass-Through Recall", "",
+                  "A separate bounded AST frame follows sole, same-width direct continuous",
+                  "module input-to-output copies for at most four hops. It excludes clocked,",
+                  "computed, multiply driven, and interface paths. This checks path presence,",
+                  "not bit-lane correspondence or whole-design recall.", "",
+                  "| Target | Scope | Expected | Direct | Approximate only | Missing |",
+                  "|--------|-------|---------:|-------:|-----------------:|--------:|"]
+        for ev in source_audits:
+            result = ev["source_recall"]["passthrough"]
+            for scope, counts in result["scope_results"].items():
+                lines.append(f"| {ev['name']} | `{scope}` | {counts['expected']} | "
+                             f"{counts['found_direct']} | {counts['approximate_only']} | "
+                             f"{counts['missing']} |")
+            lines.append(f"| {ev['name']} | **total** | {result['expected']} | "
+                         f"{result['found_direct']} | {len(result['approximate_only'])} | "
+                         f"{len(result['missing'])} |")
+            lines += ["", f"Pass-through expected-pair SHA-256: `{result['expected_sha256']}`."]
     lines += ["", "---", ""]
     return "\n".join(lines)
 
@@ -620,8 +637,9 @@ def main():
         golden = load_golden(name)
         if target.get("sva_probe") and not golden.get("sva_references"):
             raise SystemExit(f"{name} SVA probe requires at least one sva_reference")
-        if target.get("source_recall_scopes") and not target.get("source_recall_expected_sha256"):
-            raise SystemExit(f"{name} source-recall probe requires an expected frame hash")
+        if target.get("source_recall_scopes") and not (target.get("source_recall_expected_sha256") and
+                                                        target.get("source_passthrough_expected_sha256")):
+            raise SystemExit(f"{name} source-recall probe requires both expected frame hashes")
         base_cdc = (load_json_report(name, "cdc", "cdc_report.json")
                     if metrics.get("cdc_status") == "reported" else {})
         timed_cdc = (load_json_report(name, "cdc_periods", "cdc_report.json")
@@ -658,6 +676,7 @@ def main():
             "conn_sample": conn_sample,
             "source_recall": source_recall,
             "source_recall_expected_sha256": target.get("source_recall_expected_sha256"),
+            "source_passthrough_expected_sha256": target.get("source_passthrough_expected_sha256"),
         })
     report = generate_report(evals)
     out = RESULTS_DIR / "bench_report.md"
@@ -683,11 +702,23 @@ def main():
     if changed_source_frames:
         raise SystemExit("Source-derived recall frame changed; re-adjudicate RTL paths: " +
                          ", ".join(changed_source_frames))
+    changed_passthrough_frames = [ev["name"] for ev in evals if ev["source_recall"] and
+                                  ev["source_recall"]["passthrough"]["expected_sha256"] !=
+                                  ev["source_passthrough_expected_sha256"]]
+    if changed_passthrough_frames:
+        raise SystemExit("Source-derived pass-through frame changed; re-adjudicate RTL paths: " +
+                         ", ".join(changed_passthrough_frames))
     missing_source_recall = [ev["name"] for ev in evals if ev["source_recall"] and
                              (ev["source_recall"]["missing"] or ev["source_recall"]["approximate_only"])]
     if missing_source_recall:
         raise SystemExit("Source-derived direct wiring paths missing or downgraded: " +
                          ", ".join(missing_source_recall))
+    missing_passthrough_recall = [ev["name"] for ev in evals if ev["source_recall"] and
+                                  (ev["source_recall"]["passthrough"]["missing"] or
+                                   ev["source_recall"]["passthrough"]["approximate_only"])]
+    if missing_passthrough_recall:
+        raise SystemExit("Source-derived pass-through paths missing or downgraded: " +
+                         ", ".join(missing_passthrough_recall))
     contradicted_samples = [ev["name"] for ev in evals if ev["conn_sample"] and
                             ev["conn_sample"]["overall"]["contradicted"]]
     if contradicted_samples:

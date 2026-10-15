@@ -393,8 +393,11 @@ Dependency bootstrap:
   SoC IP scopes, with an explicit expected-pair manifest and pinned frame hash.
   Three paths cross one uniquely driven direct continuous alias; the other
   355 share a named net. The probe checks path presence, not vector bit
-  correspondence, and excludes sliced or converted buses, procedural glue,
-  interfaces, and other scopes; whole-design recall remains unmeasured. The
+  correspondence. A separate four-hop direct module-copy oracle finds 16/16
+  `direct` pass-through paths across three selected SoC scopes, with its own
+  pinned expected-pair hash. Both probes exclude sliced or converted buses,
+  procedural glue, interfaces, and other scopes; whole-design recall remains
+  unmeasured. The
   [2026-09-26 snapshot](benchmarks/opentitan-2026-09-26.md) preserves the
   earlier baseline before direct clock-alias propagation.
 

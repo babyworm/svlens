@@ -66,11 +66,14 @@ rebuilds its expectations from pinned RTL on each benchmark run, writes the
 full pair manifest to `results/top_earlgrey/source_recall.json`, and fails if
 a path is missing, downgraded to `approximate`, or the expected-pair frame hash
 changes without re-adjudication. It checks whole-vector path presence, not
-bit-lane correspondence, and excludes sliced/converted buses, through-module
-port paths, procedural glue, interface ports, multi-stage aliases, and
-unselected SoC scopes. Thus
-358/358 is not
-whole-design recall. The benchmark requires the `slang` CLI on `PATH` or the
+bit-lane correspondence, and excludes sliced/converted buses, procedural
+glue, interface ports, multi-stage aliases, and unselected SoC scopes. A
+separate frame follows uniquely driven, same-width direct continuous module
+input-to-output copies for up to four module hops. Its 16 expected paths
+across three selected SoC scopes all appear as `direct` rows; the evaluator
+pins its own frame hash and fails on a missing or downgraded path. Clocked,
+computed, multiply driven, and interface paths are excluded. Neither 358/358
+nor 16/16 is whole-design recall. The benchmark requires the `slang` CLI on `PATH` or the
 `SVLENS_SLANG` environment variable pointing to its executable.
 
 `reference_crossings[*]` checks exact FF endpoints and top-clock root labels.

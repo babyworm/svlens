@@ -42,3 +42,4 @@ targets:
       - top_earlgrey.u_rv_core_ibex
       - top_earlgrey.u_pwrmgr_aon
     source_recall_expected_sha256: "489f2ee89a2927b87654a85211290e57718a643de2ebcb77eba12248341026f3"
+    source_passthrough_expected_sha256: "63a25fad14dc617c8e876b5f516bb6f9a30f223f461b7c2709c9262ce3110977"

@@ -85,3 +85,21 @@ and zero contradicted or unresolved. The new population SHA-256 is
 These four checked examples do not establish precision for the other 8,657
 new rows or whole-design recall. CDC counts and pinned CDC/SVA gates are
 unchanged from the first run above.
+
+## Follow-up: source-derived pass-through recall
+
+The local 2026-10-16 run adds a second Slang-AST recall frame without
+changing analyzer output or the existing 358/358 direct-wiring frame. It
+enumerates sole, same-width continuous module input-to-output copies through
+at most four modules. The expected-pair SHA-256 is
+`63a25fad14dc617c8e876b5f516bb6f9a30f223f461b7c2709c9262ce3110977`;
+all 16 expected paths appear as `direct` rows: 11 in SPI device, three in SPI
+host, and two in Ibex. None overlap the older 358-pair frame. The benchmark
+now fails if either frame changes, or if one of its paths is missing or only
+approximate.
+
+This is a narrow check of pass-through path presence, not bit-lane correctness
+or whole-SoC recall. Eleven expected paths fan out from the SPI device clock
+mux output, three are SPI host handshake relations, and two are Ibex ready
+relations. It does not cover AXI/modport signal lanes, computed or procedural
+glue, multiply driven paths, or modules outside the selected seven scopes.

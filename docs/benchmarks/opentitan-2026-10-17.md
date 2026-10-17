@@ -44,7 +44,7 @@ recorded bit-flow gaps fell from 304 to 166. The four manager AW/AR address
 paths to the corresponding internal `cc_addr_decode.addr_i[7:0]` are direct
 with source and destination bits `[7:0]`; no manager address was linked to
 the opposite lane's decoder. The earlier 76/76 external modport boundary
-paths remain present. This probe is not a committed CI gate and does not
+paths remain present. At that point it was not a committed CI gate and did not
 establish correctness of internal arbitration, mux selection, or all AXI
 channels.
 
@@ -102,6 +102,22 @@ path. New approximate ranged rows include possible response paths from either
 master mux to either slave demux, as expected for a fully connected crossbar;
 the individual arbitration outcomes and these new rows have not been
 independently adjudicated or added to CI.
+
+## Follow-up: repeatable PULP AXI gate
+
+The repository now contains the fixture, pinned-clone runner, and an
+84-relation evaluator under `bench/pulp_axi/`. On manual dispatch, the
+existing benchmark workflow runs the PULP probe as a separate job and uploads
+its report; scheduled OpenTitan runs do not fetch PULP sources. The frame
+requires all 76 directed modport boundary paths with full bit ranges, the
+four same-lane AW/AR decoder paths, and four positional `approximate`
+master-response to slave-demux candidates. It rejects missing, duplicate,
+downgraded, range-changed, reversed, and wrong-lane boundary or decoder paths.
+The expected-pair SHA-256 is
+`f89dc8640861f95e1f437724635e5a2777f231695a09eb09ca0b2660737a9730`.
+The local pinned run reports 488 connection rows and 140 bit-flow gaps.
+The rest of those rows are not source-adjudicated by this frame, so the gate
+still does not measure overall AXI accuracy or arbitration correctness.
 
 ## Follow-up: packed selection in an input-port expression
 

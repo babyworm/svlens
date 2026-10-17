@@ -173,11 +173,14 @@ Dependency bootstrap:
   Same-width combinational copies through ordinary module ports also retain
   positional source-to-sink paths across multiple wrappers; clocked outputs
   remain a barrier, and untouched ports are not bridged.
-  A one-off pinned PULP AXI 2×2 crossbar probe found 76/76 direct boundary
+  A pinned PULP AXI 2×2 crossbar probe found 76/76 direct boundary
   member paths and no wrong-lane boundary links. Flattened packed-struct
   array fields now recover all four manager AW/AR address inputs to their
-  same-lane internal decoder ports, with no opposite-lane route. It is not a
-  CI benchmark or evidence of the crossbar's mux-selection correctness.
+  same-lane internal decoder ports, with no opposite-lane route. Four
+  source-backed master-response to slave-demux routes remain positional
+  `approximate` candidates. The 84-pair frame is now a committed optional
+  manual-dispatch CI job; it is not evidence of the crossbar's mux-selection
+  correctness or whole-design precision.
   Direct constant slices, elaborated indexed `+:` / `-:` part-selects (including
   generated banks and modport members), constant-indexed integral unpacked-array elements,
   nested constant-indexed packed-array elements/bits (including packed fields

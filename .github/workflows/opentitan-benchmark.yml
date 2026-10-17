@@ -58,3 +58,56 @@ jobs:
           name: opentitan-benchmark
           path: bench/opentitan/results/
           if-no-files-found: warn
+
+  pulp_axi:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SVLENS_BENCH_SLANG_PREFIX: /tmp/svlens-benchmark-slang
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install prerequisites
+        run: |
+          ./scripts/ci-apt-install.sh \
+            build-essential cmake git python3 ccache \
+            catch2 libyaml-cpp-dev
+
+      - name: Cache slang install
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.SVLENS_BENCH_SLANG_PREFIX }}
+          key: ${{ runner.os }}-svlens-slang-v10-with-tools-${{ hashFiles('scripts/setup-deps.sh') }}
+
+      - name: Stage slang dependency
+        run: ./scripts/setup-deps.sh --prefix "$SVLENS_BENCH_SLANG_PREFIX" --with-tools
+
+      - name: Build svlens
+        run: make build CMAKE_PREFIX_PATH="$SVLENS_BENCH_SLANG_PREFIX"
+
+      - name: Fetch pinned PULP RTL
+        run: |
+          git clone --quiet https://github.com/pulp-platform/axi.git "$RUNNER_TEMP/pulp-axi"
+          git -C "$RUNNER_TEMP/pulp-axi" checkout --quiet 70b8e54fd460e3308e58be596ceb3566a6e3576e
+          git clone --quiet https://github.com/pulp-platform/common_cells.git "$RUNNER_TEMP/pulp-common-cells"
+          git -C "$RUNNER_TEMP/pulp-common-cells" checkout --quiet e73baaec2ca665cd80c3c384e9258e35242b829c
+
+      - name: Test probe evaluator and stale-report guards
+        run: python3 -B -m unittest discover -s bench/pulp_axi -p 'test_*.py'
+
+      - name: Run PULP AXI-Lite 2x2 probe
+        run: |
+          python3 bench/pulp_axi/run.py \
+            --axi-root "$RUNNER_TEMP/pulp-axi" \
+            --common-cells-root "$RUNNER_TEMP/pulp-common-cells" \
+            --svlens build/svlens \
+            --output "$RUNNER_TEMP/pulp-axi-report"
+
+      - name: Upload PULP AXI probe reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pulp-axi-benchmark
+          path: ${{ runner.temp }}/pulp-axi-report/
+          if-no-files-found: warn

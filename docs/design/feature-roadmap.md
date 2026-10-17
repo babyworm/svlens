@@ -198,7 +198,7 @@ modport-member copy retains directed bit-flow without a reverse port alias.
 Simple same-width module-port copies also carry directed bit lanes through
 multiple wrapper stages; untouched or clocked ports are not bridged.
 These are small RTL probes, not an accuracy measurement on an AXI SoC.
-A one-off 2×2 AXI-Lite crossbar probe against pinned
+A 2×2 AXI-Lite crossbar probe against pinned
 [PULP AXI](https://github.com/pulp-platform/axi/tree/70b8e54fd460e3308e58be596ceb3566a6e3576e)
 and [common_cells](https://github.com/pulp-platform/common_cells/tree/e73baaec2ca665cd80c3c384e9258e35242b829c)
 found 76/76 direct boundary-member paths and no wrong-lane boundary links.
@@ -206,8 +206,11 @@ Flattening constant-selected packed-struct array fields through ordinary
 module ports now exposes 4/4 source-to-internal AW/AR address-decoder input
 paths in the same probe (one per manager and channel), with no wrong-lane
 decoder links. The SoC sample and small regression cover packed offsets and
-opposite array orientations. This remains an uncommitted external probe,
-not a CI benchmark or a validation of the crossbar's internal mux decisions.
+opposite array orientations. The fixture and evaluator are now committed as
+an optional manual-dispatch CI job: 76 boundary, four decoder, and four
+positional approximate response-candidate paths are gated. That bounded
+frame does not validate internal arbitration decisions or whole-crossbar
+accuracy.
 Runtime reads of bounded packed-struct arrays now carry approximate candidate
 field ranges and a separate range-free index-control dependency. The OpenTitan
 KMAC app-port probe gates both the `data` and `valid` lanes from one possible

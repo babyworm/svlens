@@ -268,6 +268,8 @@ TEST_CASE("Extractor: whole packed struct port joins its nested field lanes", "[
     const auto graph = extractor.extract();
     const std::string top = "plain_struct_port_forward_top.";
     bool data = false;
+    bool high = false;
+    bool low = false;
     bool valid = false;
     for (const auto& conn : graph.connections) {
         const auto source = conn.source.fullPath();
@@ -292,11 +294,66 @@ TEST_CASE("Extractor: whole packed struct port joins its nested field lanes", "[
             CHECK(conn.destBits->high == 0);
             valid = true;
         }
+        if (source == top + "u_data.data_o" && dest == top + "u_forward.u_high.data_i") {
+            CHECK(conn.kind == ConnectionKind::Direct);
+            REQUIRE(conn.sourceBits);
+            REQUIRE(conn.destBits);
+            CHECK(conn.sourceBits->low == 4);
+            CHECK(conn.sourceBits->high == 7);
+            CHECK(conn.destBits->low == 0);
+            CHECK(conn.destBits->high == 3);
+            high = true;
+        }
+        if (source == top + "u_data.data_o" && dest == top + "u_forward.u_low.data_i") {
+            CHECK(conn.kind == ConnectionKind::Direct);
+            REQUIRE(conn.sourceBits);
+            REQUIRE(conn.destBits);
+            CHECK(conn.sourceBits->low == 0);
+            CHECK(conn.sourceBits->high == 3);
+            CHECK(conn.destBits->low == 0);
+            CHECK(conn.destBits->high == 3);
+            low = true;
+        }
         CHECK_FALSE((source == top + "u_data.data_o" && dest == top + "u_forward.u_valid.valid_i"));
         CHECK_FALSE((source == top + "u_valid.valid_o" && dest == top + "u_forward.u_data.data_i"));
     }
     CHECK(data);
+    CHECK(high);
+    CHECK(low);
     CHECK(valid);
+}
+
+TEST_CASE("Extractor: ascending packed-struct field slices retain ordinal lanes", "[extractor][ports][bit_flow]") {
+    auto result = compileFile("sv/packed_struct_array_member_forward.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "plain_struct_ascending_top");
+    const auto graph = extractor.extract();
+    const std::string source = "plain_struct_ascending_top.u_data.data_o";
+    const std::string base = "plain_struct_ascending_top.u_forward.";
+    bool high = false;
+    bool low = false;
+    for (const auto& conn : graph.connections) {
+        if (conn.source.fullPath() != source || !conn.sourceBits || !conn.destBits)
+            continue;
+        if (conn.dest.fullPath() == base + "u_high.data_i") {
+            CHECK(conn.kind == ConnectionKind::Direct);
+            CHECK(conn.sourceBits->low == 4);
+            CHECK(conn.sourceBits->high == 7);
+            CHECK(conn.destBits->low == 0);
+            CHECK(conn.destBits->high == 3);
+            high = true;
+        }
+        if (conn.dest.fullPath() == base + "u_low.data_i") {
+            CHECK(conn.kind == ConnectionKind::Direct);
+            CHECK(conn.sourceBits->low == 0);
+            CHECK(conn.sourceBits->high == 3);
+            CHECK(conn.destBits->low == 0);
+            CHECK(conn.destBits->high == 3);
+            low = true;
+        }
+    }
+    CHECK(high);
+    CHECK(low);
 }
 
 TEST_CASE("Extractor: runtime packed struct array member index cannot claim a direct lane",

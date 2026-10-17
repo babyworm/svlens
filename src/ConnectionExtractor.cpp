@@ -947,6 +947,26 @@ ConnectionExtractor::resolveWireRange(const slang::ast::Expression& expr, const 
             return std::nullopt;
         std::tie(left, right) = *bounds;
         base = &select.value();
+        // A constant slice of a packed-struct field must use the same
+        // aggregate key as the whole field, with its selected ordinal
+        // offsets. The ordinary textual field key cannot meet a whole-
+        // struct module-port bridge.
+        if (base->kind == EK::MemberAccess && base->type && base->type->isIntegral() && base->type->hasFixedRange() &&
+            base->type->getFixedRange().fullWidth() == base->type->getBitWidth()) {
+            const auto field = resolveWireRange(*base, scopePath, base->type->getBitWidth());
+            const auto resolved = resolveExpr(base);
+            if (field && field->left >= field->right && !resolved.approximate && !resolved.tieOff &&
+                resolved.netNames.size() == 1 &&
+                field->baseKey !=
+                    netKeyForExpression(*base, resolved.netNames.front(), resolved.is_absolute, scopePath)) {
+                const auto declared = base->type->getFixedRange();
+                if (std::min(left, right) >= declared.lower() && std::max(left, right) <= declared.upper()) {
+                    const auto first = std::abs(left - declared.right);
+                    const auto last = std::abs(right - declared.right);
+                    return WireRange{field->baseKey, field->right + first, field->right + last};
+                }
+            }
+        }
     } else if (current->kind == EK::ElementSelect) {
         const auto& select = current->as<slang::ast::ElementSelectExpression>();
         const auto* index = select.selector().getConstant();

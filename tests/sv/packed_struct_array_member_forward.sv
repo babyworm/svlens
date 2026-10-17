@@ -10,6 +10,9 @@ endmodule
 module member_forward_sink(input logic [7:0] data_i);
 endmodule
 
+module member_forward_nibble_sink(input logic [3:0] data_i);
+endmodule
+
 module member_forward_valid_source(output logic valid_o);
     assign valid_o = 1'b1;
 endmodule
@@ -19,6 +22,8 @@ endmodule
 
 module plain_struct_forward(input member_req_t req_i);
     member_forward_sink u_data(.data_i(req_i.data));
+    member_forward_nibble_sink u_high(.data_i(req_i.data[7:4]));
+    member_forward_nibble_sink u_low(.data_i(req_i.data[3:0]));
     member_forward_valid_sink u_valid(.valid_i(req_i.valid));
 endmodule
 
@@ -31,6 +36,25 @@ module plain_struct_port_forward_top;
     assign req.data = source_data;
     assign req.valid = source_valid;
     plain_struct_forward u_forward(.req_i(req));
+endmodule
+
+typedef struct packed {
+    logic valid;
+    logic [0:7] data;
+} member_req_ascending_t;
+
+module plain_struct_ascending_forward(input member_req_ascending_t req_i);
+    member_forward_nibble_sink u_high(.data_i(req_i.data[0:3]));
+    member_forward_nibble_sink u_low(.data_i(req_i.data[4:7]));
+endmodule
+
+module plain_struct_ascending_top;
+    logic [7:0] source_data;
+    member_req_ascending_t req;
+    member_forward_source u_data(.data_o(source_data));
+    assign req.data = source_data;
+    assign req.valid = 1'b1;
+    plain_struct_ascending_forward u_forward(.req_i(req));
 endmodule
 
 module member_forward_desc(input member_req_t [1:0] req_i);

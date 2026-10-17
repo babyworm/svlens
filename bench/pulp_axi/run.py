@@ -11,7 +11,7 @@ from evaluate import TOP, evaluate_report
 
 AXI_REV = "70b8e54fd460e3308e58be596ceb3566a6e3576e"
 COMMON_REV = "e73baaec2ca665cd80c3c384e9258e35242b829c"
-FIXTURE_SHA256 = "078ed80e9a7bf7a7e2fae6b67bfb3bf0b6fa740db9c0a933abb1b18597a49e70"
+FIXTURE_SHA256 = "c626f223ab39988be03e638e79276e604e5e7fc4654dcfd69956781531b106af"
 AXI_SOURCES = (
     "src/axi_pkg.sv", "src/axi_intf.sv", "src/axi_err_slv.sv",
     "src/axi_lite_to_axi.sv", "src/axi_lite_demux.sv", "src/axi_lite_mux.sv",

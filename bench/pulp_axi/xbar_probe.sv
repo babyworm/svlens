@@ -45,6 +45,11 @@ module svlens_axi_xbar_probe(
   input logic [1:0] aw_valid_i, w_valid_i, ar_valid_i, b_ready_i, r_ready_i,
   input logic [1:0] aw_ready_i, w_ready_i, b_valid_i, ar_ready_i, r_valid_i
 );
+  typedef struct packed {
+    int unsigned idx;
+    logic [7:0] start_addr;
+    logic [7:0] end_addr;
+  } rule_t;
   localparam axi_pkg::xbar_cfg_t Cfg = '{
     NoSlvPorts: 2, NoMstPorts: 2, MaxMstTrans: 2, MaxSlvTrans: 2,
     FallThrough: 1'b0, LatencyMode: axi_pkg::NO_LATENCY, PipelineStages: 0,
@@ -53,9 +58,10 @@ module svlens_axi_xbar_probe(
   };
   AXI_LITE #(.AXI_ADDR_WIDTH(8), .AXI_DATA_WIDTH(32)) slv_if [1:0] ();
   AXI_LITE #(.AXI_ADDR_WIDTH(8), .AXI_DATA_WIDTH(32)) mst_if [1:0] ();
-  axi_pkg::xbar_rule_64_t [1:0] addr_map;
+  rule_t [1:0] addr_map;
   assign addr_map[0] = '{idx: 0, start_addr: 0, end_addr: 128};
-  assign addr_map[1] = '{idx: 1, start_addr: 128, end_addr: 256};
+  // An all-zero end denotes the upper end of the 8-bit address space.
+  assign addr_map[1] = '{idx: 1, start_addr: 128, end_addr: 0};
 
   svlens_axi_manager u_m0(
     .aw_addr_i(aw_addr_i[0]), .ar_addr_i(ar_addr_i[0]),
@@ -84,7 +90,7 @@ module svlens_axi_xbar_probe(
     .bus(mst_if[1])
   );
 
-  axi_lite_xbar_intf #(.Cfg(Cfg)) u_xbar (
+  axi_lite_xbar_intf #(.Cfg(Cfg), .rule_t(rule_t)) u_xbar (
     .clk_i, .rst_ni, .slv_ports(slv_if), .mst_ports(mst_if),
     .addr_map_i(addr_map), .en_default_mst_port_i('0), .default_mst_port_i('0)
   );

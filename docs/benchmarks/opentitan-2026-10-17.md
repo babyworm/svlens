@@ -177,4 +177,22 @@ either manager. The runner pins the fixture SHA-256
 `078ed80e9a7bf7a7e2fae6b67bfb3bf0b6fa740db9c0a933abb1b18597a49e70`.
 The connection-row population and 108/108 frame are unchanged. These inputs
 make the candidate routes reachable in principle; the benchmark still does
-not simulate transactions or verify which arbitration choice occurs.
+not by itself verify which arbitration choice occurs.
+
+## Follow-up: two transaction-level route checks
+
+The optional existing-Verilator smoke now drives two runtime address cases:
+manager 0→subordinate 0 and manager 1→subordinate 1, then the assignments are
+swapped. Distinct AW/AR addresses and W data are checked at subordinate
+ports; distinct B responses and R data are checked on return to their owning
+managers. All five channels must be observed on both targets in each case.
+The first simulation attempt exposed a fixture error: it paired 8-bit AXI
+addresses with a 64-bit address-rule type, violating PULP's own decoder
+assertion. A pinned 8-bit rule type now uses the upstream `end_addr=0`
+sentinel for the upper end of the address space. The structural 108-pair frame
+and 1,030-row population remain unchanged. Fixture SHA-256 is
+`c626f223ab39988be03e638e79276e604e5e7fc4654dcfd69956781531b106af`;
+the testbench SHA-256 is
+`5a7b694f58dbd264765e34bb4d5834a5f7bb8375b900882bfef00e4d4d379bbd`.
+This is a two-case behavioral smoke, not exhaustive arbitration or
+backpressure verification.

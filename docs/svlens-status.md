@@ -186,6 +186,9 @@ Dependency bootstrap:
   per manager, plus independent subordinate responses. Its previous fixed
   `8'h10` addresses could not exercise the second address-map region despite
   the analyzer reporting that structural candidate route.
+  A manual-dispatch Verilator smoke now checks both swapped address regions,
+  the AW/AR/W request lanes, and B/R returns. It covers two concrete
+  transaction patterns, not all arbitration, contention, or CDC behavior.
   Direct constant slices, elaborated indexed `+:` / `-:` part-selects (including
   generated banks and modport members), constant-indexed integral unpacked-array elements,
   nested constant-indexed packed-array elements/bits (including packed fields

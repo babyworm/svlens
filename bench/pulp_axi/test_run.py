@@ -18,7 +18,8 @@ class PulpAxiRunnerTests(unittest.TestCase):
             self.assertIn(f".r_data_i(r_data_i[{lane}])", fixture)
             self.assertIn(f".b_resp_i(b_resp_i[{lane}])", fixture)
         self.assertIn("start_addr: 0, end_addr: 128", fixture)
-        self.assertIn("start_addr: 128, end_addr: 256", fixture)
+        self.assertIn("start_addr: 128, end_addr: 0", fixture)
+        self.assertIn(".rule_t(rule_t)", fixture)
 
     def test_pins_and_dirty_clones_are_rejected(self):
         with mock.patch.object(benchmark_run.subprocess, "check_output", side_effect=["wrong\n", ""]):

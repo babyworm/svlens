@@ -218,6 +218,9 @@ independent runtime inputs, so both address-map regions are reachable from
 either manager; its subordinate responses also vary independently. The earlier
 fixed-address fixture could report structurally possible but unreachable
 cross-destination candidates.
+The optional existing-Verilator simulation now executes two swapped address
+assignments and checks request plus B/R return routing. It is a finite
+transaction smoke, not a proof of all contention or backpressure outcomes.
 Runtime reads of bounded packed-struct arrays now carry approximate candidate
 field ranges and a separate range-free index-control dependency. The OpenTitan
 KMAC app-port probe gates both the `data` and `valid` lanes from one possible

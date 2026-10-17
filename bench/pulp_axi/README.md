@@ -27,6 +27,23 @@ and clean tracked sources, checks the fixture SHA-256, then writes
 reported issues; the evaluator requires zero analysis errors and complete
 connection rows.
 
+If the repository's optional Verilator tool is installed, exercise both
+address regions and the response return path as well:
+
+```bash
+python3 bench/pulp_axi/run_sim.py \
+  --axi-root /path/to/axi \
+  --common-cells-root /path/to/common_cells \
+  --output /path/to/new/simulation-directory
+```
+
+The simulation uses two swapped manager→subordinate assignments with distinct
+AW/AR addresses, W data, B responses, and R data. It requires all ten
+AW/AR/W/B/R observations (five channels × two targets) in each case and
+fails on a wrong lane or payload. The testbench and fixture hashes are pinned
+in the runner. This checks two concrete transactions, not all possible
+arbitration, contention, or backpressure schedules.
+
 The checked source-derived frame is deliberately bounded:
 
 - 76 exact, correctly directed AXI-Lite modport boundary relations: 19
@@ -48,4 +65,5 @@ report contains additional rows that this 108-pair frame has not adjudicated.
 
 The existing `opentitan-benchmark` workflow runs this as a separate job on
 manual dispatch and uploads a `pulp-axi-benchmark` artifact. Its weekly
-scheduled run stays OpenTitan-only.
+scheduled run stays OpenTitan-only. The manual job also runs the existing
+optional Verilator tool and includes `simulation.json` in its artifact.

@@ -71,7 +71,7 @@ jobs:
       - name: Install prerequisites
         run: |
           ./scripts/ci-apt-install.sh \
-            build-essential cmake git python3 ccache \
+            build-essential cmake git python3 ccache verilator \
             catch2 libyaml-cpp-dev
 
       - name: Cache slang install
@@ -103,6 +103,15 @@ jobs:
             --common-cells-root "$RUNNER_TEMP/pulp-common-cells" \
             --svlens build/svlens \
             --output "$RUNNER_TEMP/pulp-axi-report"
+
+      - name: Simulate both AXI address regions
+        run: |
+          python3 bench/pulp_axi/run_sim.py \
+            --axi-root "$RUNNER_TEMP/pulp-axi" \
+            --common-cells-root "$RUNNER_TEMP/pulp-common-cells" \
+            --output "$RUNNER_TEMP/pulp-axi-sim"
+          cp "$RUNNER_TEMP/pulp-axi-sim/simulation.json" \
+            "$RUNNER_TEMP/pulp-axi-report/simulation.json"
 
       - name: Upload PULP AXI probe reports
         if: always()

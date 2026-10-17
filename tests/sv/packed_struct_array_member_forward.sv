@@ -24,6 +24,7 @@ module plain_struct_forward(input member_req_t req_i);
     member_forward_sink u_data(.data_i(req_i.data));
     member_forward_nibble_sink u_high(.data_i(req_i.data[7:4]));
     member_forward_nibble_sink u_low(.data_i(req_i.data[3:0]));
+    member_forward_valid_sink u_bit(.valid_i(req_i.data[5]));
     member_forward_valid_sink u_valid(.valid_i(req_i.valid));
 endmodule
 
@@ -46,6 +47,7 @@ typedef struct packed {
 module plain_struct_ascending_forward(input member_req_ascending_t req_i);
     member_forward_nibble_sink u_high(.data_i(req_i.data[0:3]));
     member_forward_nibble_sink u_low(.data_i(req_i.data[4:7]));
+    member_forward_valid_sink u_bit(.valid_i(req_i.data[2]));
 endmodule
 
 module plain_struct_ascending_top;
@@ -149,6 +151,8 @@ endmodule
 module member_nested_forward(input member_nested_req_t [1:0] req_i);
     member_nested_decode u_decode0(.addr_i(req_i[0].aw.addr));
     member_nested_decode u_decode1(.addr_i(req_i[1].aw.addr));
+    member_forward_nibble_sink u_high0(.data_i(req_i[0].aw.addr[7:4]));
+    member_forward_nibble_sink u_low1(.data_i(req_i[1].aw.addr[3:0]));
 endmodule
 
 module packed_nested_struct_array_member_top;

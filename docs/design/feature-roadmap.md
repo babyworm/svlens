@@ -213,6 +213,12 @@ field flow through a whole-struct port now adds 24 manager-to-subordinate
 AW/W/AR data candidates, bringing the optional frame to 108 relations. That
 bounded frame does not validate internal arbitration decisions or whole-crossbar
 accuracy.
+Constant bit/part-selects of packed fields now retain aggregate ordinal lanes
+through a whole-struct port in either field range direction, including
+constant-selected packed-struct array elements. Four new exact
+OpenTitan paths in KMAC, OTBN, Pattgen, and SPI Device gate this shape; the
+other new SoC paths, especially approximate candidates, are not all
+source-adjudicated.
 The fixture now leaves both managers' AW/AR addresses and request data as
 independent runtime inputs, so both address-map regions are reachable from
 either manager; its subordinate responses also vary independently. The earlier

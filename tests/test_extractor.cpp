@@ -270,6 +270,7 @@ TEST_CASE("Extractor: whole packed struct port joins its nested field lanes", "[
     bool data = false;
     bool high = false;
     bool low = false;
+    bool bit = false;
     bool valid = false;
     for (const auto& conn : graph.connections) {
         const auto source = conn.source.fullPath();
@@ -314,12 +315,23 @@ TEST_CASE("Extractor: whole packed struct port joins its nested field lanes", "[
             CHECK(conn.destBits->high == 3);
             low = true;
         }
+        if (source == top + "u_data.data_o" && dest == top + "u_forward.u_bit.valid_i") {
+            CHECK(conn.kind == ConnectionKind::Direct);
+            REQUIRE(conn.sourceBits);
+            REQUIRE(conn.destBits);
+            CHECK(conn.sourceBits->low == 5);
+            CHECK(conn.sourceBits->high == 5);
+            CHECK(conn.destBits->low == 0);
+            CHECK(conn.destBits->high == 0);
+            bit = true;
+        }
         CHECK_FALSE((source == top + "u_data.data_o" && dest == top + "u_forward.u_valid.valid_i"));
         CHECK_FALSE((source == top + "u_valid.valid_o" && dest == top + "u_forward.u_data.data_i"));
     }
     CHECK(data);
     CHECK(high);
     CHECK(low);
+    CHECK(bit);
     CHECK(valid);
 }
 
@@ -332,6 +344,7 @@ TEST_CASE("Extractor: ascending packed-struct field slices retain ordinal lanes"
     const std::string base = "plain_struct_ascending_top.u_forward.";
     bool high = false;
     bool low = false;
+    bool bit = false;
     for (const auto& conn : graph.connections) {
         if (conn.source.fullPath() != source || !conn.sourceBits || !conn.destBits)
             continue;
@@ -351,9 +364,18 @@ TEST_CASE("Extractor: ascending packed-struct field slices retain ordinal lanes"
             CHECK(conn.destBits->high == 3);
             low = true;
         }
+        if (conn.dest.fullPath() == base + "u_bit.valid_i") {
+            CHECK(conn.kind == ConnectionKind::Direct);
+            CHECK(conn.sourceBits->low == 5);
+            CHECK(conn.sourceBits->high == 5);
+            CHECK(conn.destBits->low == 0);
+            CHECK(conn.destBits->high == 0);
+            bit = true;
+        }
     }
     CHECK(high);
     CHECK(low);
+    CHECK(bit);
 }
 
 TEST_CASE("Extractor: runtime packed struct array member index cannot claim a direct lane",
@@ -460,6 +482,46 @@ TEST_CASE("Extractor: nested packed struct array address reaches only its decode
                 CHECK(found);
         }
     }
+}
+
+TEST_CASE("Extractor: nested packed-struct array field slices keep their lane", "[extractor][ports][bit_flow]") {
+    auto result = compileFile("sv/packed_struct_array_member_forward.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "packed_nested_struct_array_member_top");
+    const auto graph = extractor.extract();
+    const std::string top = "packed_nested_struct_array_member_top.";
+    bool high0 = false;
+    bool low1 = false;
+    for (const auto& conn : graph.connections) {
+        const auto source = conn.source.fullPath();
+        const auto dest = conn.dest.fullPath();
+        if (dest != top + "u_forward.u_high0.data_i" && dest != top + "u_forward.u_low1.data_i")
+            continue;
+        CHECK_FALSE((source == top + "u_source1.data_o" && dest == top + "u_forward.u_high0.data_i"));
+        CHECK_FALSE((source == top + "u_source0.data_o" && dest == top + "u_forward.u_low1.data_i"));
+        if (source == top + "u_source0.data_o" && dest == top + "u_forward.u_high0.data_i") {
+            CHECK(conn.kind == ConnectionKind::Direct);
+            REQUIRE(conn.sourceBits);
+            REQUIRE(conn.destBits);
+            CHECK(conn.sourceBits->low == 4);
+            CHECK(conn.sourceBits->high == 7);
+            CHECK(conn.destBits->low == 0);
+            CHECK(conn.destBits->high == 3);
+            high0 = true;
+        }
+        if (source == top + "u_source1.data_o" && dest == top + "u_forward.u_low1.data_i") {
+            CHECK(conn.kind == ConnectionKind::Direct);
+            REQUIRE(conn.sourceBits);
+            REQUIRE(conn.destBits);
+            CHECK(conn.sourceBits->low == 0);
+            CHECK(conn.sourceBits->high == 3);
+            CHECK(conn.destBits->low == 0);
+            CHECK(conn.destBits->high == 3);
+            low1 = true;
+        }
+    }
+    CHECK(high0);
+    CHECK(low1);
 }
 
 TEST_CASE("Extractor: runtime packed vector index retains both data candidates and its selector",

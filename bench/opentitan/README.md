@@ -89,6 +89,12 @@ summed bit-513 boundary and the 71 intervening instruction/data bits. It is a
 deliberately small, correlated sample—not a
 whole-design precision or recall estimate. A changed population requires
 fresh manual adjudication rather than silently reusing old verdicts.
+Constant part-selects of packed fields across whole-struct module ports add
+215 SoC rows without removing previous rows: 38 direct and 177 approximate.
+Four source-backed exact-lane references in KMAC, OTBN, Pattgen, and SPI Device
+now raise the positive gates to 34/34. All 20 deterministic sample IDs remain
+unchanged and confirmed under the refreshed population hash; the other new
+rows, especially approximate paths, are not individually adjudicated.
 
 An independent source-derived recall probe walks Slang's elaborated AST for
 seven SoC IP scopes and enumerates single-bit or whole-width, one-dimensional

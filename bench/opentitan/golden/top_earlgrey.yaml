@@ -187,6 +187,35 @@ reset_unresolved_references:
 # selected lanes are verified against top_earlgrey.sv and edn_pkg.sv:20-24.
 # Lane 2 goes to the top AST output and is not a child-port connection here.
 known_connections:
+  # Constant part-selects of packed fields must keep their aggregate lane.
+  - source: top_earlgrey.u_kmac.u_msgfifo.fifo_depth_o[3:0]
+    dest: top_earlgrey.u_kmac.u_reg.u_status_fifo_depth.d[4:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 0, high: 3}
+    dest_bits: {low: 0, high: 3}
+    evidence: kmac.sv:307-309,811; kmac_reg_top.sv:913-921
+  - source: top_earlgrey.u_otbn.u_reg.u_start_addr.q[31:0]
+    dest: top_earlgrey.u_otbn.u_otbn_core.start_addr_i[11:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 0, high: 11}
+    dest_bits: {low: 0, high: 11}
+    evidence: otbn.sv:507,721-729
+  - source: top_earlgrey.u_pattgen.u_reg.u_data_ch0_0.q[31:0]
+    dest: top_earlgrey.u_pattgen.u_pattgen_core.chan0.ctrl_i[113:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 0, high: 31}
+    dest_bits: {low: 16, high: 47}
+    evidence: pattgen_core.sv:31-35,47-50
+  - source: top_earlgrey.u_spi_device.u_reg.u_rxf_addr_base.q[15:0]
+    dest: top_earlgrey.u_spi_device.u_fwmode.sram_rxf_bindex_i[9:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 2, high: 11}
+    dest_bits: {low: 0, high: 9}
+    evidence: spi_device.sv:209-212,750; spi_fwmode.sv:54
   # The same generated AES seed split is checked at the full-SoC hierarchy.
   - source: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.u_prim_packer_fifo.rdata_o[159:0]
     dest: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.gen_chunks[0].u_lfsr_chunk.seed_i[31:0]

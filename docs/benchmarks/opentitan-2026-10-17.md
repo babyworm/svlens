@@ -165,6 +165,22 @@ references are 30/30, negative probes remain 7/7, and the population hash is
 The large remaining population is not individually source-adjudicated; these
 counts must not be read as a whole-SoC precision or recall estimate.
 
+## Follow-up: packed-field constant slices
+
+Constant part-selects of packed-struct fields now retain their aggregate bit
+lanes through whole-struct module ports. Against the prior pinned report,
+OpenTitan adds 215 connections and removes none: 38 direct and 177
+approximate. The SoC report has 97,217 rows (64,879 direct, 32,338
+approximate) and the same 25,841 recorded gaps. AES, HMAC, and UART row
+counts are unchanged. Four new exact-lane gates pin source-backed KMAC FIFO
+depth, OTBN start address, Pattgen channel data, and SPI Device SRAM base
+index paths; positive references pass 34/34 and negative probes remain 7/7.
+The 20 sampled IDs did not change, all remain confirmed, and the new
+population hash is
+`573f0e7bad1ecb196393bc153cded0c959925dd72e5f01e00006e2c9f9fcfd6d`.
+The 177 new approximate rows have not been individually adjudicated; these
+selected checks are not a whole-SoC accuracy estimate.
+
 ## Follow-up: AXI fixture reachability
 
 The first 2×2 fixture drove both managers' AW/AR addresses to `8'h10`, so its

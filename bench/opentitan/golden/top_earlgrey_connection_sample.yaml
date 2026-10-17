@@ -1,6 +1,6 @@
 seed: svlens-accuracy-v1
 per_stratum: 5
-population_sha256: efd44aae9e800f649358e6f7658bb90feac7b5d511ff00964a548797d3b1ce4b
+population_sha256: 573f0e7bad1ecb196393bc153cded0c959925dd72e5f01e00006e2c9f9fcfd6d
 labels:
   - id: 000fbc0a685357f0
     verdict: confirmed

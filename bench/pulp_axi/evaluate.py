@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 TOP = "svlens_axi_xbar_probe"
-EXPECTED_SHA256 = "f89dc8640861f95e1f437724635e5a2777f231695a09eb09ca0b2660737a9730"
+EXPECTED_SHA256 = "90ba4b21381fcb611dbe33d20d81ba3ce8440098b98362b8aa699849b73157ad"
 SIGNALS = (
     ("aw_addr", 8, True), ("aw_prot", 3, True), ("aw_valid", 1, True),
     ("aw_ready", 1, False), ("w_data", 32, True), ("w_strb", 4, True),
@@ -17,6 +17,8 @@ SIGNALS = (
     ("r_data", 32, False), ("r_resp", 2, False), ("r_valid", 1, False),
     ("r_ready", 1, True),
 )
+REQUEST_DATA = (("aw_addr", 8), ("aw_prot", 3), ("w_data", 32),
+                ("w_strb", 4), ("ar_addr", 8), ("ar_prot", 3))
 
 
 def port(path: str, signal: str, width: int) -> str:
@@ -35,6 +37,7 @@ def expected_rows() -> dict[str, list[dict]]:
     boundary = []
     decoder = []
     response = []
+    request = []
     for lane in range(2):
         manager = f"{TOP}.u_m{lane}.bus"
         subordinate = f"{TOP}.u_s{lane}.bus"
@@ -65,7 +68,16 @@ def expected_rows() -> dict[str, list[dict]]:
                     "i_axi_lite_demux.gen_demux.i_r_spill_reg.data_i[33:0]")
             low = 41 * slave + 1
             response.append(row(source, dest, "approximate", low, low + 33, 0, 33))
-    return {"boundary": boundary, "decoder": decoder, "response": response}
+    # The 2x2 crossbar duplicates each request into both master muxes. Its
+    # runtime demux/arbiter selection leaves every manager-to-subordinate
+    # data route possible, but not unconditionally active.
+    for manager in range(2):
+        for subordinate in range(2):
+            for signal, width in REQUEST_DATA:
+                source = port(f"{TOP}.u_m{manager}.bus", signal, width)
+                dest = port(f"{TOP}.u_s{subordinate}.bus", signal, width)
+                request.append(row(source, dest, "approximate", 0, width - 1, 0, width - 1))
+    return {"boundary": boundary, "decoder": decoder, "response": response, "request": request}
 
 
 def evaluate_report(report: dict) -> dict:
@@ -117,7 +129,8 @@ def evaluate_report(report: dict) -> dict:
         raise ValueError("AXI expected-pair frame changed; re-adjudicate upstream RTL paths")
     return {"top": TOP, "connection_rows": len(rows), "bit_flow_gaps": summary.get("bit_flow_gap_count"),
             "boundary_found": len(frames["boundary"]), "decoder_found": len(frames["decoder"]),
-            "response_found": len(frames["response"]), "expected_sha256": fingerprint}
+            "response_found": len(frames["response"]), "request_found": len(frames["request"]),
+            "expected_sha256": fingerprint}
 
 
 def main() -> None:

@@ -178,9 +178,10 @@ Dependency bootstrap:
   array fields now recover all four manager AW/AR address inputs to their
   same-lane internal decoder ports, with no opposite-lane route. Four
   source-backed master-response to slave-demux routes remain positional
-  `approximate` candidates. The 84-pair frame is now a committed optional
-  manual-dispatch CI job; it is not evidence of the crossbar's mux-selection
-  correctness or whole-design precision.
+  `approximate` candidates. Plain packed-struct fields through whole-struct
+  ports add 24 manager-to-subordinate AW/W/AR data candidates. The 108-pair
+  frame is a committed optional manual-dispatch CI job; it is not evidence
+  of the crossbar's mux-selection correctness or whole-design precision.
   Direct constant slices, elaborated indexed `+:` / `-:` part-selects (including
   generated banks and modport members), constant-indexed integral unpacked-array elements,
   nested constant-indexed packed-array elements/bits (including packed fields
@@ -357,10 +358,11 @@ Dependency bootstrap:
   bringing the bounded SoC connectivity references to 10/10. The AES
   `crypt_q` feedback through sparse-signal checking to `crypt_d` adds one
   transitive approximate reference; with the five PRNG lanes, the current
-  SoC connectivity total is 26/26 after adding an I2C FIFO-valid control
+  SoC connectivity total is 30/30 after adding an I2C FIFO-valid control
   path, three packed-field forwarding paths, two KMAC runtime app-data
   candidates, a preserved alert-handler constant-index route, Flash/USB
-  runtime packed-vector candidates, and a KeyMgr selector-to-input-port path.
+  runtime packed-vector candidates, a KeyMgr selector-to-input-port path,
+  and four source-checked clock/reset, Ibex, and PLIC packed-field paths.
   Seven manually checked SoC absent-path probes (and two standalone AES probes)
   also pass; the evaluator requires both endpoints to occur elsewhere in the
   report. Two new probes keep separate KMAC and entropy-source SHA3 controls
@@ -404,10 +406,12 @@ Dependency bootstrap:
   the current report
   then had 31,754 connections (20,135 direct, 11,619 approximate) and 25,841
   recorded gaps. Input-port runtime selectors add one coarse KeyMgr control
-  relation without changing the gap count; the current report has 31,755
-  connections (20,135 direct, 11,620 approximate). Six replacement sample
-  rows were checked against pinned RTL; the current 20-row sample has zero
-  contradictions or unresolved rows. These selected
+  relation without changing the gap count; the next report had 31,755
+  connections (20,135 direct, 11,620 approximate). Plain packed-struct field
+  flow through whole-struct ports then raises the current report to 97,002
+  rows (64,841 direct, 32,161 approximate), with the same 25,841 gap count.
+  Eight new sample rows were checked against pinned RTL; the 20-row sample
+  has zero contradictions or unresolved rows. These selected
   checks do not establish whole-design precision. The
   lockstep buffer bit index was independently checked by summing 30 operand
   widths. The evaluator gates annotation freshness and contradictions;

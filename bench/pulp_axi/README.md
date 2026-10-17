@@ -30,11 +30,15 @@ The checked source-derived frame is deliberately bounded:
 - Four positional `approximate` response candidates from both master muxes
   to both slave demuxes. The checker does not treat a runtime-selected response
   as a `direct` route.
+- 24 positional `approximate` request-data candidates: AW address/protection,
+  W data/strobe, and AR address/protection from either manager to either
+  subordinate. The fully connected crossbar allows each candidate; the
+  checker does not assert that it wins arbitration.
 
 The evaluator rejects missing, duplicated, downgraded, wrong-width, or
 wrong-lane rows. It does not prove arbitration decisions, protocol behavior,
 CDC safety, or whole-crossbar precision/recall. In particular, the entire
-report contains additional rows that this 84-pair frame has not adjudicated.
+report contains additional rows that this 108-pair frame has not adjudicated.
 
 The existing `opentitan-benchmark` workflow runs this as a separate job on
 manual dispatch and uploads a `pulp-axi-benchmark` artifact. Its weekly

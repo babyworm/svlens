@@ -858,6 +858,7 @@ ConnectionExtractor::resolveWireRange(const slang::ast::Expression& expr, const 
         const slang::ast::Expression* node = current;
         std::vector<uint64_t> offsets{0};
         bool selectedPackedElement = false;
+        bool selectedPackedField = false;
         bool dynamicSelection = false;
         while (node->kind == EK::MemberAccess || node->kind == EK::ElementSelect) {
             if (node->kind == EK::MemberAccess) {
@@ -873,6 +874,7 @@ ConnectionExtractor::resolveWireRange(const slang::ast::Expression& expr, const 
                     break;
                 for (auto& offset : offsets)
                     offset += fieldOffset;
+                selectedPackedField = true;
                 node = &value;
             } else {
                 const auto& select = node->as<slang::ast::ElementSelectExpression>();
@@ -908,8 +910,8 @@ ConnectionExtractor::resolveWireRange(const slang::ast::Expression& expr, const 
                 node = &value;
             }
         }
-        if (selectedPackedElement && node->kind == EK::NamedValue && node->type && node->type->isIntegral() &&
-            node->type->hasFixedRange() && node->type->getBitWidth() <= 4096) {
+        if ((selectedPackedElement || selectedPackedField) && node->kind == EK::NamedValue && node->type &&
+            node->type->isIntegral() && node->type->hasFixedRange() && node->type->getBitWidth() <= 4096) {
             const auto resolved = resolveExpr(node);
             if (!resolved.approximate && !resolved.tieOff && resolved.netNames.size() == 1) {
                 const auto rootWidth = node->type->getBitWidth();
@@ -928,7 +930,7 @@ ConnectionExtractor::resolveWireRange(const slang::ast::Expression& expr, const 
                         *dynamicCandidates = std::move(ranges);
                         return std::nullopt;
                     }
-                    if (current->kind == EK::MemberAccess)
+                    if (current->kind == EK::MemberAccess || selectedPackedField)
                         return ranges.front();
                 }
             }

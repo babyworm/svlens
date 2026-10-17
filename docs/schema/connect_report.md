@@ -59,7 +59,9 @@ until analytical-trust milestones explicitly freeze them.
   unpacked-array or nested constant-indexed packed-array element/bit (including
   packed fields in constant-indexed unpacked elements), constant-selected
   fields of packed-struct array elements (flattened to the aggregate packed
-  vector's ordinal offset, including through ordinary module ports), direct
+  vector's ordinal offset, including through ordinary module ports), plain
+  packed-struct fields joined to a whole-struct module port at the declaring
+  aggregate's ordinal offset, direct
   constant whole-interface integral-member slices (also paired with modport members or
   forwarded through direct interface-to-interface slice assignments),
   whole packed-array port, direct module-port forwarding across one or more

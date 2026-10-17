@@ -17,6 +17,22 @@ endmodule
 module member_forward_valid_sink(input logic valid_i);
 endmodule
 
+module plain_struct_forward(input member_req_t req_i);
+    member_forward_sink u_data(.data_i(req_i.data));
+    member_forward_valid_sink u_valid(.valid_i(req_i.valid));
+endmodule
+
+module plain_struct_port_forward_top;
+    logic [7:0] source_data;
+    logic source_valid;
+    member_req_t req;
+    member_forward_source u_data(.data_o(source_data));
+    member_forward_valid_source u_valid(.valid_o(source_valid));
+    assign req.data = source_data;
+    assign req.valid = source_valid;
+    plain_struct_forward u_forward(.req_i(req));
+endmodule
+
 module member_forward_desc(input member_req_t [1:0] req_i);
     member_forward_sink u_sink0(.data_i(req_i[0].data));
     member_forward_sink u_sink1(.data_i(req_i[1].data));

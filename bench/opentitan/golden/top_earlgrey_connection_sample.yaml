@@ -1,6 +1,6 @@
 seed: svlens-accuracy-v1
 per_stratum: 5
-population_sha256: b0534e8970c1b2c420c7f6846fbdb1063195d79bcc7e781f265cb77e05b001d6
+population_sha256: efd44aae9e800f649358e6f7658bb90feac7b5d511ff00964a548797d3b1ce4b
 labels:
   - id: 000fbc0a685357f0
     verdict: confirmed
@@ -21,22 +21,22 @@ labels:
     verdict: confirmed
     evidence: rom_ctrl.sv:157-160,180,191-200,238-256; rom_ctrl_mux.sv:61; rom_ctrl_fsm.sv:226; rom_ctrl_reg_pkg.sv:44-66
     note: scr_rdata[23] reaches hw2reg.exp_digest[2].d[23]; packed offset 33*2 + 1 + 23 = 90
-  - id: 000a7296a4f1573b
+  - id: 000141623ad17573
     verdict: confirmed
-    evidence: edn_reg_top.sv:85-95,199-205,869
-    note: The fatal-error write-data field receives register-interface wdata bit 1
-  - id: 000ab4f2cdf2d736
+    evidence: top_earlgrey/ip/rstmgr/rtl/autogen/rstmgr.sv:376-392; top_earlgrey.sv:2275-2281; csrng_core.sv:1275-1277
+    note: The reset manager uses the mux clk_o as the Domain0 system reset output, which feeds CSRNG and its arbiter reset
+  - id: 00030268d6cfeb77
     verdict: confirmed
-    evidence: top_earlgrey/ip/rv_plic/rtl/autogen/rv_plic.sv:308-309,330-334; top_earlgrey/ip/rv_plic/rtl/autogen/rv_plic_reg_top.sv:5476-5486
-    note: Gateway ip_o bit 136 is assigned to hw2reg.ip[136].d and the generated subregister d port
-  - id: 000f6a6fe1ccc39d
+    evidence: top_earlgrey/ip/clkmgr/rtl/autogen/clkmgr.sv:428-432; top_earlgrey.sv:1866-1870; adc_ctrl_core.sv:245-323
+    note: The IO-div4 peripheral clock gate output feeds ADC clock-domain filter synchronization
+  - id: 0003251cff819a63
     verdict: confirmed
-    evidence: xbar_main.sv:995-1000,518-519; top_earlgrey.sv:2175-2192,2666-2668; kmac.sv:954-960; kmac_reg_top.sv:55-56
-    note: The 107-bit TL request is forwarded through the KMAC top into its register integrity checker without lane conversion
-  - id: 0010e75d3ddce97b
+    evidence: ibex_core.sv:724,842-845; ibex_pkg.sv:13-20; ibex_top.sv:524-617
+    note: crash_dump_o.last_data_addr[6] occupies buffer bit 1 + 32 exception-address bits + 6 = 39
+  - id: 0003be52c71ad35b
     verdict: confirmed
-    evidence: top_earlgrey/ip/flash_ctrl/rtl/autogen/flash_ctrl_core_reg_top.sv:148,10574-10580,12114
-    note: The PHY error config regwen write-data port receives register-interface wdata bit 0
+    evidence: tlul_pkg.sv:38-83; xbar_main.sv:509; top_earlgrey.sv:2099-2102,2691; top_earlgrey/ip/rv_plic/rtl/autogen/rv_plic_reg_top.sv:95,20152-20158,22902
+    note: TL a_data[24] is aggregate bit 1 d_ready + 21 a_user + 24 = 46 and feeds subregister wd bit 0
   - id: 009a89bac0c940eb
     verdict: confirmed
     evidence: ibex_cs_registers.sv:435-449,729-745,1251-1262
@@ -49,10 +49,10 @@ labels:
     verdict: confirmed
     evidence: prim_alert_sender.sv:100-116
     note: The two-bit buffer output concatenation carries ack_n to the decoder diff_ni input; the coarse row does not certify the exact bit index
-  - id: 001ff750108826a5
+  - id: 0000184e8b06eb11
     verdict: confirmed
-    evidence: keymgr.sv:148-171,453-457; keymgr_reg_pkg.sv:131-139,190-200
-    note: LFSR state bit 1 is data_rand[0][1], a possible ternary arm of sw_share0_output[5].d[1]; packed offset 279 + 33*5 + 1 + 1 = 446, but the runtime selector keeps it approximate
+    evidence: top_earlgrey/ip/rstmgr/rtl/autogen/rstmgr.sv:376-392; top_earlgrey.sv:2297-2315; entropy_src_core.sv:1886
+    note: The scan-mode reset mux makes u_0_sys.q_o a possible, not unconditional, source of the entropy-source FIFO reset
   - id: 0020789ae0cfe1c4
     verdict: confirmed
     evidence: ibex_cs_registers.sv:278,435-449,729-745,1222-1229,1250-1262
@@ -63,12 +63,15 @@ labels:
   - id: 00029290f413b192
     verdict: confirmed
     evidence: rv_plic_reg_top.sv:95-101,23286
-  - id: 000c35acbe232e15
+  - id: 0000f82ad3e8dc07
     verdict: confirmed
-    evidence: alert_handler_reg_top.sv:95-101,12150
-  - id: 00119dd3194daa19
+    evidence: top_earlgrey/ip/rstmgr/rtl/autogen/rstmgr.sv:516-537; top_earlgrey.sv:1280-1295; spi_host.sv:419
+    note: The SPI-host reset crosses a runtime scan mux before the status synchronizer reset input
+  - id: 000221e2e43c6262
     verdict: confirmed
-    evidence: adc_ctrl_reg_top.sv:93-101,3630
-  - id: 00168ad8dd976162
+    evidence: top_earlgrey/ip/rstmgr/rtl/autogen/rstmgr.sv:376-392; top_earlgrey.sv:2099-2112; top_earlgrey/ip/rv_plic/rtl/autogen/rv_plic_reg_top.sv:2708
+    note: The Domain0 system reset is a possible branch of the scan mux feeding the PLIC subregister reset
+  - id: 000bd4720527eba9
     verdict: confirmed
-    evidence: pinmux_reg_top.sv:95-101,25234
+    evidence: top_earlgrey/ip/rstmgr/rtl/autogen/rstmgr.sv:458-476; top_earlgrey.sv:1912-1948; pinmux_wkup.sv:164
+    note: The AON system reset synchronizer output reaches the pinmux wakeup pulse-sync reset through a scan-mode mux

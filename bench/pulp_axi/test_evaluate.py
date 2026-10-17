@@ -16,11 +16,12 @@ class PulpAxiEvaluatorTests(unittest.TestCase):
 
     def test_frame_covers_both_lanes_and_internal_response_candidates(self):
         self.assertEqual({name: len(rows) for name, rows in self.frames.items()},
-                         {"boundary": 76, "decoder": 4, "response": 4})
+                         {"boundary": 76, "decoder": 4, "response": 4, "request": 24})
         result = evaluate_report(self.report)
         self.assertEqual(result["boundary_found"], 76)
         self.assertEqual(result["decoder_found"], 4)
         self.assertEqual(result["response_found"], 4)
+        self.assertEqual(result["request_found"], 24)
         with mock.patch.object(evaluate, "EXPECTED_SHA256", "stale"):
             with self.assertRaisesRegex(ValueError, "frame changed"):
                 evaluate_report(self.report)
@@ -55,8 +56,15 @@ class PulpAxiEvaluatorTests(unittest.TestCase):
         coarse = {key: value for key, value in self.frames["response"][0].items()
                   if key not in ("source_bits", "dest_bits")}
         replaced = [*self.frames["boundary"], *self.frames["decoder"], coarse,
-                    *self.frames["response"][1:]]
+                    *self.frames["response"][1:], *self.frames["request"]]
         with self.assertRaisesRegex(ValueError, "response"):
+            evaluate_report({**self.report, "connections": replaced})
+
+        direct_request = [{**self.frames["request"][0], "kind": "direct"},
+                          *self.frames["request"][1:]]
+        replaced = [*self.frames["boundary"], *self.frames["decoder"],
+                    *self.frames["response"], *direct_request]
+        with self.assertRaisesRegex(ValueError, "request"):
             evaluate_report({**self.report, "connections": replaced})
 
 

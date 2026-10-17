@@ -79,6 +79,11 @@ OpenTitan adds one coarse KeyMgr selector relation, for 31,755 connections;
 the sampled 20 IDs remain unchanged and a pinned control-path reference
 raises positive gates to 26/26. The source-derived direct/pass-through/
 ternary-control frames are unchanged.
+Plain packed-struct field flow through whole-struct ports subsequently raises
+the SoC report to 97,002 connections. Eight sampled rows entered the refreshed
+population and were checked against pinned RTL; four new exact endpoint/bit
+references bring positive gates to 30/30. The 20-row sample remains fully
+confirmed, but these selected checks do not certify the other added rows.
 The lockstep buffer bit 605 was checked against the earlier independently
 summed bit-513 boundary and the 71 intervening instruction/data bits. It is a
 deliberately small, correlated sample—not a

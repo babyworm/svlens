@@ -355,6 +355,34 @@ known_connections:
     kind: approximate
     exclusive: true
     evidence: keymgr.sv:290-291,341-352,410-412; keymgr_kmac_if.sv:16
+  - source: top_earlgrey.u_rv_core_ibex.u_core.u_ibex_core.load_store_unit_i.addr_last_o[31:0]
+    dest: top_earlgrey.u_rv_core_ibex.u_core.gen_lockstep.gen_buffers[39].u_prim_buf.in_i
+    kind: direct
+    exclusive: true
+    source_bits: {low: 6, high: 6}
+    dest_bits: {low: 0, high: 0}
+    evidence: ibex_core.sv:724,842-845; ibex_pkg.sv:13-20; ibex_top.sv:524-617
+  - source: top_earlgrey.u_xbar_main.tl_rv_plic_o[106:0]
+    dest: top_earlgrey.u_rv_plic.u_reg.u_ie0_4_e_152.wd
+    kind: direct
+    exclusive: true
+    source_bits: {low: 46, high: 46}
+    dest_bits: {low: 0, high: 0}
+    evidence: tlul_pkg.sv:38-83; xbar_main.sv:509; top_earlgrey.sv:2099-2102,2691; top_earlgrey/ip/rv_plic/rtl/autogen/rv_plic_reg_top.sv:95,20152-20158,22902
+  - source: top_earlgrey.u_clkmgr_aon.u_clk_io_div4_peri_cg.clk_o
+    dest: top_earlgrey.u_adc_ctrl_aon.i_adc_ctrl_core.gen_filter_sync[7].i_cfg_chn0_max_v.sync_rptr.clk_i
+    kind: direct
+    exclusive: true
+    source_bits: {low: 0, high: 0}
+    dest_bits: {low: 0, high: 0}
+    evidence: top_earlgrey/ip/clkmgr/rtl/autogen/clkmgr.sv:428-432; top_earlgrey.sv:1866-1870; adc_ctrl_core.sv:245-323
+  - source: top_earlgrey.u_rstmgr_aon.u_0_sys.q_o
+    dest: top_earlgrey.u_rv_plic.u_reg.u_ip_0_p_30.rst_ni
+    kind: approximate
+    exclusive: true
+    source_bits: {low: 0, high: 0}
+    dest_bits: {low: 0, high: 0}
+    evidence: top_earlgrey/ip/rstmgr/rtl/autogen/rstmgr.sv:376-392; top_earlgrey.sv:2099-2112; top_earlgrey/ip/rv_plic/rtl/autogen/rv_plic_reg_top.sv:2708
 
 # The evaluator also requires both endpoints to occur individually in report
 # rows, so an absent pair cannot pass merely because a port was never seen.

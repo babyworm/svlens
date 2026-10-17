@@ -136,3 +136,31 @@ the 20 selected sample IDs retain their verdicts under population hash
 `b0534e8970c1b2c420c7f6846fbdb1063195d79bcc7e781f265cb77e05b001d6`.
 This does not prove which KeyMgr stage is active. Wider expressions and
 dynamic interface-instance selections still lack this candidate guarantee.
+
+## Follow-up: whole packed-struct port to field flow
+
+Mapping a plain packed-struct field to its declaring aggregate's bit offset
+lets a whole-struct input port meet internal field reads and writes. A small
+fixture checks `data` and nonzero-offset `valid` independently across the
+module boundary. In the pinned PULP AXI-Lite 2×2 design this recovers all
+24 manager-to-subordinate AW address/protection, W data/strobe, and AR
+address/protection candidate paths (six signals × four possible pairs). They
+are positional `approximate` paths because demux selection and master
+arbitration are runtime decisions. The optional benchmark now gates 108
+relations, with expected-pair SHA-256
+`90ba4b21381fcb611dbe33d20d81ba3ce8440098b98362b8aa699849b73157ad`.
+Its local report has 1,030 connection rows and 140 recorded gaps; the earlier
+76 boundary, four decoder, and four response checks still pass.
+
+OpenTitan connection rows rise from 31,755 to 97,002 (64,841 direct, 32,161
+approximate), while recorded gaps remain 25,841. Eight new rows entered the
+deterministic sample and were checked against pinned RTL: the Domain0 system
+reset mux to CSRNG; the IO-div4 peripheral clock gate to ADC; Ibex
+`last_data_addr[6]` at buffer bit 39 (`1 + 32 + 6`); TL `a_data[24]` at
+aggregate bit 46 (`1 + 21 + 24`) to a PLIC subregister; and four possible
+reset routes through scan-mode muxes. Four selected relations are also new
+exact path/bit references. The 20-row sample is 20/20 confirmed, positive
+references are 30/30, negative probes remain 7/7, and the population hash is
+`efd44aae9e800f649358e6f7658bb90feac7b5d511ff00964a548797d3b1ce4b`.
+The large remaining population is not individually source-adjudicated; these
+counts must not be read as a whole-SoC precision or recall estimate.

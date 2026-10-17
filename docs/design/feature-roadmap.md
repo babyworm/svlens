@@ -208,8 +208,10 @@ paths in the same probe (one per manager and channel), with no wrong-lane
 decoder links. The SoC sample and small regression cover packed offsets and
 opposite array orientations. The fixture and evaluator are now committed as
 an optional manual-dispatch CI job: 76 boundary, four decoder, and four
-positional approximate response-candidate paths are gated. That bounded
-frame does not validate internal arbitration decisions or whole-crossbar
+positional approximate response-candidate paths are gated. Plain packed-struct
+field flow through a whole-struct port now adds 24 manager-to-subordinate
+AW/W/AR data candidates, bringing the optional frame to 108 relations. That
+bounded frame does not validate internal arbitration decisions or whole-crossbar
 accuracy.
 Runtime reads of bounded packed-struct arrays now carry approximate candidate
 field ranges and a separate range-free index-control dependency. The OpenTitan

@@ -837,10 +837,11 @@ ConnectionExtractor::resolveWireRange(const slang::ast::Expression& expr, const 
     if (portWidth == 0)
         return std::nullopt;
 
-    // Packed-struct fields occupy ordinal slices of their aggregate array.
-    // When requested by a source expression, expand a runtime packed index
-    // into bounded may-flow candidates instead of guessing one direct lane.
-    if (current->kind == EK::MemberAccess && current->type && current->type->getBitWidth() == portWidth) {
+    // Packed elements and struct fields occupy ordinal slices of an
+    // aggregate wire. A source-side runtime index expands into bounded
+    // may-flow candidates instead of guessing one direct lane.
+    if ((current->kind == EK::MemberAccess || current->kind == EK::ElementSelect) && current->type &&
+        current->type->getBitWidth() == portWidth) {
         const slang::ast::Expression* node = current;
         std::vector<uint64_t> offsets{0};
         bool selectedPackedElement = false;
@@ -914,7 +915,8 @@ ConnectionExtractor::resolveWireRange(const slang::ast::Expression& expr, const 
                         *dynamicCandidates = std::move(ranges);
                         return std::nullopt;
                     }
-                    return ranges.front();
+                    if (current->kind == EK::MemberAccess)
+                        return ranges.front();
                 }
             }
         }

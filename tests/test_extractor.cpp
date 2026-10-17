@@ -4,6 +4,7 @@
 #include "WidthChecker.h"
 
 #include <algorithm>
+#include <set>
 #include <string>
 #include <string_view>
 
@@ -364,6 +365,42 @@ TEST_CASE("Extractor: nested packed struct array address reaches only its decode
                 CHECK(found);
         }
     }
+}
+
+TEST_CASE("Extractor: runtime packed vector index retains both data candidates and its selector",
+          "[extractor][ports][bit_flow]") {
+    auto result = compileFile("sv/packed_struct_array_member_forward.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "packed_vector_dynamic_top");
+    const auto graph = extractor.extract();
+    const std::string top = "packed_vector_dynamic_top.";
+    bool source0 = false;
+    bool source1 = false;
+    bool selector = false;
+    for (const auto& conn : graph.connections) {
+        if (conn.dest.fullPath() != top + "u_sink.data_i")
+            continue;
+        CHECK(conn.kind == ConnectionKind::Approximate);
+        if (conn.source.fullPath() == top + "u_select.valid_o") {
+            CHECK_FALSE(conn.sourceBits);
+            CHECK_FALSE(conn.destBits);
+            selector = true;
+            continue;
+        }
+        if (conn.source.fullPath() != top + "u_source0.data_o" && conn.source.fullPath() != top + "u_source1.data_o")
+            continue;
+        REQUIRE(conn.sourceBits);
+        REQUIRE(conn.destBits);
+        CHECK(conn.sourceBits->low == 0);
+        CHECK(conn.sourceBits->high == 7);
+        CHECK(conn.destBits->low == 0);
+        CHECK(conn.destBits->high == 7);
+        source0 |= conn.source.fullPath() == top + "u_source0.data_o";
+        source1 |= conn.source.fullPath() == top + "u_source1.data_o";
+    }
+    CHECK(source0);
+    CHECK(source1);
+    CHECK(selector);
 }
 
 TEST_CASE("Extractor: sole unconditional combinational assignment preserves direct lanes",
@@ -1721,25 +1758,34 @@ TEST_CASE("Extractor: bounded bit-flow gaps retain scope and source location", "
     ConnectionExtractor extractor(*result.compilation, "bit_flow_gaps_top");
     const auto graph = extractor.extract();
 
-    CHECK(graph.bitFlowGapCount == 8);
+    CHECK(graph.bitFlowGapCount == 1);
     CHECK(graph.bitFlowGapReasons.at("width_limit") == 1);
-    CHECK(graph.bitFlowGapReasons.at("unresolved_source_range") == 7);
-    REQUIRE(graph.bitFlowGaps.size() == 5);
+    CHECK_FALSE(graph.bitFlowGapReasons.contains("unresolved_source_range"));
+    REQUIRE(graph.bitFlowGaps.size() == 1);
     CHECK(graph.bitFlowGaps[0].scopePath == "bit_flow_gaps_top");
     CHECK(graph.bitFlowGaps[0].reason == "width_limit");
     CHECK(graph.bitFlowGaps[0].lhsWidth == 4097);
     CHECK(graph.bitFlowGaps[0].rhsWidth == 4097);
     CHECK(graph.bitFlowGaps[0].location.valid());
-    CHECK(graph.bitFlowGaps[1].reason == "unresolved_source_range");
-    CHECK(graph.bitFlowGaps[1].location.valid());
-
+    std::set<int64_t> candidateBits;
     for (const auto& conn : graph.connections) {
         if (conn.source.fullPath() == "bit_flow_gaps_top.u_wide_source.o_data" &&
             conn.dest.fullPath() == "bit_flow_gaps_top.u_wide_sink.i_data") {
             CHECK_FALSE(conn.sourceBits);
             CHECK_FALSE(conn.destBits);
         }
+        if (conn.source.fullPath() == "bit_flow_gaps_top.u_bit_source.o_data" &&
+            conn.dest.fullPath() == "bit_flow_gaps_top.u_bit_sink.i_data") {
+            CHECK(conn.kind == ConnectionKind::Approximate);
+            REQUIRE(conn.sourceBits);
+            REQUIRE(conn.destBits);
+            CHECK(conn.sourceBits->low == conn.sourceBits->high);
+            CHECK(conn.destBits->low == 0);
+            CHECK(conn.destBits->high == 0);
+            candidateBits.insert(conn.sourceBits->low);
+        }
     }
+    CHECK(candidateBits == std::set<int64_t>{0, 1, 2, 3, 4, 5, 6, 7});
 }
 
 TEST_CASE("Extractor: constant unpacked-array elements retain positional bit flow", "[extractor][slice][array]") {
@@ -1876,7 +1922,8 @@ TEST_CASE("Extractor: packed-struct array elements retain ordinal bit flow", "[e
     bool exactWholePort = false;
     bool exactWholeAscendingPort = false;
     bool crossedElement = false;
-    bool exactDynamic = false;
+    std::set<std::string> dynamicCandidates;
+    bool directDynamic = false;
     for (const auto& conn : graph.connections) {
         if (conn.source.fullPath() == "packed_struct_array_top.u_other.o_data" &&
             conn.dest.fullPath() == "packed_struct_array_top.u_copied.i_data")
@@ -1887,8 +1934,15 @@ TEST_CASE("Extractor: packed-struct array elements retain ordinal bit flow", "[e
         if (conn.source.fullPath() == "packed_struct_array_top.u_ascending_other.o_data" &&
             conn.dest.fullPath() == "packed_struct_array_top.u_ascending_copied.i_data")
             crossedElement = true;
-        if (conn.dest.fullPath() == "packed_struct_array_top.u_selected.i_data" && conn.sourceBits && conn.destBits)
-            exactDynamic = true;
+        if (conn.dest.fullPath() == "packed_struct_array_top.u_selected.i_data" && conn.sourceBits && conn.destBits) {
+            directDynamic |= conn.kind == ConnectionKind::Direct;
+            CHECK(conn.kind == ConnectionKind::Approximate);
+            CHECK(conn.sourceBits->low == 0);
+            CHECK(conn.sourceBits->high == 7);
+            CHECK(conn.destBits->low == 0);
+            CHECK(conn.destBits->high == 7);
+            dynamicCandidates.insert(conn.source.fullPath());
+        }
         if (conn.source.fullPath() == "packed_struct_array_top.u_source.o_data" &&
             conn.dest.fullPath() == "packed_struct_array_top.u_copied.i_data" && conn.sourceBits && conn.destBits) {
             CHECK(conn.kind == ConnectionKind::Direct);
@@ -1945,7 +1999,9 @@ TEST_CASE("Extractor: packed-struct array elements retain ordinal bit flow", "[e
     CHECK(exactWholePort);
     CHECK(exactWholeAscendingPort);
     CHECK_FALSE(crossedElement);
-    CHECK_FALSE(exactDynamic);
+    CHECK_FALSE(directDynamic);
+    CHECK(dynamicCandidates ==
+          std::set<std::string>{"packed_struct_array_top.u_source.o_data", "packed_struct_array_top.u_other.o_data"});
 }
 
 TEST_CASE("Extractor: nested packed-array elements map distinct ordinal lanes", "[extractor][slice][packed]") {

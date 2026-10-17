@@ -330,6 +330,26 @@ known_connections:
     source_bits: {low: 73, high: 73}
     dest_bits: {low: 0, high: 0}
     evidence: kmac_pkg.sv:185-192; kmac_app.sv:443-453; kmac.sv:798-800; top_earlgrey.sv:2187,2232-2233
+  - source: top_earlgrey.u_alert_handler.u_class.class_trig_o[3:0]
+    dest: top_earlgrey.u_alert_handler.gen_classes[0].u_accu.class_trig_i
+    kind: direct
+    exclusive: true
+    source_bits: {low: 0, high: 0}
+    dest_bits: {low: 0, high: 0}
+    evidence: alert_handler.sv:164,180; alert_handler_class.sv:20,45
+  - source: top_earlgrey.u_flash_eflash.u_flash.gen_prim_flash_banks[0].u_prim_flash_bank.gen_info_types[1].u_info_mem_meta.rdata_o[11:0]
+    dest: top_earlgrey.u_flash_eflash.gen_flash_cores[0].u_core.prim_flash_rsp_i[77:0]
+    kind: approximate
+    exclusive: true
+    source_bits: {low: 0, high: 11}
+    dest_bits: {low: 64, high: 75}
+    evidence: prim_generic_flash_bank.sv:203-206,403-445; prim_generic_flash.sv:89-91; flash_phy.sv:231,273
+  - source: top_earlgrey.u_usbdev.usbdev_impl.u_usb_fs_nb_pe.out_ep_setup_o[11:0]
+    dest: top_earlgrey.u_usbdev.usbdev_rxfifo.wdata_i[16:0]
+    kind: approximate
+    source_bits: {low: 11, high: 11}
+    dest_bits: {low: 12, high: 12}
+    evidence: usb_fs_nb_out_pe.sv:168-173; usb_fs_nb_pe.sv:186; usbdev_usbif.sv:188,194-199; usbdev.sv:221-227,494-527
 
 # The evaluator also requires both endpoints to occur individually in report
 # rows, so an absent pair cannot pass merely because a port was never seen.

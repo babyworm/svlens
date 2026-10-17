@@ -72,3 +72,34 @@ inputs, raising SoC positive gates to 22/22. They do not claim KeyMgr is the
 active app in a given cycle. The 20 sampled IDs are unchanged, but their
 population hash is now
 `0adfd06f1ca9850d8e28f70e04e8ededbcf70411b4ecd41ab2461bfb9baca038`.
+
+## Follow-up: runtime bare packed vectors
+
+The same bounded candidate logic now handles an assignment-RHS runtime
+element read from a bare packed vector. A test with two independently driven
+byte lanes requires both positional `approximate` data candidates and a
+separate range-free selector dependency. Constant-indexed vectors retain
+their earlier `direct` paths; the OpenTitan alert-handler `class_trig_o[0]` →
+`gen_classes[0].u_accu.class_trig_i` lane is pinned as a regression guard.
+
+Relative to the previous committed artifact (`cc8722a`), OpenTitan gains 37
+`approximate/ranged` rows and removes none, for 31,754 connections (20,135
+direct, 11,619 approximate). Recorded bit-flow gaps fall from 26,179 to
+25,841. The new candidates include Flash information-memory data and metadata
+selected by `info_sel_q` (`prim_generic_flash_bank.sv:403–445`), a USB endpoint
+setup bit selected by `out_endpoint_o` for receive-FIFO bit 12
+(`usbdev_usbif.sv:188,194–199`), and a debug-module halted-status bit.
+Positive path gates are 25/25, negative gates remain 7/7, and the 20 sampled
+IDs retain their source-backed verdicts. Their population SHA-256 is now
+`922645f3d66866a6a9d4b141b8e7c4be03b576f6c88bde6dd250e93a12d55a59`.
+These are possible combinational sources, not proof of a chosen runtime index
+or a full-design precision/recall measurement. A runtime selection written
+directly in an input-port connection is not yet mapped to candidate lanes.
+
+The optional pinned PULP AXI 2×2 probe now reports 488 connection rows and
+140 bit-flow gaps. Its earlier 76/76 interface-boundary rows and 4/4
+manager-to-decoder AW/AR paths remain present, with no opposite-lane address
+path. New approximate ranged rows include possible response paths from either
+master mux to either slave demux, as expected for a fully connected crossbar;
+the individual arbitration outcomes and these new rows have not been
+independently adjudicated or added to CI.

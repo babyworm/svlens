@@ -85,10 +85,17 @@ if conn['connections']:
     assert conn_connection.issubset(conn['connections'][0].keys()), conn['connections'][0].keys()
 assert conn['top'] == 'dangling_top', conn['top']
 assert conn['summary']['warnings'] >= 1 or conn['summary']['errors'] >= 1, conn['summary']
-assert conn_gaps['summary']['bit_flow_gap_count'] == 8, conn_gaps['summary']
-assert conn_gaps['summary']['bit_flow_gap_reasons'] == {'width_limit': 1, 'unresolved_source_range': 7}
-assert [g['reason'] for g in conn_gaps['bit_flow_gaps']] == ['width_limit'] + ['unresolved_source_range'] * 4
+assert conn_gaps['summary']['bit_flow_gap_count'] == 1, conn_gaps['summary']
+assert conn_gaps['summary']['bit_flow_gap_reasons'] == {'width_limit': 1}
+assert [g['reason'] for g in conn_gaps['bit_flow_gaps']] == ['width_limit']
 assert all(g['file'].endswith('bit_flow_gaps.sv') and g['line'] > 0 for g in conn_gaps['bit_flow_gaps'])
+candidate_rows = [row for row in conn_gaps['connections']
+                  if row['source'] == 'bit_flow_gaps_top.u_bit_source.o_data[7:0]'
+                  and row['dest'] == 'bit_flow_gaps_top.u_bit_sink.i_data']
+assert len(candidate_rows) == 8, candidate_rows
+assert {row['source_bits']['low'] for row in candidate_rows} == set(range(8)), candidate_rows
+assert all(row['kind'] == 'approximate' and row['source_bits']['high'] == row['source_bits']['low']
+           and row['dest_bits'] == {'low': 0, 'high': 0} for row in candidate_rows), candidate_rows
 
 assert cdc_top.issubset(cdc.keys()), cdc.keys()
 assert cdc_summary.issubset(cdc['summary'].keys()), cdc['summary'].keys()

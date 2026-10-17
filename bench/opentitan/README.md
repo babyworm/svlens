@@ -66,6 +66,13 @@ Bounded runtime packed-struct array reads subsequently added 20 ranged
 recorded gaps. The selected sample IDs remain 20/20 confirmed; two pinned
 `data`/`valid` candidate-path references raise the positive total to 22/22.
 The updated sample population hash is checked before its labels are used.
+Assignment-RHS bare packed-vector runtime reads then added 37 approximate
+ranged Flash, USB, and debug-module rows without removing an earlier row.
+The current SoC report has 31,754 connections and 25,841 recorded gaps.
+Three further references pin one Flash metadata candidate, one USB endpoint
+candidate, and the previously direct alert-handler constant-index route:
+25/25 positive and 7/7 negative gates. The selected 20 IDs remain confirmed,
+but the population hash changed again and is pinned in the annotation file.
 The lockstep buffer bit 605 was checked against the earlier independently
 summed bit-513 boundary and the 71 intervening instruction/data bits. It is a
 deliberately small, correlated sample—not a

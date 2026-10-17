@@ -57,8 +57,10 @@ until analytical-trust milestones explicitly freeze them.
   the respective ports for supported constant-slice (including indexed `+:` /
   `-:` selects whose base and width resolve during elaboration), constant-indexed integral
   unpacked-array or nested constant-indexed packed-array element/bit (including
-  packed fields in constant-indexed unpacked elements), direct constant
-  whole-interface integral-member slices (also paired with modport members or
+  packed fields in constant-indexed unpacked elements), constant-selected
+  fields of packed-struct array elements (flattened to the aggregate packed
+  vector's ordinal offset, including through ordinary module ports), direct
+  constant whole-interface integral-member slices (also paired with modport members or
   forwarded through direct interface-to-interface slice assignments),
   whole packed-array port, direct module-port forwarding across one or more
   combinational wrappers, a sole unconditional `always_comb` copy/select,

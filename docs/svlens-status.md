@@ -174,8 +174,10 @@ Dependency bootstrap:
   positional source-to-sink paths across multiple wrappers; clocked outputs
   remain a barrier, and untouched ports are not bridged.
   A one-off pinned PULP AXI 2×2 crossbar probe found 76/76 direct boundary
-  member paths and no wrong-lane boundary links. It is not a CI benchmark or
-  evidence of internal mux/decoder accuracy.
+  member paths and no wrong-lane boundary links. Flattened packed-struct
+  array fields now recover all four manager AW/AR address inputs to their
+  same-lane internal decoder ports, with no opposite-lane route. It is not a
+  CI benchmark or evidence of the crossbar's mux-selection correctness.
   Direct constant slices, elaborated indexed `+:` / `-:` part-selects (including
   generated banks and modport members), constant-indexed integral unpacked-array elements,
   nested constant-indexed packed-array elements/bits (including packed fields
@@ -385,10 +387,13 @@ Dependency bootstrap:
   (13,406 direct, 14,604 approximate). A later audit found that same-scope
   clocked D/Q aliases inflated the coarse connection population. Removing
   those aliases and adding runtime ternary-selector control dependencies
-  leaves 24,095 SoC connections (13,407 direct, 10,688 approximate), with
-  27,175 recorded bit-flow gaps. Three old sampled D/Q rows were retired and
-  three newly selected rows were checked against pinned RTL; the current
-  20-row sample has zero contradictions or unresolved rows. These selected
+  initially left 24,095 SoC connections (13,407 direct, 10,688 approximate),
+  with 27,175 recorded bit-flow gaps. Flattening packed-struct array fields
+  through ordinary module ports then raised the current SoC report to 31,697
+  connections (20,135 direct, 11,562 approximate) and reduced recorded
+  bit-flow gaps to 26,195. Six replacement sample rows were checked against
+  pinned RTL; the current 20-row sample has zero contradictions or unresolved
+  rows. These selected
   checks do not establish whole-design precision. The
   lockstep buffer bit index was independently checked by summing 30 operand
   widths. The evaluator gates annotation freshness and contradictions;

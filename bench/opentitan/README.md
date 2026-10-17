@@ -51,10 +51,16 @@ Four rows entered the sample after through-module bit flow was added; their RTL
 paths are documented in the [2026-10-16 snapshot](../../docs/benchmarks/opentitan-2026-10-16.md).
 After a clocked D/Q alias was removed from the combinational graph, three
 previously sampled sequential-influence rows left the population. Three new
-rows were adjudicated, and the current SoC report has 24,095 connections with
+rows were adjudicated, and the report at that step had 24,095 connections with
 20/20 source-backed sample confirmations and 17/17 positive path gates. The
 same snapshot documents the population change and the separate
 ternary-selector control dependencies.
+Packed-struct array-field forwarding through ordinary module ports later
+raised the SoC report to 31,697 connections and reduced recorded bit-flow
+gaps to 26,195. The refreshed sample replaces six rows with source-backed
+verdicts and remains 20/20 confirmed; three added exact-path gates bring the
+positive reference total to 20/20. The [2026-10-17 snapshot](../../docs/benchmarks/opentitan-2026-10-17.md)
+records the new boundary and accuracy limits.
 The lockstep buffer bit 605 was checked against the earlier independently
 summed bit-513 boundary and the 71 intervening instruction/data bits. It is a
 deliberately small, correlated sample—not a

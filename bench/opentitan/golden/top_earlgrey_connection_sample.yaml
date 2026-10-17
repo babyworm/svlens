@@ -1,6 +1,6 @@
 seed: svlens-accuracy-v1
 per_stratum: 5
-population_sha256: ee49c6049046584911430013ebe88962f66a1e65b50f42d0cc0e02c9b4ce9f14
+population_sha256: d5635d288179daf18cc5756b5fb2a97a903bbc12b56bc980976f71d2cbb7286a
 labels:
   - id: 000fbc0a685357f0
     verdict: confirmed
@@ -17,22 +17,26 @@ labels:
   - id: 00728bc155a2ce46
     verdict: confirmed
     evidence: prim_generic_flop_2sync.sv:23-39
-  - id: 003a71bd6be9b10e
+  - id: 00017625baf1d593
     verdict: confirmed
-    evidence: alert_handler_reg_top.sv:93-97,6392-6400,11002
-  - id: 001b364573db916a
+    evidence: rom_ctrl.sv:157-160,180,191-200,238-256; rom_ctrl_mux.sv:61; rom_ctrl_fsm.sv:226; rom_ctrl_reg_pkg.sv:44-66
+    note: scr_rdata[23] reaches hw2reg.exp_digest[2].d[23]; packed offset 33*2 + 1 + 23 = 90
+  - id: 000a7296a4f1573b
     verdict: confirmed
-    evidence: top_earlgrey/ip/pinmux/rtl/autogen/pinmux_reg_top.sv:95,17735-17741,23237
-  - id: 002471dcac4ada16
+    evidence: edn_reg_top.sv:85-95,199-205,869
+    note: The fatal-error write-data field receives register-interface wdata bit 1
+  - id: 000ab4f2cdf2d736
     verdict: confirmed
-    evidence: ibex_top.sv:44,525-617,666-670
-    note: Boot-address bit 20 is buffer bit 605; 513 lower bits precede data_we_o, then one data_we_o bit and 71 instruction/data control bits precede boot_addr_i
-  - id: 002bbf6d33675e51
+    evidence: top_earlgrey/ip/rv_plic/rtl/autogen/rv_plic.sv:308-309,330-334; top_earlgrey/ip/rv_plic/rtl/autogen/rv_plic_reg_top.sv:5476-5486
+    note: Gateway ip_o bit 136 is assigned to hw2reg.ip[136].d and the generated subregister d port
+  - id: 000f6a6fe1ccc39d
     verdict: confirmed
-    evidence: ibex_top.sv:255,394-398; ibex_core.sv:84
-  - id: 0034f9869a021118
+    evidence: xbar_main.sv:995-1000,518-519; top_earlgrey.sv:2175-2192,2666-2668; kmac.sv:954-960; kmac_reg_top.sv:55-56
+    note: The 107-bit TL request is forwarded through the KMAC top into its register integrity checker without lane conversion
+  - id: 0010e75d3ddce97b
     verdict: confirmed
-    evidence: top_earlgrey/ip/rv_plic/rtl/autogen/rv_plic_reg_top.sv:95,20204-20210,22908
+    evidence: top_earlgrey/ip/flash_ctrl/rtl/autogen/flash_ctrl_core_reg_top.sv:148,10574-10580,12114
+    note: The PHY error config regwen write-data port receives register-interface wdata bit 0
   - id: 009a89bac0c940eb
     verdict: confirmed
     evidence: ibex_cs_registers.sv:435-449,729-745,1251-1262
@@ -45,6 +49,10 @@ labels:
     verdict: confirmed
     evidence: prim_alert_sender.sv:100-116
     note: The two-bit buffer output concatenation carries ack_n to the decoder diff_ni input; the coarse row does not certify the exact bit index
+  - id: 001ff750108826a5
+    verdict: confirmed
+    evidence: keymgr.sv:148-171,453-457; keymgr_reg_pkg.sv:131-139,190-200
+    note: LFSR state bit 1 is data_rand[0][1], a possible ternary arm of sw_share0_output[5].d[1]; packed offset 279 + 33*5 + 1 + 1 = 446, but the runtime selector keeps it approximate
   - id: 0020789ae0cfe1c4
     verdict: confirmed
     evidence: ibex_cs_registers.sv:278,435-449,729-745,1222-1229,1250-1262
@@ -64,6 +72,3 @@ labels:
   - id: 00168ad8dd976162
     verdict: confirmed
     evidence: pinmux_reg_top.sv:95-101,25234
-  - id: 00211a1157afb67d
-    verdict: confirmed
-    evidence: rv_timer_reg_top.sv:93-101,481

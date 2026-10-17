@@ -199,6 +199,120 @@ TEST_CASE("Extractor: same-scope FF does not alias data input to registered outp
     }
 }
 
+TEST_CASE("Extractor: packed struct array fields preserve module-port lane orientation",
+          "[extractor][ports][bit_flow]") {
+    auto result = compileFile("sv/packed_struct_array_member_forward.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "packed_struct_array_member_top");
+    const auto graph = extractor.extract();
+    const std::string top = "packed_struct_array_member_top.";
+
+    auto findEdge = [&](const std::string& source, const std::string& dest) -> const Connection* {
+        for (const auto& conn : graph.connections) {
+            if (conn.source.fullPath() == top + source && conn.dest.fullPath() == top + dest)
+                return &conn;
+        }
+        return nullptr;
+    };
+    for (const auto& [source, dest] : {
+             std::pair{"u_source0.data_o", "u_desc.u_sink0.data_i"},
+             std::pair{"u_source1.data_o", "u_desc.u_sink1.data_i"},
+             std::pair{"u_source0.data_o", "u_asc.u_sink1.data_i"},
+             std::pair{"u_source1.data_o", "u_asc.u_sink0.data_i"},
+         }) {
+        const auto* edge = findEdge(source, dest);
+        REQUIRE(edge);
+        CHECK(edge->kind == ConnectionKind::Direct);
+        REQUIRE(edge->sourceBits);
+        REQUIRE(edge->destBits);
+        CHECK(edge->sourceBits->low == 0);
+        CHECK(edge->sourceBits->high == 7);
+        CHECK(edge->destBits->low == 0);
+        CHECK(edge->destBits->high == 7);
+    }
+    CHECK_FALSE(findEdge("u_source0.data_o", "u_desc.u_sink1.data_i"));
+    CHECK_FALSE(findEdge("u_source1.data_o", "u_desc.u_sink0.data_i"));
+    CHECK_FALSE(findEdge("u_source0.data_o", "u_asc.u_sink0.data_i"));
+    CHECK_FALSE(findEdge("u_source1.data_o", "u_asc.u_sink1.data_i"));
+    for (const auto& [source, dest] : {
+             std::pair{"u_valid0.valid_o", "u_desc.u_vsink0.valid_i"},
+             std::pair{"u_valid1.valid_o", "u_desc.u_vsink1.valid_i"},
+             std::pair{"u_valid0.valid_o", "u_asc.u_vsink1.valid_i"},
+             std::pair{"u_valid1.valid_o", "u_asc.u_vsink0.valid_i"},
+         }) {
+        const auto* edge = findEdge(source, dest);
+        REQUIRE(edge);
+        CHECK(edge->kind == ConnectionKind::Direct);
+        REQUIRE(edge->sourceBits);
+        REQUIRE(edge->destBits);
+        CHECK(edge->sourceBits->low == 0);
+        CHECK(edge->sourceBits->high == 0);
+        CHECK(edge->destBits->low == 0);
+        CHECK(edge->destBits->high == 0);
+    }
+    CHECK_FALSE(findEdge("u_valid0.valid_o", "u_desc.u_vsink1.valid_i"));
+    CHECK_FALSE(findEdge("u_valid1.valid_o", "u_desc.u_vsink0.valid_i"));
+    CHECK_FALSE(findEdge("u_valid0.valid_o", "u_asc.u_vsink0.valid_i"));
+    CHECK_FALSE(findEdge("u_valid1.valid_o", "u_asc.u_vsink1.valid_i"));
+    CHECK_FALSE(findEdge("u_source0.data_o", "u_desc.u_vsink0.valid_i"));
+    CHECK_FALSE(findEdge("u_source1.data_o", "u_desc.u_vsink1.valid_i"));
+    CHECK_FALSE(findEdge("u_valid0.valid_o", "u_desc.u_sink0.data_i"));
+    CHECK_FALSE(findEdge("u_valid1.valid_o", "u_desc.u_sink1.data_i"));
+}
+
+TEST_CASE("Extractor: runtime packed struct array member index cannot claim a direct lane",
+          "[extractor][ports][bit_flow]") {
+    auto result = compileFile("sv/packed_struct_array_member_forward.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "packed_struct_array_member_dynamic_top");
+    const auto graph = extractor.extract();
+    REQUIRE(graph.bitFlowGapReasons.contains("nonstructural_source"));
+    CHECK(graph.bitFlowGapReasons.at("nonstructural_source") >= 1);
+    CHECK(std::any_of(graph.allPorts.begin(), graph.allPorts.end(), [](const PortInfo& port) {
+        return port.fullPath() == "packed_struct_array_member_dynamic_top.u_sink.data_i";
+    }));
+    for (const auto& conn : graph.connections) {
+        if (conn.source.fullPath() != "packed_struct_array_member_dynamic_top.u_source0.data_o" &&
+            conn.source.fullPath() != "packed_struct_array_member_dynamic_top.u_source1.data_o")
+            continue;
+        CHECK_FALSE((conn.dest.fullPath() == "packed_struct_array_member_dynamic_top.u_sink.data_i" &&
+                     conn.kind == ConnectionKind::Direct));
+    }
+}
+
+TEST_CASE("Extractor: nested packed struct array address reaches only its decoder lane",
+          "[extractor][ports][bit_flow]") {
+    auto result = compileFile("sv/packed_struct_array_member_forward.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "packed_nested_struct_array_member_top");
+    const auto graph = extractor.extract();
+    const std::string top = "packed_nested_struct_array_member_top.";
+    for (int source = 0; source < 2; ++source) {
+        const auto sourcePath = top + "u_source" + std::to_string(source) + ".data_o";
+        for (int lane = 0; lane < 2; ++lane) {
+            const auto destPath = top + "u_forward.u_decode" + std::to_string(lane) + ".addr_i";
+            bool found = false;
+            for (const auto& conn : graph.connections) {
+                if (conn.source.fullPath() != sourcePath || conn.dest.fullPath() != destPath)
+                    continue;
+                if (source != lane) {
+                    FAIL("packed address crossed into the wrong decoder lane");
+                }
+                CHECK(conn.kind == ConnectionKind::Direct);
+                REQUIRE(conn.sourceBits);
+                REQUIRE(conn.destBits);
+                CHECK(conn.sourceBits->low == 0);
+                CHECK(conn.sourceBits->high == 7);
+                CHECK(conn.destBits->low == 0);
+                CHECK(conn.destBits->high == 7);
+                found = true;
+            }
+            if (source == lane)
+                CHECK(found);
+        }
+    }
+}
+
 TEST_CASE("Extractor: sole unconditional combinational assignment preserves direct lanes",
           "[extractor][procedural][slice]") {
     auto result = compileFile("sv/procedural_exact_glue.sv");

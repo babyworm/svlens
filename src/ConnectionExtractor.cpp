@@ -837,6 +837,55 @@ std::optional<ConnectionExtractor::WireRange> ConnectionExtractor::resolveWireRa
     if (portWidth == 0)
         return std::nullopt;
 
+    // A field of a constant packed-array element is a slice of the
+    // aggregate wire, not a separate net named "array[index].field".
+    // Map its field and array offsets to the declaring packed root so
+    // whole-array module ports can preserve member lanes across a boundary.
+    if (current->kind == EK::MemberAccess && current->type && current->type->getBitWidth() == portWidth) {
+        const slang::ast::Expression* node = current;
+        uint64_t offset = 0;
+        bool selectedPackedElement = false;
+        while (node->kind == EK::MemberAccess || node->kind == EK::ElementSelect) {
+            if (node->kind == EK::MemberAccess) {
+                const auto& member = node->as<slang::ast::MemberAccessExpression>();
+                const auto& value = member.value();
+                const auto fieldOffset = member.member.kind == slang::ast::SymbolKind::Field
+                                             ? member.member.as<slang::ast::FieldSymbol>().bitOffset
+                                             : 0;
+                if (member.member.kind != slang::ast::SymbolKind::Field || !value.type || !node->type ||
+                    value.type->getCanonicalType().kind != slang::ast::SymbolKind::PackedStructType ||
+                    fieldOffset > value.type->getBitWidth() ||
+                    node->type->getBitWidth() > value.type->getBitWidth() - fieldOffset)
+                    break;
+                offset += fieldOffset;
+                node = &value;
+            } else {
+                const auto& select = node->as<slang::ast::ElementSelectExpression>();
+                const auto& value = select.value();
+                const auto* constant = select.selector().getConstant();
+                if (!value.type || !value.type->isPackedArray() || !value.type->hasFixedRange() || !node->type ||
+                    !constant || !*constant || !constant->isInteger())
+                    break;
+                const auto index = constant->integer().as<int64_t>();
+                const auto range = value.type->getFixedRange();
+                if (!index || *index < range.lower() || *index > range.upper() ||
+                    static_cast<uint64_t>(range.fullWidth()) * node->type->getBitWidth() != value.type->getBitWidth())
+                    break;
+                offset += static_cast<uint64_t>(std::abs(*index - range.right)) * node->type->getBitWidth();
+                selectedPackedElement = true;
+                node = &value;
+            }
+        }
+        if (selectedPackedElement && node->kind == EK::NamedValue && node->type && node->type->isIntegral() &&
+            node->type->hasFixedRange() && node->type->getBitWidth() <= 4096 && offset <= node->type->getBitWidth() &&
+            portWidth <= node->type->getBitWidth() - offset) {
+            const auto resolved = resolveExpr(node);
+            if (!resolved.approximate && !resolved.tieOff && resolved.netNames.size() == 1)
+                return WireRange{netKeyForExpression(*node, resolved.netNames.front(), resolved.is_absolute, scopePath),
+                                 static_cast<int64_t>(offset + portWidth - 1), static_cast<int64_t>(offset)};
+        }
+    }
+
     const slang::ast::Expression* base = current;
     int64_t left = 0;
     int64_t right = 0;
@@ -1143,8 +1192,15 @@ bool ConnectionExtractor::recordBitFlow(const slang::ast::Expression& lhs, const
             return true;
         }
         const auto width = current->type->getBitWidth();
-        parts.push_back({resolveWireRange(*current, scopePath, width), current, offset, width,
-                         current->kind == EK::RangeSelect || current->kind == EK::ElementSelect});
+        auto wire = resolveWireRange(*current, scopePath, width);
+        bool selected = current->kind == EK::RangeSelect || current->kind == EK::ElementSelect;
+        if (!selected && wire && current->kind == EK::MemberAccess) {
+            const auto resolved = resolveExpr(current);
+            if (!resolved.approximate && resolved.netNames.size() == 1)
+                selected = wire->baseKey !=
+                           netKeyForExpression(*current, resolved.netNames.front(), resolved.is_absolute, scopePath);
+        }
+        parts.push_back({std::move(wire), current, offset, width, selected});
         return true;
     };
 
@@ -1819,11 +1875,13 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
                                 internal = resolveWireRange(*internalExpr, childPath, pinfo.width);
                         } else if (port.isAnsiPort) {
                             const auto& type = port.getType();
-                            if (type.isIntegral() && type.hasFixedRange() &&
-                                type.getFixedRange().fullWidth() == pinfo.width) {
+                            if (type.isIntegral() && type.hasFixedRange() && type.getBitWidth() == pinfo.width) {
                                 const auto range = type.getFixedRange();
+                                const bool flatPackedArray = type.isPackedArray() && range.fullWidth() != pinfo.width;
                                 internal =
-                                    WireRange{childPath + "::" + std::string(portSym.name), range.left, range.right};
+                                    WireRange{childPath + "::" + std::string(portSym.name),
+                                              flatPackedArray ? static_cast<int64_t>(pinfo.width) - 1 : range.left,
+                                              flatPackedArray ? 0 : range.right};
                             }
                         }
                         if (internal)
@@ -1842,6 +1900,8 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
         }
     }
 
+    const size_t rangesBeforeChild = rangeBindings_.size();
+
     // Recurse into child instance
     visitInstance(childInst, childPath);
 
@@ -1854,6 +1914,12 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
         for (size_t i = linksBeforeChild; i < bitFlowLinks_.size(); ++i) {
             internalSources.insert(bitFlowLinks_[i].source.baseKey);
             internalDestinations.insert(bitFlowLinks_[i].dest.baseKey);
+        }
+        for (size_t i = rangesBeforeChild; i < rangeBindings_.size(); ++i) {
+            if (rangeBindings_[i].isDriver)
+                internalDestinations.insert(rangeBindings_[i].wire.baseKey);
+            else
+                internalSources.insert(rangeBindings_[i].wire.baseKey);
         }
         for (const auto& bridge : portBridges) {
             if (bridge.direction == slang::ast::ArgumentDirection::In &&

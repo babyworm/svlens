@@ -296,6 +296,26 @@ known_connections:
     kind: approximate
     exclusive: true
     evidence: i2c_core.sv:285,311,420; FIFO valid controls the byte mux but does not supply its data bits
+  - source: top_earlgrey.u_edn1.u_reg.u_reg_if.wdata_o[31:0]
+    dest: top_earlgrey.u_edn1.u_reg.u_intr_state_edn_fatal_err.wd
+    kind: direct
+    exclusive: true
+    source_bits: {low: 1, high: 1}
+    dest_bits: {low: 0, high: 0}
+    evidence: edn_reg_top.sv:85-95,199-205,869
+  - source: top_earlgrey.u_xbar_main.u_sm1_42.tl_d_o[106:0]
+    dest: top_earlgrey.u_kmac.u_reg.u_chk.tl_i[106:0]
+    kind: direct
+    exclusive: true
+    source_bits: {low: 0, high: 106}
+    dest_bits: {low: 0, high: 106}
+    evidence: xbar_main.sv:518-519,995-1000; top_earlgrey.sv:2175-2192,2666-2668; kmac.sv:954-960; kmac_reg_top.sv:55-56
+  - source: top_earlgrey.u_rom_ctrl.u_rom.scr_rdata_o[39:0]
+    dest: top_earlgrey.u_rom_ctrl.u_reg_regs.hw2reg[531:0]
+    kind: direct
+    source_bits: {low: 23, high: 23}
+    dest_bits: {low: 90, high: 90}
+    evidence: rom_ctrl.sv:157-160,180,191-200,238-256; rom_ctrl_mux.sv:61; rom_ctrl_fsm.sv:226; rom_ctrl_reg_pkg.sv:44-66
 
 # The evaluator also requires both endpoints to occur individually in report
 # rows, so an absent pair cannot pass merely because a port was never seen.

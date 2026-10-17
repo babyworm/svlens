@@ -64,6 +64,8 @@ module packed_struct_array_member_dynamic_top;
     assign selected_valid = reqs[select_i].valid;
     member_forward_sink u_sink(.data_i(selected_data));
     member_forward_valid_sink u_vsink(.valid_i(selected_valid));
+    member_forward_sink u_port_sink(.data_i(reqs[select_i].data));
+    member_forward_valid_sink u_port_vsink(.valid_i(reqs[select_i].valid));
 endmodule
 
 module packed_vector_dynamic_top;
@@ -77,6 +79,18 @@ module packed_vector_dynamic_top;
     assign lanes[1] = source1;
     assign selected_data = lanes[select_i];
     member_forward_sink u_sink(.data_i(selected_data));
+endmodule
+
+module packed_vector_dynamic_port_top;
+    logic [7:0] source0, source1;
+    logic select_i;
+    logic [1:0][7:0] lanes;
+    member_forward_source u_source0(.data_o(source0));
+    member_forward_source u_source1(.data_o(source1));
+    member_forward_valid_source u_select(.valid_o(select_i));
+    assign lanes[0] = source0;
+    assign lanes[1] = source1;
+    member_forward_sink u_sink(.data_i(lanes[select_i]));
 endmodule
 
 typedef struct packed {

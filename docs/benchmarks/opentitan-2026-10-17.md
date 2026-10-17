@@ -93,8 +93,7 @@ Positive path gates are 25/25, negative gates remain 7/7, and the 20 sampled
 IDs retain their source-backed verdicts. Their population SHA-256 is now
 `922645f3d66866a6a9d4b141b8e7c4be03b576f6c88bde6dd250e93a12d55a59`.
 These are possible combinational sources, not proof of a chosen runtime index
-or a full-design precision/recall measurement. A runtime selection written
-directly in an input-port connection is not yet mapped to candidate lanes.
+or a full-design precision/recall measurement.
 
 The optional pinned PULP AXI 2×2 probe now reports 488 connection rows and
 140 bit-flow gaps. Its earlier 76/76 interface-boundary rows and 4/4
@@ -103,3 +102,21 @@ path. New approximate ranged rows include possible response paths from either
 master mux to either slave demux, as expected for a fully connected crossbar;
 the individual arbitration outcomes and these new rows have not been
 independently adjudicated or added to CI.
+
+## Follow-up: packed selection in an input-port expression
+
+An ordinary input port connected directly to a runtime packed-array select
+now receives the same bounded positional candidate ranges and a separate
+range-free index-control relation. Small fixtures require both candidate
+byte lanes and the selector, including separate `data`/`valid` fields of a
+packed struct; the older nested packed-array port fixture now checks its
+three approximate byte ranges. No runtime candidate is promoted to `direct`.
+
+The pinned OpenTitan report gains one coarse relation from KeyMgr
+`u_ctrl.stage_sel_o` to `u_kmac_if.id_data_i`, consistent with
+`keymgr.sv:341–352,410–412`. It has 31,755 connection rows and the same
+25,841 recorded gaps. A new positive reference brings path gates to 26/26;
+the 20 selected sample IDs retain their verdicts under population hash
+`b0534e8970c1b2c420c7f6846fbdb1063195d79bcc7e781f265cb77e05b001d6`.
+This does not prove which KeyMgr stage is active. Wider expressions and
+dynamic interface-instance selections still lack this candidate guarantee.

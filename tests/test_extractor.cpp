@@ -403,6 +403,87 @@ TEST_CASE("Extractor: runtime packed vector index retains both data candidates a
     CHECK(selector);
 }
 
+TEST_CASE("Extractor: runtime packed vector input-port expression retains candidates and control",
+          "[extractor][ports][bit_flow]") {
+    auto result = compileFile("sv/packed_struct_array_member_forward.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "packed_vector_dynamic_port_top");
+    const auto graph = extractor.extract();
+    const std::string top = "packed_vector_dynamic_port_top.";
+    bool source0 = false;
+    bool source1 = false;
+    bool selector = false;
+    for (const auto& conn : graph.connections) {
+        if (conn.dest.fullPath() != top + "u_sink.data_i")
+            continue;
+        CHECK(conn.kind == ConnectionKind::Approximate);
+        if (conn.source.fullPath() == top + "u_select.valid_o") {
+            CHECK_FALSE(conn.sourceBits);
+            CHECK_FALSE(conn.destBits);
+            selector = true;
+            continue;
+        }
+        if (conn.source.fullPath() != top + "u_source0.data_o" && conn.source.fullPath() != top + "u_source1.data_o")
+            continue;
+        REQUIRE(conn.sourceBits);
+        REQUIRE(conn.destBits);
+        CHECK(conn.sourceBits->low == 0);
+        CHECK(conn.sourceBits->high == 7);
+        CHECK(conn.destBits->low == 0);
+        CHECK(conn.destBits->high == 7);
+        source0 |= conn.source.fullPath() == top + "u_source0.data_o";
+        source1 |= conn.source.fullPath() == top + "u_source1.data_o";
+    }
+    CHECK(source0);
+    CHECK(source1);
+    CHECK(selector);
+}
+
+TEST_CASE("Extractor: runtime packed struct input ports keep data and valid candidates separate",
+          "[extractor][ports][bit_flow]") {
+    auto result = compileFile("sv/packed_struct_array_member_forward.sv");
+    REQUIRE(result);
+    ConnectionExtractor extractor(*result.compilation, "packed_struct_array_member_dynamic_top");
+    const auto graph = extractor.extract();
+    const std::string top = "packed_struct_array_member_dynamic_top.";
+    std::set<std::string> dataSources;
+    std::set<std::string> validSources;
+    for (const auto& conn : graph.connections) {
+        const auto source = conn.source.fullPath();
+        const auto dest = conn.dest.fullPath();
+        if (dest != top + "u_port_sink.data_i" && dest != top + "u_port_vsink.valid_i")
+            continue;
+        CHECK(conn.kind == ConnectionKind::Approximate);
+        if (source == top + "u_select.valid_o") {
+            CHECK_FALSE(conn.sourceBits);
+            CHECK_FALSE(conn.destBits);
+            (dest == top + "u_port_sink.data_i" ? dataSources : validSources).insert(source);
+            continue;
+        }
+        if (!conn.sourceBits || !conn.destBits)
+            continue;
+        if (dest == top + "u_port_sink.data_i") {
+            CHECK((source == top + "u_source0.data_o" || source == top + "u_source1.data_o"));
+            CHECK(conn.sourceBits->low == 0);
+            CHECK(conn.sourceBits->high == 7);
+            CHECK(conn.destBits->low == 0);
+            CHECK(conn.destBits->high == 7);
+            dataSources.insert(source);
+        } else {
+            CHECK((source == top + "u_valid0.valid_o" || source == top + "u_valid1.valid_o"));
+            CHECK(conn.sourceBits->low == 0);
+            CHECK(conn.sourceBits->high == 0);
+            CHECK(conn.destBits->low == 0);
+            CHECK(conn.destBits->high == 0);
+            validSources.insert(source);
+        }
+    }
+    CHECK(dataSources ==
+          std::set<std::string>{top + "u_source0.data_o", top + "u_source1.data_o", top + "u_select.valid_o"});
+    CHECK(validSources ==
+          std::set<std::string>{top + "u_valid0.valid_o", top + "u_valid1.valid_o", top + "u_select.valid_o"});
+}
+
 TEST_CASE("Extractor: sole unconditional combinational assignment preserves direct lanes",
           "[extractor][procedural][slice]") {
     auto result = compileFile("sv/procedural_exact_glue.sv");
@@ -2016,12 +2097,19 @@ TEST_CASE("Extractor: nested packed-array elements map distinct ordinal lanes", 
     bool chain = false;
     bool ascending = false;
     bool crossed = false;
-    bool dynamicExact = false;
+    std::set<int64_t> dynamicCandidateLows;
+    bool dynamicDirect = false;
     for (const auto& conn : graph.connections) {
         const auto source = conn.source.fullPath();
         const auto dest = conn.dest.fullPath();
-        if (dest == "nested_packed_array_top.u_dynamic.i_data" && conn.sourceBits)
-            dynamicExact = true;
+        if (dest == "nested_packed_array_top.u_dynamic.i_data" && conn.sourceBits && conn.destBits) {
+            dynamicDirect |= conn.kind == ConnectionKind::Direct;
+            CHECK(conn.kind == ConnectionKind::Approximate);
+            CHECK(conn.sourceBits->high == conn.sourceBits->low + 7);
+            CHECK(conn.destBits->low == 0);
+            CHECK(conn.destBits->high == 7);
+            dynamicCandidateLows.insert(conn.sourceBits->low);
+        }
         if (!conn.sourceBits || !conn.destBits)
             continue;
         if (source == "nested_packed_array_top.u_source.o_data" && dest == "nested_packed_array_top.u_high.i_data") {
@@ -2057,7 +2145,8 @@ TEST_CASE("Extractor: nested packed-array elements map distinct ordinal lanes", 
     CHECK(chain);
     CHECK(ascending);
     CHECK_FALSE(crossed);
-    CHECK_FALSE(dynamicExact);
+    CHECK_FALSE(dynamicDirect);
+    CHECK(dynamicCandidateLows == std::set<int64_t>{24, 32, 40});
 }
 
 TEST_CASE("Extractor: elaborated generated-bank part selects preserve distinct lanes", "[extractor][slice][generate]") {

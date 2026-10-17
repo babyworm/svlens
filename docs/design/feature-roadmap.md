@@ -214,8 +214,9 @@ KMAC app-port probe gates both the `data` and `valid` lanes from one possible
 source; it does not prove which app is selected at runtime.
 The same bounded candidate mapping now applies to assignment-RHS reads of
 bare packed-vector arrays; constant-indexed vector selections keep their
-earlier exact route. Direct input-port expressions containing a runtime
-selection still need candidate mapping. The pinned
+earlier exact route. Ordinary input-port expressions containing a runtime
+packed selection now receive the same candidate ranges and a separate
+selector-control edge. The pinned
 Flash information-memory and USB endpoint examples check possible data lanes,
 not which runtime index is selected.
 A pinned 20-row OpenTitan SoC connection sample has 20 source-backed

@@ -350,6 +350,11 @@ known_connections:
     source_bits: {low: 11, high: 11}
     dest_bits: {low: 12, high: 12}
     evidence: usb_fs_nb_out_pe.sv:168-173; usb_fs_nb_pe.sv:186; usbdev_usbif.sv:188,194-199; usbdev.sv:221-227,494-527
+  - source: top_earlgrey.u_keymgr.u_ctrl.stage_sel_o[1:0]
+    dest: top_earlgrey.u_keymgr.u_kmac_if.id_data_i[255:0]
+    kind: approximate
+    exclusive: true
+    evidence: keymgr.sv:290-291,341-352,410-412; keymgr_kmac_if.sv:16
 
 # The evaluator also requires both endpoints to occur individually in report
 # rows, so an absent pair cannot pass merely because a port was never seen.

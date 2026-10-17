@@ -73,6 +73,12 @@ Three further references pin one Flash metadata candidate, one USB endpoint
 candidate, and the previously direct alert-handler constant-index route:
 25/25 positive and 7/7 negative gates. The selected 20 IDs remain confirmed,
 but the population hash changed again and is pinned in the annotation file.
+Runtime packed selection written directly in an ordinary input-port
+connection now carries candidate ranges and a separate index-control edge.
+OpenTitan adds one coarse KeyMgr selector relation, for 31,755 connections;
+the sampled 20 IDs remain unchanged and a pinned control-path reference
+raises positive gates to 26/26. The source-derived direct/pass-through/
+ternary-control frames are unchanged.
 The lockstep buffer bit 605 was checked against the earlier independently
 summed bit-513 boundary and the 71 intervening instruction/data bits. It is a
 deliberately small, correlated sample—not a

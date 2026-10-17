@@ -583,6 +583,19 @@ const slang::ast::Symbol* namedBaseSymbol(const slang::ast::Expression& expr) {
     }
 }
 
+std::vector<const slang::ast::Expression*> runtimePackedSelectors(const slang::ast::Expression& expr) {
+    std::vector<const slang::ast::Expression*> selectors;
+    auto visitor = slang::ast::makeVisitor([&](auto& self, const slang::ast::ElementSelectExpression& select) {
+        const auto* constant = select.selector().getConstant();
+        if (select.value().type && select.value().type->isPackedArray() &&
+            (!constant || !*constant || !constant->isInteger()))
+            selectors.push_back(&select.selector());
+        self.visitDefault(select);
+    });
+    expr.visit(visitor);
+    return selectors;
+}
+
 std::string netKeyForExpression(const slang::ast::Expression& expr, const std::string& name, bool absolute,
                                 const std::string& scopePath) {
     if (absolute)
@@ -1233,15 +1246,8 @@ bool ConnectionExtractor::recordBitFlow(const slang::ast::Expression& lhs, const
         if (!dynamicCandidates.empty()) {
             for (auto& candidate : dynamicCandidates)
                 parts.push_back({std::move(candidate), current, offset, width, true, true});
-            auto selectorVisitor =
-                slang::ast::makeVisitor([&](auto& self, const slang::ast::ElementSelectExpression& select) {
-                    const auto* constant = select.selector().getConstant();
-                    if (select.value().type && select.value().type->isPackedArray() &&
-                        (!constant || !*constant || !constant->isInteger()))
-                        controls.push_back({&select.selector(), offset, width});
-                    self.visitDefault(select);
-                });
-            current->visit(selectorVisitor);
+            for (const auto* selector : runtimePackedSelectors(*current))
+                controls.push_back({selector, offset, width});
             return true;
         }
         bool selected = current->kind == EK::RangeSelect || current->kind == EK::ElementSelect;
@@ -1894,6 +1900,29 @@ void ConnectionExtractor::processChildInstance(const slang::ast::InstanceSymbol&
             graph_.tieOffPorts.insert(pinfo.fullPath());
         if (resolved.tieOff && isConstantZero(expr))
             graph_.constantZeroTieOffPorts.insert(pinfo.fullPath());
+
+        if (portSym.kind == slang::ast::SymbolKind::Port && pinfo.direction == slang::ast::ArgumentDirection::In &&
+            pinfo.width > 0 && pinfo.width <= 4096 && !hasNonIdentityConversion(*expr)) {
+            std::vector<WireRange> candidates;
+            resolveWireRange(*expr, scopePath, pinfo.width, &candidates);
+            if (!candidates.empty()) {
+                for (auto& candidate : candidates) {
+                    const auto right = candidate.right;
+                    rangeBindings_.push_back(
+                        {pinfo, false, std::move(candidate), pinfo.fullPath(), right, ConnectionKind::Approximate});
+                }
+                const std::string controlKey = childPath + "::" + pinfo.portName + "#runtime_packed_control";
+                netMap_[controlKey].push_back({pinfo, false, ConnectionKind::Approximate});
+                for (const auto* selector : runtimePackedSelectors(*expr)) {
+                    std::vector<std::string> refs;
+                    collectDependencyKeys(*selector, scopePath, refs);
+                    for (const auto& ref : refs) {
+                        if (ref != controlKey)
+                            proceduralDependencies_.emplace_back(ref, controlKey);
+                    }
+                }
+            }
+        }
 
         if (resolved.netNames.empty())
             continue;

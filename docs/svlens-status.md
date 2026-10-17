@@ -354,10 +354,10 @@ Dependency bootstrap:
   bringing the bounded SoC connectivity references to 10/10. The AES
   `crypt_q` feedback through sparse-signal checking to `crypt_d` adds one
   transitive approximate reference; with the five PRNG lanes, the current
-  SoC connectivity total is 25/25 after adding an I2C FIFO-valid control
+  SoC connectivity total is 26/26 after adding an I2C FIFO-valid control
   path, three packed-field forwarding paths, two KMAC runtime app-data
-  candidates, a preserved alert-handler constant-index route, and Flash/USB
-  runtime packed-vector candidates.
+  candidates, a preserved alert-handler constant-index route, Flash/USB
+  runtime packed-vector candidates, and a KeyMgr selector-to-input-port path.
   Seven manually checked SoC absent-path probes (and two standalone AES probes)
   also pass; the evaluator requires both endpoints to occur elsewhere in the
   report. Two new probes keep separate KMAC and entropy-source SHA3 controls
@@ -399,9 +399,11 @@ Dependency bootstrap:
   approximate) and 26,179 recorded gaps. Bounded assignment-RHS runtime reads
   of bare packed vectors add 37 approximate ranged rows with no removals;
   the current report
-  has 31,754 connections (20,135 direct, 11,619 approximate) and 25,841
-  recorded gaps. Six replacement sample rows were
-  checked against pinned RTL; the current 20-row sample has zero
+  then had 31,754 connections (20,135 direct, 11,619 approximate) and 25,841
+  recorded gaps. Input-port runtime selectors add one coarse KeyMgr control
+  relation without changing the gap count; the current report has 31,755
+  connections (20,135 direct, 11,620 approximate). Six replacement sample
+  rows were checked against pinned RTL; the current 20-row sample has zero
   contradictions or unresolved rows. These selected
   checks do not establish whole-design precision. The
   lockstep buffer bit index was independently checked by summing 30 operand

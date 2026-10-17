@@ -80,13 +80,14 @@ until analytical-trust milestones explicitly freeze them.
   separate range-free `approximate` control dependency on the affected output;
   it does not supply the selected data bits. Ranges are omitted when even the
   accessed lanes are unknown.
-  A runtime index on an assignment RHS into a fixed packed array, with or
-  without struct fields, can enumerate bounded candidate slices as positional `approximate`
+  A runtime index on an assignment RHS or directly in an ordinary input-port
+  connection into a fixed packed array, with or without struct fields, can
+  enumerate bounded candidate slices as positional `approximate`
   rows. Its index signal adds a separate range-free control dependency;
   neither row identifies the selected element at runtime. Constant-indexed
   ordinary packed vectors retain their existing exact mapping. Unsupported
-  or wider arrays retain a gap. A runtime selection directly in an input-port
-  connection is not yet mapped to candidate lanes.
+  or wider arrays retain a gap. Interface-array selections remain subject to
+  Slang's elaboration limits.
 - `status`
 
 A full-width exact `direct` row replaces a redundant range-free `direct` row

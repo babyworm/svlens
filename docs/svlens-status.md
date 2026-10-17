@@ -423,9 +423,11 @@ Dependency bootstrap:
   checks do not establish whole-design precision. The
   subsequent constant packed-field slice fix adds 215 rows without removals,
   bringing the report to 97,217 (64,879 direct, 32,338 approximate). Four
-  source-backed exact-lane references bring positive gates to 34/34. The
+  source-backed exact-lane references and three approximate address/selector
+  references bring positive gates to 37/37. The
   sampled 20 IDs remain unchanged and confirmed under the new population
-  hash; the 177 added approximate rows are not individually adjudicated. The
+  hash; 174 of the 177 added approximate rows are not individually
+  adjudicated. The
   lockstep buffer bit index was independently checked by summing 30 operand
   widths. The evaluator gates annotation freshness and contradictions;
   the sample is too small and correlated to estimate whole-SoC precision or

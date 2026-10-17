@@ -174,12 +174,15 @@ approximate. The SoC report has 97,217 rows (64,879 direct, 32,338
 approximate) and the same 25,841 recorded gaps. AES, HMAC, and UART row
 counts are unchanged. Four new exact-lane gates pin source-backed KMAC FIFO
 depth, OTBN start address, Pattgen channel data, and SPI Device SRAM base
-index paths; positive references pass 34/34 and negative probes remain 7/7.
+index paths; these first raise positive references to 34/34 while negative
+probes remain 7/7.
+Three further approximate gates pin possible ROM and USB TL-address slices
+and SPI Host's guarded CSID bit, raising positive references to 37/37.
 The 20 sampled IDs did not change, all remain confirmed, and the new
 population hash is
 `573f0e7bad1ecb196393bc153cded0c959925dd72e5f01e00006e2c9f9fcfd6d`.
-The 177 new approximate rows have not been individually adjudicated; these
-selected checks are not a whole-SoC accuracy estimate.
+The remaining 174 new approximate rows have not been individually
+adjudicated; these selected checks are not a whole-SoC accuracy estimate.
 
 ## Follow-up: AXI fixture reachability
 

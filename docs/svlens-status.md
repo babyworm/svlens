@@ -182,6 +182,10 @@ Dependency bootstrap:
   ports add 24 manager-to-subordinate AW/W/AR data candidates. The 108-pair
   frame is a committed optional manual-dispatch CI job; it is not evidence
   of the crossbar's mux-selection correctness or whole-design precision.
+  The fixture now uses independent runtime AW/AR addresses and request data
+  per manager, plus independent subordinate responses. Its previous fixed
+  `8'h10` addresses could not exercise the second address-map region despite
+  the analyzer reporting that structural candidate route.
   Direct constant slices, elaborated indexed `+:` / `-:` part-selects (including
   generated banks and modport members), constant-indexed integral unpacked-array elements,
   nested constant-indexed packed-array elements/bits (including packed fields

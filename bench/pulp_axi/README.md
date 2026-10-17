@@ -4,6 +4,11 @@ This benchmark uses a small repository-owned fixture with upstream RTL pinned
 to PULP AXI `70b8e54fd460e3308e58be596ceb3566a6e3576e` and common_cells
 `e73baaec2ca665cd80c3c384e9258e35242b829c`. These clones are needed
 only when this optional probe runs; they are not build dependencies.
+The fixture's two managers have independent runtime AW/AR addresses, request
+data, and valid/ready inputs. Both address-map regions can therefore be
+selected by either manager. The two subordinates likewise have independent
+runtime responses. This does not guarantee any particular arbitration
+outcome, but avoids treating an unreachable fixed-address route as evidence.
 
 With clean clones at those commits and a built `svlens` binary:
 
@@ -17,9 +22,10 @@ python3 bench/pulp_axi/run.py \
 ```
 
 The runner refuses a stale `connect_report.json`, verifies both commit pins
-and clean tracked sources, then writes `connect_report.json` and
-`evaluation.json`. `svlens conn` can exit nonzero for reported issues; the
-evaluator requires zero analysis errors and complete connection rows.
+and clean tracked sources, checks the fixture SHA-256, then writes
+`connect_report.json` and `evaluation.json`. `svlens conn` can exit nonzero for
+reported issues; the evaluator requires zero analysis errors and complete
+connection rows.
 
 The checked source-derived frame is deliberately bounded:
 

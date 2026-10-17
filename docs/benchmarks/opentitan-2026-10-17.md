@@ -164,3 +164,17 @@ references are 30/30, negative probes remain 7/7, and the population hash is
 `efd44aae9e800f649358e6f7658bb90feac7b5d511ff00964a548797d3b1ce4b`.
 The large remaining population is not individually source-adjudicated; these
 counts must not be read as a whole-SoC precision or recall estimate.
+
+## Follow-up: AXI fixture reachability
+
+The first 2×2 fixture drove both managers' AW/AR addresses to `8'h10`, so its
+report's manager-to-subordinate-1 candidate paths were structural may-flow
+but could not be selected by those fixed inputs. The committed fixture now
+exposes independent runtime AW/AR addresses, request data, and handshake
+inputs per manager, along with independent subordinate responses. Both
+address-map regions (`0–127` and `128–255`) are therefore selectable from
+either manager. The runner pins the fixture SHA-256
+`078ed80e9a7bf7a7e2fae6b67bfb3bf0b6fa740db9c0a933abb1b18597a49e70`.
+The connection-row population and 108/108 frame are unchanged. These inputs
+make the candidate routes reachable in principle; the benchmark still does
+not simulate transactions or verify which arbitration choice occurs.

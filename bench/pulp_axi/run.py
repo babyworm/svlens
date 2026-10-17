@@ -1,6 +1,7 @@
 """Run the optional 2x2 PULP AXI-Lite probe against pinned local clones."""
 
 import argparse
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -10,6 +11,7 @@ from evaluate import TOP, evaluate_report
 
 AXI_REV = "70b8e54fd460e3308e58be596ceb3566a6e3576e"
 COMMON_REV = "e73baaec2ca665cd80c3c384e9258e35242b829c"
+FIXTURE_SHA256 = "078ed80e9a7bf7a7e2fae6b67bfb3bf0b6fa740db9c0a933abb1b18597a49e70"
 AXI_SOURCES = (
     "src/axi_pkg.sv", "src/axi_intf.sv", "src/axi_err_slv.sv",
     "src/axi_lite_to_axi.sv", "src/axi_lite_demux.sv", "src/axi_lite_mux.sv",
@@ -47,6 +49,9 @@ def run(axi_root: Path, common_root: Path, svlens: Path, output: Path) -> dict:
     if report_path.exists():
         raise FileExistsError(f"refusing to reuse an existing report: {report_path}")
     fixture = Path(__file__).resolve().parent / "xbar_probe.sv"
+    fixture_hash = hashlib.sha256(fixture.read_bytes()).hexdigest()
+    if fixture_hash != FIXTURE_SHA256:
+        raise ValueError("AXI fixture changed; re-adjudicate expected source paths")
     sources = [*(common_root / name for name in COMMON_SOURCES),
                *(axi_root / name for name in AXI_SOURCES), fixture]
     missing = [str(path) for path in sources if not path.is_file()]
@@ -62,6 +67,7 @@ def run(axi_root: Path, common_root: Path, svlens: Path, output: Path) -> dict:
                            f"{completed.stderr[-1000:]}")
     result = evaluate_report(json.loads(report_path.read_text()))
     result.update({"axi_revision": AXI_REV, "common_cells_revision": COMMON_REV,
+                   "fixture_sha256": fixture_hash,
                    "svlens_exit_code": completed.returncode})
     (output / "evaluation.json").write_text(json.dumps(result, indent=2) + "\n")
     return result

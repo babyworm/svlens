@@ -37,12 +37,22 @@ python3 bench/pulp_axi/run_sim.py \
   --output /path/to/new/simulation-directory
 ```
 
-The simulation uses two swapped manager→subordinate assignments with distinct
-AW/AR addresses, W data, B responses, and R data. It requires all ten
-AW/AR/W/B/R observations (five channels × two targets) in each case and
-fails on a wrong lane or payload. The testbench and fixture hashes are pinned
-in the runner. This checks two concrete transactions, not all possible
-arbitration, contention, or backpressure schedules.
+The simulation completes six cases: both manager→subordinate assignments,
+address boundaries `0`, `127`, `128`, and `255`, and both managers contending
+for each subordinate. Each manager sends one write and one read per case,
+for 12 completed writes and 12 completed reads. The scoreboard checks AW/AR
+addresses and protection, W data and strobes, and B/R responses at actual
+handshakes. It rejects wrong routes, duplicate transfers, and timeouts without
+requiring a specific arbitration winner. All five channels must encounter
+backpressure during the run. A second execution corrupts R data and must fail
+at the response assertion, ensuring that disabled or ineffective assertions
+cannot pass the benchmark.
+
+The testbench and fixture hashes are pinned. The runner refuses a nonempty
+output directory, retains `build.log`, `simulation.log`, and
+`negative-control.log`, and writes `simulation.json` only after both executions
+behave as expected. This is bounded behavioral evidence; it does not exhaust
+arbitration schedules, resets during traffic, or protocol behavior.
 
 The checked source-derived frame is deliberately bounded:
 
@@ -67,3 +77,4 @@ The existing `opentitan-benchmark` workflow runs this as a separate job on
 manual dispatch and uploads a `pulp-axi-benchmark` artifact. Its weekly
 scheduled run stays OpenTitan-only. The manual job also runs the existing
 optional Verilator tool and includes `simulation.json` in its artifact.
+The `pulp-axi-simulation` artifact retains the simulation logs even on failure.

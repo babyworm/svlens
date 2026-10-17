@@ -186,9 +186,10 @@ Dependency bootstrap:
   per manager, plus independent subordinate responses. Its previous fixed
   `8'h10` addresses could not exercise the second address-map region despite
   the analyzer reporting that structural candidate route.
-  A manual-dispatch Verilator smoke now checks both swapped address regions,
-  the AW/AR/W request lanes, and B/R returns. It covers two concrete
-  transaction patterns, not all arbitration, contention, or CDC behavior.
+  A manual-dispatch Verilator run now completes 12 writes and 12 reads across
+  six routing, address-boundary, and contention cases with backpressure on all
+  five channels. A corrupted-response negative control checks that assertions
+  detect errors. This does not exhaust arbitration schedules or prove CDC safety.
   Direct constant slices, elaborated indexed `+:` / `-:` part-selects (including
   generated banks and modport members), constant-indexed integral unpacked-array elements,
   nested constant-indexed packed-array elements/bits (including packed fields

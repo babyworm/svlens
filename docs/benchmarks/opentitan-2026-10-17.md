@@ -196,3 +196,24 @@ the testbench SHA-256 is
 `5a7b694f58dbd264765e34bb4d5834a5f7bb8375b900882bfef00e4d4d379bbd`.
 This is a two-case behavioral smoke, not exhaustive arbitration or
 backpressure verification.
+
+## Follow-up: completed transactions under contention and backpressure
+
+The simulation now sends one write and one read per manager in each of six
+cases: the two swapped routes above, address boundaries `0/128` and `255/127`,
+and both managers contending for subordinate 0 or subordinate 1. Valid signals
+drop only after their handshakes, subordinate responses follow accepted
+requests, and the scoreboard requires 12 completed writes and 12 completed
+reads with no duplicates. It checks AW/AR protection and W strobes as well as
+addresses, data, and B/R responses. Each channel must encounter a stall during
+the run; the contending managers must both complete without pinning a winner.
+A second execution corrupts R data and must fail at the response assertion.
+
+The runner rejects nonempty output directories and writes success metadata
+only after the positive and negative executions behave as expected. Build,
+positive-run, and negative-control logs are retained locally and in a separate
+manual-CI artifact, including on failures. The fixture hash and structural
+108-pair frame are unchanged. The updated testbench SHA-256 is
+`0d1599cd13ed8500de17872ab236c4695c6648c77f802344a25c92ab7ca6a23c`.
+These six cases do not exhaust arbitration schedules, reset interruption, or
+whole-crossbar protocol correctness.

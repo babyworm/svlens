@@ -92,10 +92,13 @@ fresh manual adjudication rather than silently reusing old verdicts.
 Constant part-selects of packed fields across whole-struct module ports add
 215 SoC rows without removing previous rows: 38 direct and 177 approximate.
 Four source-backed exact-lane references in KMAC, OTBN, Pattgen, and SPI Device
-and three source-backed approximate address/selector paths in ROM Control,
-USB Device, and SPI Host raise the positive gates to 37/37. All 20
+and two source-backed approximate TL-address paths in ROM Control and USB
+Device raise the positive gates to 36/36. All 20
 deterministic sample IDs remain unchanged and confirmed under the refreshed
-population hash; the other new rows are not individually adjudicated.
+population hash. Sixteen correlated approximate SPI Host CSID rows are known
+false source-influence claims: with `NumCS=1`, `test_csid_inval ? '0 :
+reg2hw.csid.q[0]` is always zero. The other new rows are not individually
+adjudicated.
 
 An independent source-derived recall probe walks Slang's elaborated AST for
 seven SoC IP scopes and enumerates single-bit or whole-width, one-dimensional

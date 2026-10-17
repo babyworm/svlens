@@ -216,8 +216,8 @@ known_connections:
     source_bits: {low: 2, high: 11}
     dest_bits: {low: 0, high: 9}
     evidence: spi_device.sv:209-212,750; spi_fwmode.sv:54
-  # The address adapter and CSID guard preserve possible data influence,
-  # not an unconditional direct wire.
+  # TL address adapters preserve possible data influence, not an
+  # unconditional direct wire.
   - source: top_earlgrey.u_rom_ctrl.u_rom_top.tl_win_o[106:0]
     dest: top_earlgrey.u_rom_ctrl.u_mux.bus_addr_i[11:0]
     kind: approximate
@@ -232,13 +232,6 @@ known_connections:
     source_bits: {low: 60, high: 68}
     dest_bits: {low: 0, high: 8}
     evidence: usbdev.sv:666-710,735; tlul_adapter_sram.sv:190; tlul_pkg.sv:64-83
-  - source: top_earlgrey.u_spi_host0.u_reg.u_csid.q[31:0]
-    dest: top_earlgrey.u_spi_host0.u_cmd_cdc.command_i[45:0]
-    kind: approximate
-    exclusive: true
-    source_bits: {low: 0, high: 0}
-    dest_bits: {low: 45, high: 45}
-    evidence: spi_host.sv:222,240,282; spi_host_command_cdc.sv:15,39
   # The same generated AES seed split is checked at the full-SoC hierarchy.
   - source: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.u_prim_packer_fifo.rdata_o[159:0]
     dest: top_earlgrey.u_aes.u_aes_core.u_aes_cipher_core.gen_masks.u_aes_prng_masking.gen_chunks[0].u_lfsr_chunk.seed_i[31:0]

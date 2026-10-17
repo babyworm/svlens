@@ -217,8 +217,10 @@ Constant bit/part-selects of packed fields now retain aggregate ordinal lanes
 through a whole-struct port in either field range direction, including
 constant-selected packed-struct array elements. Four new exact
 OpenTitan paths in KMAC, OTBN, Pattgen, and SPI Device gate this shape, plus
-three approximate address/selector paths in ROM Control, USB Device, and SPI
-Host. The other new SoC paths are not all source-adjudicated.
+two approximate TL-address paths in ROM Control and USB Device. The same SoC
+run exposes 16 correlated false SPI Host CSID-to-command influence rows:
+`NumCS=1` makes the guarded command bit constant zero. The other new SoC
+paths are not all source-adjudicated.
 The fixture now leaves both managers' AW/AR addresses and request data as
 independent runtime inputs, so both address-map regions are reachable from
 either manager; its subordinate responses also vary independently. The earlier

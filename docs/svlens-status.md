@@ -116,7 +116,7 @@ DOT/JSON report tests. The opt-in prefix flow is documented in
 exercise that prefix and the parallel test suite. The default dependency
 install remains unchanged.
 
-The OpenTitan benchmark parser/evaluator suite passes 37/37 Python tests and
+The OpenTitan benchmark parser/evaluator suite passes 40/40 Python tests and
 Ruff checks; branch CI runs the benchmark harness tests. Pinned AES and
 full-SoC SVA elaborate with their RTL (0 errors;
 the SoC's 12 implicit-conversion warnings also occur without SVA). The
@@ -423,11 +423,12 @@ Dependency bootstrap:
   checks do not establish whole-design precision. The
   subsequent constant packed-field slice fix adds 215 rows without removals,
   bringing the report to 97,217 (64,879 direct, 32,338 approximate). Four
-  source-backed exact-lane references and three approximate address/selector
-  references bring positive gates to 37/37. The
+  source-backed exact-lane references and two approximate TL-address
+  references bring positive gates to 36/36. The
   sampled 20 IDs remain unchanged and confirmed under the new population
-  hash; 174 of the 177 added approximate rows are not individually
-  adjudicated. The
+  hash. The 177 new approximate rows include two confirmed TL-address
+  paths, 16 correlated SPI Host CSID false positives, and 159 rows not
+  individually adjudicated. The
   lockstep buffer bit index was independently checked by summing 30 operand
   widths. The evaluator gates annotation freshness and contradictions;
   the sample is too small and correlated to estimate whole-SoC precision or

@@ -176,13 +176,18 @@ counts are unchanged. Four new exact-lane gates pin source-backed KMAC FIFO
 depth, OTBN start address, Pattgen channel data, and SPI Device SRAM base
 index paths; these first raise positive references to 34/34 while negative
 probes remain 7/7.
-Three further approximate gates pin possible ROM and USB TL-address slices
-and SPI Host's guarded CSID bit, raising positive references to 37/37.
+Two further approximate gates pin possible ROM and USB TL-address slices,
+raising positive references to 36/36.
 The 20 sampled IDs did not change, all remain confirmed, and the new
 population hash is
 `573f0e7bad1ecb196393bc153cded0c959925dd72e5f01e00006e2c9f9fcfd6d`.
-The remaining 174 new approximate rows have not been individually
-adjudicated; these selected checks are not a whole-SoC accuracy estimate.
+One new approximate family is contradicted by the pinned RTL: both SPI Host
+instances have `NumCS=1`, so `test_csid_inval ? '0 : reg2hw.csid.q[0]`
+is zero for every register value. The analyzer nevertheless reports eight
+CSID-to-command-bit influence rows per instance (16 correlated false
+positives). Of the 177 added approximate rows, two are source-confirmed, 16
+are contradicted, and 159 remain individually unadjudicated. These selected
+checks are not a whole-SoC accuracy estimate.
 
 ## Follow-up: AXI fixture reachability
 

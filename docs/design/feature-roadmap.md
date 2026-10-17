@@ -208,6 +208,10 @@ paths in the same probe (one per manager and channel), with no wrong-lane
 decoder links. The SoC sample and small regression cover packed offsets and
 opposite array orientations. This remains an uncommitted external probe,
 not a CI benchmark or a validation of the crossbar's internal mux decisions.
+Runtime reads of bounded packed-struct arrays now carry approximate candidate
+field ranges and a separate range-free index-control dependency. The OpenTitan
+KMAC app-port probe gates both the `data` and `valid` lanes from one possible
+source; it does not prove which app is selected at runtime.
 A pinned 20-row OpenTitan SoC connection sample has 20 source-backed
 confirmations, including an independently checked buffer bit index. It is a narrow audit with
 correlated generated-register rows, not a whole-design precision/recall value

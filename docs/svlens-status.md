@@ -354,8 +354,9 @@ Dependency bootstrap:
   bringing the bounded SoC connectivity references to 10/10. The AES
   `crypt_q` feedback through sparse-signal checking to `crypt_d` adds one
   transitive approximate reference; with the five PRNG lanes, the current
-  SoC connectivity total is 17/17 after adding an I2C FIFO-valid control
-  path to the format-byte mux.
+  SoC connectivity total is 22/22 after adding an I2C FIFO-valid control
+  path, three packed-field forwarding paths, and two KMAC runtime app-data
+  candidate paths.
   Seven manually checked SoC absent-path probes (and two standalone AES probes)
   also pass; the evaluator requires both endpoints to occur elsewhere in the
   report. Two new probes keep separate KMAC and entropy-source SHA3 controls
@@ -389,11 +390,14 @@ Dependency bootstrap:
   those aliases and adding runtime ternary-selector control dependencies
   initially left 24,095 SoC connections (13,407 direct, 10,688 approximate),
   with 27,175 recorded bit-flow gaps. Flattening packed-struct array fields
-  through ordinary module ports then raised the current SoC report to 31,697
+  through ordinary module ports then raised the SoC report to 31,697
   connections (20,135 direct, 11,562 approximate) and reduced recorded
-  bit-flow gaps to 26,195. Six replacement sample rows were checked against
-  pinned RTL; the current 20-row sample has zero contradictions or unresolved
-  rows. These selected
+  bit-flow gaps to 26,195. Bounded runtime packed-struct array reads add
+  20 ranged approximate KMAC app-source rows without removing older rows;
+  the current report has 31,717 connections (20,135 direct, 11,582
+  approximate) and 26,179 recorded gaps. Six replacement sample rows were
+  checked against pinned RTL; the current 20-row sample has zero
+  contradictions or unresolved rows. These selected
   checks do not establish whole-design precision. The
   lockstep buffer bit index was independently checked by summing 30 operand
   widths. The evaluator gates annotation freshness and contradictions;

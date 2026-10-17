@@ -823,9 +823,9 @@ static bool hasConcreteUnpackedMemberPath(const slang::ast::Expression& expr) {
     return *index >= range.lower() && *index <= range.upper() && hasConcreteUnpackedMemberPath(select.value());
 }
 
-std::optional<ConnectionExtractor::WireRange> ConnectionExtractor::resolveWireRange(const slang::ast::Expression& expr,
-                                                                                    const std::string& scopePath,
-                                                                                    uint32_t portWidth) {
+std::optional<ConnectionExtractor::WireRange>
+ConnectionExtractor::resolveWireRange(const slang::ast::Expression& expr, const std::string& scopePath,
+                                      uint32_t portWidth, std::vector<WireRange>* dynamicCandidates) {
     using EK = slang::ast::ExpressionKind;
     const slang::ast::Expression* current = &expr;
     while (current->kind == EK::Conversion || current->kind == EK::Assignment) {
@@ -837,14 +837,14 @@ std::optional<ConnectionExtractor::WireRange> ConnectionExtractor::resolveWireRa
     if (portWidth == 0)
         return std::nullopt;
 
-    // A field of a constant packed-array element is a slice of the
-    // aggregate wire, not a separate net named "array[index].field".
-    // Map its field and array offsets to the declaring packed root so
-    // whole-array module ports can preserve member lanes across a boundary.
+    // Packed-struct fields occupy ordinal slices of their aggregate array.
+    // When requested by a source expression, expand a runtime packed index
+    // into bounded may-flow candidates instead of guessing one direct lane.
     if (current->kind == EK::MemberAccess && current->type && current->type->getBitWidth() == portWidth) {
         const slang::ast::Expression* node = current;
-        uint64_t offset = 0;
+        std::vector<uint64_t> offsets{0};
         bool selectedPackedElement = false;
+        bool dynamicSelection = false;
         while (node->kind == EK::MemberAccess || node->kind == EK::ElementSelect) {
             if (node->kind == EK::MemberAccess) {
                 const auto& member = node->as<slang::ast::MemberAccessExpression>();
@@ -857,32 +857,66 @@ std::optional<ConnectionExtractor::WireRange> ConnectionExtractor::resolveWireRa
                     fieldOffset > value.type->getBitWidth() ||
                     node->type->getBitWidth() > value.type->getBitWidth() - fieldOffset)
                     break;
-                offset += fieldOffset;
+                for (auto& offset : offsets)
+                    offset += fieldOffset;
                 node = &value;
             } else {
                 const auto& select = node->as<slang::ast::ElementSelectExpression>();
                 const auto& value = select.value();
                 const auto* constant = select.selector().getConstant();
-                if (!value.type || !value.type->isPackedArray() || !value.type->hasFixedRange() || !node->type ||
-                    !constant || !*constant || !constant->isInteger())
+                if (!value.type || !value.type->isPackedArray() || !value.type->hasFixedRange() || !node->type)
                     break;
-                const auto index = constant->integer().as<int64_t>();
                 const auto range = value.type->getFixedRange();
-                if (!index || *index < range.lower() || *index > range.upper() ||
-                    static_cast<uint64_t>(range.fullWidth()) * node->type->getBitWidth() != value.type->getBitWidth())
+                const auto elementWidth = node->type->getBitWidth();
+                if (elementWidth == 0 ||
+                    static_cast<uint64_t>(range.fullWidth()) * elementWidth != value.type->getBitWidth())
                     break;
-                offset += static_cast<uint64_t>(std::abs(*index - range.right)) * node->type->getBitWidth();
+                if (constant && *constant && constant->isInteger()) {
+                    const auto index = constant->integer().as<int64_t>();
+                    if (!index || *index < range.lower() || *index > range.upper())
+                        break;
+                    const auto shift = static_cast<uint64_t>(std::abs(*index - range.right)) * elementWidth;
+                    for (auto& offset : offsets)
+                        offset += shift;
+                } else {
+                    if (!dynamicCandidates || range.fullWidth() > 4096 / offsets.size())
+                        break;
+                    std::vector<uint64_t> expanded;
+                    expanded.reserve(offsets.size() * static_cast<size_t>(range.fullWidth()));
+                    for (const auto offset : offsets) {
+                        for (int64_t ordinal = 0; ordinal < range.fullWidth(); ++ordinal)
+                            expanded.push_back(offset + static_cast<uint64_t>(ordinal) * elementWidth);
+                    }
+                    offsets = std::move(expanded);
+                    dynamicSelection = true;
+                }
                 selectedPackedElement = true;
                 node = &value;
             }
         }
         if (selectedPackedElement && node->kind == EK::NamedValue && node->type && node->type->isIntegral() &&
-            node->type->hasFixedRange() && node->type->getBitWidth() <= 4096 && offset <= node->type->getBitWidth() &&
-            portWidth <= node->type->getBitWidth() - offset) {
+            node->type->hasFixedRange() && node->type->getBitWidth() <= 4096) {
             const auto resolved = resolveExpr(node);
-            if (!resolved.approximate && !resolved.tieOff && resolved.netNames.size() == 1)
-                return WireRange{netKeyForExpression(*node, resolved.netNames.front(), resolved.is_absolute, scopePath),
-                                 static_cast<int64_t>(offset + portWidth - 1), static_cast<int64_t>(offset)};
+            if (!resolved.approximate && !resolved.tieOff && resolved.netNames.size() == 1) {
+                const auto rootWidth = node->type->getBitWidth();
+                std::vector<WireRange> ranges;
+                for (const auto offset : offsets) {
+                    if (offset > rootWidth || portWidth > rootWidth - offset) {
+                        ranges.clear();
+                        break;
+                    }
+                    ranges.push_back(
+                        {netKeyForExpression(*node, resolved.netNames.front(), resolved.is_absolute, scopePath),
+                         static_cast<int64_t>(offset + portWidth - 1), static_cast<int64_t>(offset)});
+                }
+                if (!ranges.empty()) {
+                    if (dynamicSelection) {
+                        *dynamicCandidates = std::move(ranges);
+                        return std::nullopt;
+                    }
+                    return ranges.front();
+                }
+            }
         }
     }
 
@@ -1080,12 +1114,12 @@ bool ConnectionExtractor::recordBitFlow(const slang::ast::Expression& lhs, const
     bool stateChangingConversion = false;
     bool mappedWidthConversion = false;
     bool mappedConditional = false;
-    struct ConditionalControl {
+    struct ControlDependency {
         const slang::ast::Expression* expr;
         uint32_t offset;
         uint32_t width;
     };
-    std::vector<ConditionalControl> controls;
+    std::vector<ControlDependency> controls;
     auto flatten = [&](auto&& self, const slang::ast::Expression& expr, uint32_t offset, std::vector<Part>& parts,
                        bool sourceSide) -> bool {
         using EK = slang::ast::ExpressionKind;
@@ -1192,7 +1226,22 @@ bool ConnectionExtractor::recordBitFlow(const slang::ast::Expression& lhs, const
             return true;
         }
         const auto width = current->type->getBitWidth();
-        auto wire = resolveWireRange(*current, scopePath, width);
+        std::vector<WireRange> dynamicCandidates;
+        auto wire = resolveWireRange(*current, scopePath, width, sourceSide ? &dynamicCandidates : nullptr);
+        if (!dynamicCandidates.empty()) {
+            for (auto& candidate : dynamicCandidates)
+                parts.push_back({std::move(candidate), current, offset, width, true, true});
+            auto selectorVisitor =
+                slang::ast::makeVisitor([&](auto& self, const slang::ast::ElementSelectExpression& select) {
+                    const auto* constant = select.selector().getConstant();
+                    if (select.value().type && select.value().type->isPackedArray() &&
+                        (!constant || !*constant || !constant->isInteger()))
+                        controls.push_back({&select.selector(), offset, width});
+                    self.visitDefault(select);
+                });
+            current->visit(selectorVisitor);
+            return true;
+        }
         bool selected = current->kind == EK::RangeSelect || current->kind == EK::ElementSelect;
         if (!selected && wire && current->kind == EK::MemberAccess) {
             const auto resolved = resolveExpr(current);

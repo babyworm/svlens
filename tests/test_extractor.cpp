@@ -266,18 +266,71 @@ TEST_CASE("Extractor: runtime packed struct array member index cannot claim a di
     REQUIRE(result);
     ConnectionExtractor extractor(*result.compilation, "packed_struct_array_member_dynamic_top");
     const auto graph = extractor.extract();
-    REQUIRE(graph.bitFlowGapReasons.contains("nonstructural_source"));
-    CHECK(graph.bitFlowGapReasons.at("nonstructural_source") >= 1);
     CHECK(std::any_of(graph.allPorts.begin(), graph.allPorts.end(), [](const PortInfo& port) {
         return port.fullPath() == "packed_struct_array_member_dynamic_top.u_sink.data_i";
     }));
+    bool source0 = false;
+    bool source1 = false;
+    bool selector = false;
     for (const auto& conn : graph.connections) {
+        if (conn.dest.fullPath() != "packed_struct_array_member_dynamic_top.u_sink.data_i")
+            continue;
+        CHECK(conn.kind == ConnectionKind::Approximate);
+        CHECK(conn.source.fullPath() != "packed_struct_array_member_dynamic_top.u_valid0.valid_o");
+        CHECK(conn.source.fullPath() != "packed_struct_array_member_dynamic_top.u_valid1.valid_o");
+        if (conn.source.fullPath() == "packed_struct_array_member_dynamic_top.u_select.valid_o") {
+            CHECK_FALSE(conn.sourceBits);
+            CHECK_FALSE(conn.destBits);
+            selector = true;
+            continue;
+        }
         if (conn.source.fullPath() != "packed_struct_array_member_dynamic_top.u_source0.data_o" &&
             conn.source.fullPath() != "packed_struct_array_member_dynamic_top.u_source1.data_o")
             continue;
-        CHECK_FALSE((conn.dest.fullPath() == "packed_struct_array_member_dynamic_top.u_sink.data_i" &&
-                     conn.kind == ConnectionKind::Direct));
+        REQUIRE(conn.sourceBits);
+        REQUIRE(conn.destBits);
+        CHECK(conn.sourceBits->low == 0);
+        CHECK(conn.sourceBits->high == 7);
+        CHECK(conn.destBits->low == 0);
+        CHECK(conn.destBits->high == 7);
+        source0 |= conn.source.fullPath() == "packed_struct_array_member_dynamic_top.u_source0.data_o";
+        source1 |= conn.source.fullPath() == "packed_struct_array_member_dynamic_top.u_source1.data_o";
     }
+    CHECK(source0);
+    CHECK(source1);
+    CHECK(selector);
+
+    bool valid0 = false;
+    bool valid1 = false;
+    bool validSelector = false;
+    for (const auto& conn : graph.connections) {
+        if (conn.dest.fullPath() != "packed_struct_array_member_dynamic_top.u_vsink.valid_i")
+            continue;
+        CHECK(conn.kind == ConnectionKind::Approximate);
+        const auto source = conn.source.fullPath();
+        CHECK(source != "packed_struct_array_member_dynamic_top.u_source0.data_o");
+        CHECK(source != "packed_struct_array_member_dynamic_top.u_source1.data_o");
+        if (source == "packed_struct_array_member_dynamic_top.u_select.valid_o") {
+            CHECK_FALSE(conn.sourceBits);
+            CHECK_FALSE(conn.destBits);
+            validSelector = true;
+            continue;
+        }
+        if (source != "packed_struct_array_member_dynamic_top.u_valid0.valid_o" &&
+            source != "packed_struct_array_member_dynamic_top.u_valid1.valid_o")
+            continue;
+        REQUIRE(conn.sourceBits);
+        REQUIRE(conn.destBits);
+        CHECK(conn.sourceBits->low == 0);
+        CHECK(conn.sourceBits->high == 0);
+        CHECK(conn.destBits->low == 0);
+        CHECK(conn.destBits->high == 0);
+        valid0 |= source == "packed_struct_array_member_dynamic_top.u_valid0.valid_o";
+        valid1 |= source == "packed_struct_array_member_dynamic_top.u_valid1.valid_o";
+    }
+    CHECK(valid0);
+    CHECK(valid1);
+    CHECK(validSelector);
 }
 
 TEST_CASE("Extractor: nested packed struct array address reaches only its decoder lane",

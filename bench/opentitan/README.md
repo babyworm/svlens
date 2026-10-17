@@ -61,6 +61,11 @@ gaps to 26,195. The refreshed sample replaces six rows with source-backed
 verdicts and remains 20/20 confirmed; three added exact-path gates bring the
 positive reference total to 20/20. The [2026-10-17 snapshot](../../docs/benchmarks/opentitan-2026-10-17.md)
 records the new boundary and accuracy limits.
+Bounded runtime packed-struct array reads subsequently added 20 ranged
+`approximate` KMAC app-source rows, for 31,717 SoC connections and 26,179
+recorded gaps. The selected sample IDs remain 20/20 confirmed; two pinned
+`data`/`valid` candidate-path references raise the positive total to 22/22.
+The updated sample population hash is checked before its labels are used.
 The lockstep buffer bit 605 was checked against the earlier independently
 summed bit-513 boundary and the 71 intervening instruction/data bits. It is a
 deliberately small, correlated sample—not a

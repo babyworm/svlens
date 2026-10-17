@@ -50,5 +50,25 @@ channels.
 
 These counts are observed analyzer output, not precision or recall estimates
 for the full SoC. The 20 selected OpenTitan rows and four PULP address paths
-cannot certify the thousands of other newly added rows; dynamic packed-array
-reads and complex procedural glue remain incomplete.
+cannot certify the thousands of other newly added rows; other dynamic
+packed-array shapes and complex procedural glue remain incomplete.
+
+## Follow-up: bounded runtime packed-field reads
+
+A runtime index into a fixed packed-struct array now enumerates each possible
+field as a positional `approximate` may-flow source; its selector is recorded
+as a separate range-free control dependency. The regression confirms both
+candidate `data` and nonzero-offset `valid` fields without cross-field links
+or a fabricated `direct` lane.
+
+On the same pinned OpenTitan source, the KMAC `app_i[app_id]` read contributes
+20 new `approximate/ranged` rows and removes 16 `nonstructural_source` gap
+instances. The current totals are 31,717 connections (20,135 direct, 11,582
+approximate) and 26,179 recorded gaps. RTL packs `app_req_t` as `valid` at
+bit 73 and `data` at bits 72:9 (`kmac_pkg.sv:185–192`); `kmac_app.sv:443–453`
+uses the runtime `app_id` to select these fields. Two exact-range positive
+references pin one possible KeyMgr source to KMAC's FIFO `data` and `valid`
+inputs, raising SoC positive gates to 22/22. They do not claim KeyMgr is the
+active app in a given cycle. The 20 sampled IDs are unchanged, but their
+population hash is now
+`0adfd06f1ca9850d8e28f70e04e8ededbcf70411b4ecd41ab2461bfb9baca038`.

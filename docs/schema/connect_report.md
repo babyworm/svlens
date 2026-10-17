@@ -80,6 +80,10 @@ until analytical-trust milestones explicitly freeze them.
   separate range-free `approximate` control dependency on the affected output;
   it does not supply the selected data bits. Ranges are omitted when even the
   accessed lanes are unknown.
+  A runtime index into a fixed packed-struct array can enumerate its bounded
+  candidate field slices as positional `approximate` rows. Its index signal
+  adds a separate range-free control dependency; neither row identifies the
+  selected element at runtime. Unsupported or wider arrays retain a gap.
 - `status`
 
 A full-width exact `direct` row replaces a redundant range-free `direct` row

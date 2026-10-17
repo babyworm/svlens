@@ -47,15 +47,23 @@ module packed_struct_array_member_top;
     member_forward_asc u_asc(.req_i(reqs));
 endmodule
 
-module packed_struct_array_member_dynamic_top(input logic select_i);
+module packed_struct_array_member_dynamic_top;
     logic [7:0] source0, source1, selected_data;
+    logic select_i, valid0, valid1, selected_valid;
     member_req_t [1:0] reqs;
     member_forward_source u_source0(.data_o(source0));
     member_forward_source u_source1(.data_o(source1));
+    member_forward_valid_source u_select(.valid_o(select_i));
+    member_forward_valid_source u_valid0(.valid_o(valid0));
+    member_forward_valid_source u_valid1(.valid_o(valid1));
     assign reqs[0].data = source0;
     assign reqs[1].data = source1;
+    assign reqs[0].valid = valid0;
+    assign reqs[1].valid = valid1;
     assign selected_data = reqs[select_i].data;
+    assign selected_valid = reqs[select_i].valid;
     member_forward_sink u_sink(.data_i(selected_data));
+    member_forward_valid_sink u_vsink(.valid_i(selected_valid));
 endmodule
 
 typedef struct packed {

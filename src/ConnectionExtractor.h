@@ -63,7 +63,8 @@ private:
         int64_t right = 0;
     };
     static std::optional<WireRange> resolveWireRange(const slang::ast::Expression& expr, const std::string& scopePath,
-                                                     uint32_t portWidth);
+                                                     uint32_t portWidth,
+                                                     std::vector<WireRange>* dynamicCandidates = nullptr);
     struct BitFlowLink {
         WireRange source;
         WireRange dest;

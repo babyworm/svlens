@@ -27,9 +27,15 @@ This creates:
 - `dist/svlens-local.tar.gz`
 - `dist/svlens-local.zip` when `zip` is available
 
+For Linux archives, configure the build with
+`-DCMAKE_BUILD_RPATH='$ORIGIN/lib'` so the executable resolves its adjacent
+bundled runtimes. The packager verifies those paths. macOS dependency paths
+are rewritten to `@loader_path/lib/` and the copied executable is ad-hoc signed.
+
 ### Archive contents
 
 - `svlens` binary
+- matching `fmt` / `yaml-cpp` runtimes and their license notices under `lib/`, resolved relative to the binary
 - `LICENSE`
 - `README.md`
 - `docs/install.md`

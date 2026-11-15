@@ -62,12 +62,16 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ]; then
             PREFIX_PATH="$HOME/.local;/opt/homebrew"
             JOBS=$(sysctl -n hw.ncpu)
+            RUNTIME_RPATH='@loader_path/lib'
           else
             JOBS=$(nproc)
+            RUNTIME_RPATH='$ORIGIN/lib'
           fi
           cmake -B build-release \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="$PREFIX_PATH" \
+            -DCMAKE_BUILD_RPATH="$RUNTIME_RPATH" \
+            -DBUILD_TESTING=OFF \
             -DSVLENS_FETCH_DEPS=OFF
           cmake --build build-release -j"$JOBS"
 
@@ -86,6 +90,29 @@ jobs:
           cd dist
           shasum -a 256 "${ARTIFACT_NAME}.tar.gz" "${ARTIFACT_NAME}.zip" > "${ARTIFACT_NAME}.sha256"
           cat "${ARTIFACT_NAME}.sha256"
+
+      - name: Verify relocated archive and bundled runtimes
+        run: |
+          mkdir archive-smoke
+          tar -xzf "dist/${ARTIFACT_NAME}.tar.gz" -C archive-smoke
+          BINARY="$PWD/archive-smoke/${ARTIFACT_NAME}/svlens"
+          "$BINARY" --version
+          "$BINARY" --help > /dev/null
+          mkdir archive-smoke/bin
+          ln -s "../${ARTIFACT_NAME}/svlens" archive-smoke/bin/svlens
+          archive-smoke/bin/svlens --version
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            codesign --verify "$BINARY"
+            if otool -L "$BINARY" | grep -E '/(opt/homebrew|usr/local|home/runner)/'; then
+              echo 'ERROR: archive retains a build-machine runtime path'
+              exit 1
+            fi
+          else
+            if ldd "$BINARY" | grep -E '(libfmt|libyaml-cpp)' | grep -Fv "$PWD/archive-smoke/"; then
+              echo 'ERROR: archive does not resolve its bundled runtimes'
+              exit 1
+            fi
+          fi
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v6

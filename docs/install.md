@@ -157,11 +157,11 @@ artifacts:
 Download from the [Releases page](https://github.com/babyworm/svlens/releases),
 verify against the `*.sha256` companion file, then extract and install:
 
-The archives contain the binary and documentation; system runtime libraries
-are still required. On macOS, install the Homebrew `yaml-cpp` and `fmt`
-libraries (`brew install yaml-cpp fmt`). Linux archives target the release
-workflow's Ubuntu environment and require compatible `yaml-cpp` / `fmt`
-runtime libraries; the Docker image supplies its own runtime environment.
+Starting with v0.3.7, archives include the matching `yaml-cpp` and `fmt`
+runtime libraries under `lib/`. Keep this directory alongside the executable.
+Linux archives target the release workflow's Ubuntu environment and still
+require compatible system C/C++ runtimes. The Docker image supplies its own
+runtime environment.
 
 ```bash
 TAG=v0.3.7  # replace with the desired tag
@@ -175,7 +175,9 @@ shasum -a 256 -c "svlens-${ARCH}.sha256"
 
 tar -xzf "svlens-${ARCH}.tar.gz"
 install -d "$HOME/.local/bin"
-install -m 0755 "svlens-${ARCH}/svlens" "$HOME/.local/bin/svlens"
+install -d "$HOME/.local/lib/svlens/${TAG}"
+cp -R "svlens-${ARCH}/." "$HOME/.local/lib/svlens/${TAG}/"
+ln -sfn "$HOME/.local/lib/svlens/${TAG}/svlens" "$HOME/.local/bin/svlens"
 ```
 
 ---

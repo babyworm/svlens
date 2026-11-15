@@ -241,3 +241,26 @@ manual-CI artifact, including on failures. The fixture hash and structural
 `0d1599cd13ed8500de17872ab236c4695c6648c77f802344a25c92ab7ca6a23c`.
 These six cases do not exhaust arbitration schedules, reset interruption, or
 whole-crossbar protocol correctness.
+
+## Follow-up: outstanding-traffic reset checks (2026-11-15)
+
+Two additional scenarios now interrupt live traffic: AW/AR addresses have
+handshaken while W is withheld, or all requests have handshaken and B/R
+responses are blocked at both managers. Setup must observe those states before
+reset; a timeout cannot count as a completed reset case. Both endpoints reset
+with the crossbar and discard their old traffic. After release, eight idle
+cycles must contain no stale requests or responses. Fresh traffic then uses
+the opposite routes and different payloads without another startup reset.
+
+The positive run completes eight route cases, 16 writes, and 16 reads, including
+two reset recoveries; aborted traffic is excluded from completion counts.
+Separate executions omit each reset. The request-stage omission must trigger
+the W-route assertion, and the blocked-response omission must trigger the
+R-response assertion. These join the existing corrupted-response control.
+All three controls must fail at the expected assertions before success metadata
+is written. Their logs are included in the existing manual-CI diagnostic artifact.
+Testbench SHA-256 is
+`8dae388bf4ebb8632aefa5328bd036ef8a4bde08d54141741472cf5e21748ad4`.
+The fixture, upstream revisions, and 108-pair structural frame are unchanged.
+Independent endpoint resets, arbitrary reset release timing, and exhaustive
+arbitration schedules remain unverified.

@@ -186,10 +186,13 @@ Dependency bootstrap:
   per manager, plus independent subordinate responses. Its previous fixed
   `8'h10` addresses could not exercise the second address-map region despite
   the analyzer reporting that structural candidate route.
-  A manual-dispatch Verilator run now completes 12 writes and 12 reads across
-  six routing, address-boundary, and contention cases with backpressure on all
-  five channels. A corrupted-response negative control checks that assertions
-  detect errors. This does not exhaust arbitration schedules or prove CDC safety.
+  A manual-dispatch Verilator run now completes 16 writes and 16 reads across
+  eight route cases, including recovery after resets with accepted addresses
+  or blocked B/R responses. Recovery requires a quiet window and fresh traffic
+  without another reset. Corrupted-response and two omitted-reset negative
+  controls must fail at their expected assertions. This does not exhaust
+  arbitration schedules, independent endpoint resets, or reset release timing,
+  and does not prove CDC safety.
   Direct constant slices, elaborated indexed `+:` / `-:` part-selects (including
   generated banks and modport members), constant-indexed integral unpacked-array elements,
   nested constant-indexed packed-array elements/bits (including packed fields

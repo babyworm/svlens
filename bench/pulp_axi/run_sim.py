@@ -11,8 +11,8 @@ from pathlib import Path
 from run import AXI_REV, AXI_SOURCES, COMMON_REV, COMMON_SOURCES, FIXTURE_SHA256, check_clone
 
 
-SUCCESS_MARKER = "PULP AXI 2x2 route simulation passed: 6 cases, 12 writes, 12 reads"
-TESTBENCH_SHA256 = "0d1599cd13ed8500de17872ab236c4695c6648c77f802344a25c92ab7ca6a23c"
+SUCCESS_MARKER = "PULP AXI 2x2 route simulation passed: 8 cases, 16 writes, 16 reads, 2 resets"
+TESTBENCH_SHA256 = "8dae388bf4ebb8632aefa5328bd036ef8a4bde08d54141741472cf5e21748ad4"
 
 
 def execute(command: list[str], log_path: Path, timeout: int) -> tuple[int, str]:
@@ -67,11 +67,20 @@ def run(axi_root: Path, common_root: Path, output: Path, verilator: Path | None 
                         output / "negative-control.log", 30)
     if not code or "Assertion failed" not in log or "wrong or duplicate R response" not in log:
         raise RuntimeError(f"AXI negative control did not detect the corrupted response: {log[-1600:]}")
+    for phase, assertion in (("request", "wrong or duplicate W route"),
+                             ("response", "wrong or duplicate R response")):
+        code, log = execute([str(simulator), f"+SVLENS_AXI_SKIP_{phase.upper()}_RESET"],
+                            output / f"{phase}-reset-negative-control.log", 30)
+        if not code or "Assertion failed" not in log or assertion not in log:
+            raise RuntimeError(f"AXI reset negative control ({phase}) did not detect the omitted reset: "
+                               f"{log[-1600:]}")
     result = {"axi_revision": AXI_REV, "common_cells_revision": COMMON_REV,
               "fixture_sha256": fixture_hash, "testbench_sha256": tb_hash,
-              "route_cases_passed": 6, "contended_cases_passed": 2,
-              "write_transactions_passed": 12, "read_transactions_passed": 12,
-              "negative_control_detected": True, "stdout": SUCCESS_MARKER}
+              "route_cases_passed": 8, "contended_cases_passed": 2, "reset_cases_passed": 2,
+              "write_transactions_passed": 16, "read_transactions_passed": 16,
+              "negative_control_detected": True, "reset_negative_control_detected": True,
+              "reset_negative_controls_detected": 2,
+              "stdout": SUCCESS_MARKER}
     (output / "simulation.json").write_text(json.dumps(result, indent=2) + "\n")
     return result
 

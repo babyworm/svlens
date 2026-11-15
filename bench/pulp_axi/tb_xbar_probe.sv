@@ -22,7 +22,7 @@ module tb_xbar_probe;
   logic [1:0][1:0] slv_b_resp, slv_r_resp;
   logic [1:0][31:0] slv_r_data;
   bit [4:0] stalled_channels = '0;
-  int passed_cases = 0, total_writes = 0, total_reads = 0;
+  int passed_cases = 0, total_writes = 0, total_reads = 0, passed_resets = 0;
 
   for (genvar lane = 0; lane < 2; lane++) begin : gen_observe
     assign mst_aw_valid[lane] = dut.mst_if[lane].aw_valid;
@@ -56,7 +56,8 @@ module tb_xbar_probe;
 
   // Each manager sends one write and one read. Each subordinate accepts one
   // outstanding transaction per channel; contention does not choose a winner.
-  task automatic check_routes(input logic [7:0] addr0, addr1);
+  task automatic check_routes(input logic [7:0] addr0, addr1,
+                              input bit reset_before = 1'b1);
     bit [1:0] sent_aw, sent_w, sent_ar, saw_aw, saw_w, saw_ar, saw_b, saw_r;
     bit [1:0] pending_aw, pending_w, pending_ar;
     int aw_owner[2], ar_owner[2];
@@ -75,13 +76,13 @@ module tb_xbar_probe;
     aw_owner = '{default: 0};
     ar_owner = '{default: 0};
     finished = 1'b0;
-    rst_ni = 1'b0;
+    if (reset_before) rst_ni = 1'b0;
     aw_valid_i = '0;
     w_valid_i = '0;
     ar_valid_i = '0;
     b_valid_i = '0;
     r_valid_i = '0;
-    repeat (4) @(negedge clk_i);
+    if (reset_before) repeat (4) @(negedge clk_i);
     aw_addr_i = {addr1, addr0};
     ar_addr_i = {addr1, addr0};
     aw_prot_i = {3'b101, 3'b001};
@@ -204,6 +205,113 @@ module tb_xbar_probe;
     passed_cases++;
   endtask
 
+  // Interrupt genuinely accepted traffic, then leave the bus idle so stale
+  // state cannot hide behind a new transaction or another startup reset.
+  task automatic interrupt_with_reset(input bit responses_pending);
+    bit [1:0] sent_aw, sent_ar, sent_w, accepted_aw, accepted_ar, accepted_w;
+    bit [1:0] blocked_b, blocked_r;
+    bit interrupted;
+    sent_aw = '0;
+    sent_ar = '0;
+    sent_w = '0;
+    accepted_aw = '0;
+    accepted_ar = '0;
+    accepted_w = '0;
+    blocked_b = '0;
+    blocked_r = '0;
+    interrupted = 1'b0;
+    rst_ni = 1'b0;
+    aw_valid_i = '0;
+    ar_valid_i = '0;
+    w_valid_i = '0;
+    b_valid_i = '0;
+    r_valid_i = '0;
+    b_ready_i = '0;
+    r_ready_i = '0;
+    repeat (4) @(negedge clk_i);
+    aw_addr_i = responses_pending ? {8'h24, 8'hb4} : {8'hb4, 8'h24};
+    ar_addr_i = aw_addr_i;
+    aw_prot_i = '0;
+    ar_prot_i = '0;
+    w_data_i = {32'hbadd_0001, 32'hdead_0000};
+    w_strb_i = '1;
+    b_resp_i = {2'b10, 2'b00};
+    r_resp_i = {2'b10, 2'b00};
+    r_data_i = {32'hbad1_0001, 32'hbad0_0000};
+    rst_ni = 1'b1;
+
+    for (int cycle = 0; cycle < 100; cycle++) begin
+      @(negedge clk_i);
+      aw_valid_i = ~sent_aw;
+      ar_valid_i = ~sent_ar;
+      w_valid_i = responses_pending ? ~sent_w : '0;
+      aw_ready_i = ~accepted_aw;
+      ar_ready_i = ~accepted_ar;
+      w_ready_i = responses_pending ? accepted_aw & ~accepted_w : '0;
+      b_valid_i = responses_pending ? accepted_aw & accepted_w : '0;
+      r_valid_i = responses_pending ? accepted_ar : '0;
+      @(posedge clk_i);
+      for (int target = 0; target < 2; target++) begin
+        int source;
+        source = responses_pending ? 1 - target : target;
+        if (mst_aw_valid[target] && aw_ready_i[target]) begin
+          assert (mst_aw_addr[target] == aw_addr_i[source])
+            else $fatal(1, "wrong AW route before reset");
+          accepted_aw[target] = 1'b1;
+        end
+        if (mst_ar_valid[target] && ar_ready_i[target]) begin
+          assert (mst_ar_addr[target] == ar_addr_i[source])
+            else $fatal(1, "wrong AR route before reset");
+          accepted_ar[target] = 1'b1;
+        end
+        if (mst_w_valid[target] && w_ready_i[target]) begin
+          assert (accepted_aw[target] && mst_w_data[target] == w_data_i[source])
+            else $fatal(1, "wrong W route before reset");
+          accepted_w[target] = 1'b1;
+        end
+      end
+      for (int source = 0; source < 2; source++) begin
+        if (aw_valid_i[source] && slv_aw_ready[source]) sent_aw[source] = 1'b1;
+        if (ar_valid_i[source] && slv_ar_ready[source]) sent_ar[source] = 1'b1;
+        if (w_valid_i[source] && slv_w_ready[source]) sent_w[source] = 1'b1;
+        if (slv_b_valid[source]) blocked_b[source] = 1'b1;
+        if (slv_r_valid[source]) blocked_r[source] = 1'b1;
+      end
+      if (&sent_aw && &sent_ar && &accepted_aw && &accepted_ar &&
+          (responses_pending ? (&sent_w && &accepted_w && &blocked_b && &blocked_r) :
+                               (!(|sent_w) && !(|accepted_w) && !(|blocked_b) && !(|blocked_r)))) begin
+        interrupted = 1'b1;
+        break;
+      end
+    end
+    assert (interrupted) else $fatal(1, "reset setup did not reach outstanding traffic");
+
+    @(negedge clk_i);
+    if (!(responses_pending ? $test$plusargs("SVLENS_AXI_SKIP_RESPONSE_RESET") :
+                              $test$plusargs("SVLENS_AXI_SKIP_REQUEST_RESET"))) rst_ni = 1'b0;
+    // Managers and subordinates reset together with the crossbar. Neither
+    // endpoint replays an old request or response after this reset.
+    aw_valid_i = '0;
+    ar_valid_i = '0;
+    w_valid_i = '0;
+    b_valid_i = '0;
+    r_valid_i = '0;
+    aw_ready_i = '1;
+    ar_ready_i = '1;
+    w_ready_i = '1;
+    b_ready_i = '1;
+    r_ready_i = '1;
+    repeat (4) @(negedge clk_i);
+    rst_ni = 1'b1;
+    repeat (8) begin
+      @(posedge clk_i);
+      assert (!(|mst_aw_valid) && !(|mst_ar_valid) && !(|mst_w_valid) &&
+              !(|slv_b_valid) && !(|slv_r_valid))
+        else $fatal(1, "stale transaction after reset");
+    end
+    @(negedge clk_i);
+  endtask
+
   initial begin
     aw_addr_i = '0;
     ar_addr_i = '0;
@@ -230,9 +338,15 @@ module tb_xbar_probe;
     check_routes(8'hff, 8'h7f);
     check_routes(8'h10, 8'h20);
     check_routes(8'h90, 8'ha0);
+    interrupt_with_reset(1'b0);
+    check_routes(8'h90, 8'h10, 1'b0);
+    passed_resets++;
+    interrupt_with_reset(1'b1);
+    check_routes(8'h10, 8'h90, 1'b0);
+    passed_resets++;
     assert (&stalled_channels) else $fatal(1, "missing channel backpressure: %b", stalled_channels);
-    $display("PULP AXI 2x2 route simulation passed: %0d cases, %0d writes, %0d reads",
-             passed_cases, total_writes, total_reads);
+    $display("PULP AXI 2x2 route simulation passed: %0d cases, %0d writes, %0d reads, %0d resets",
+             passed_cases, total_writes, total_reads, passed_resets);
     $finish;
   end
 endmodule

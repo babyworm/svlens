@@ -226,11 +226,14 @@ independent runtime inputs, so both address-map regions are reachable from
 either manager; its subordinate responses also vary independently. The earlier
 fixed-address fixture could report structurally possible but unreachable
 cross-destination candidates.
-The optional existing-Verilator simulation now completes 12 writes and 12
-reads across six routing, address-boundary, and contention cases with
-backpressure on every channel. A corrupted-response negative control must
-fail at the response assertion. These are bounded checks, not a proof of
-all arbitration or backpressure outcomes.
+The optional existing-Verilator simulation now completes 16 writes and 16
+reads across eight route cases: six routing, address-boundary, and contention
+cases plus recovery after two resets during outstanding traffic. The reset
+cases require accepted addresses or blocked responses before interruption,
+an idle window after release, and fresh opposite-route traffic without another
+reset. Corrupted-response and two omitted-reset negative controls must fail at
+their expected assertions. These are bounded checks, not a proof of all
+arbitration, independent endpoint resets, or reset release timing.
 Runtime reads of bounded packed-struct arrays now carry approximate candidate
 field ranges and a separate range-free index-control dependency. The OpenTitan
 KMAC app-port probe gates both the `data` and `valid` lanes from one possible

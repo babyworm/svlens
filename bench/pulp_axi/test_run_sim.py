@@ -26,7 +26,8 @@ class PulpAxiSimulationRunnerTests(unittest.TestCase):
         self.addCleanup(clone_check.stop)
 
     def simulate(self, build_code=0, create_binary=True, normal_code=0,
-                 normal_output=None, mutation_code=1, mutation_output=None):
+                 normal_output=None, mutation_code=1, mutation_output=None,
+                 reset_code=1, reset_output=None, response_reset_code=1, response_reset_output=None):
         def execute(command, **kwargs):
             if "--binary" in command:
                 self.assertIn("--assert", command)
@@ -35,12 +36,20 @@ class PulpAxiSimulationRunnerTests(unittest.TestCase):
                     simulator.parent.mkdir(parents=True, exist_ok=True)
                     simulator.touch()
                 code, output = build_code, "build diagnostic\n"
-            elif len(command) > 1:
-                self.assertEqual(command[1], "+SVLENS_AXI_MUTATE_RESPONSE")
+            elif command[1:] == ["+SVLENS_AXI_MUTATE_RESPONSE"]:
                 code = mutation_code
                 output = mutation_output if mutation_output is not None else (
                     "Assertion failed: wrong or duplicate R response\n")
+            elif command[1:] == ["+SVLENS_AXI_SKIP_REQUEST_RESET"]:
+                code = reset_code
+                output = reset_output if reset_output is not None else (
+                    "Assertion failed: wrong or duplicate W route\n")
+            elif command[1:] == ["+SVLENS_AXI_SKIP_RESPONSE_RESET"]:
+                code = response_reset_code
+                output = response_reset_output if response_reset_output is not None else (
+                    "Assertion failed: wrong or duplicate R response\n")
             else:
+                self.assertEqual(len(command), 1)
                 code = normal_code
                 output = normal_output if normal_output is not None else run_sim.SUCCESS_MARKER
             kwargs["stdout"].write(output)
@@ -109,15 +118,48 @@ class PulpAxiSimulationRunnerTests(unittest.TestCase):
     def test_success_records_completed_transactions_and_negative_control(self):
         with self.simulate():
             result = self.run_probe()
-        self.assertEqual(result["route_cases_passed"], 6)
-        self.assertEqual(result["write_transactions_passed"], 12)
-        self.assertEqual(result["read_transactions_passed"], 12)
+        self.assertEqual(result["route_cases_passed"], 8)
+        self.assertEqual(result["write_transactions_passed"], 16)
+        self.assertEqual(result["read_transactions_passed"], 16)
+        self.assertEqual(result["reset_cases_passed"], 2)
         self.assertTrue(result["negative_control_detected"])
+        self.assertTrue(result["reset_negative_control_detected"])
+        self.assertEqual(result["reset_negative_controls_detected"], 2)
         self.assertEqual(result["axi_revision"], run_sim.AXI_REV)
         self.assertEqual(result["fixture_sha256"], run_sim.FIXTURE_SHA256)
         self.assertTrue((self.output / "simulation.json").is_file())
-        for name in ("build.log", "simulation.log", "negative-control.log"):
+        for name in ("build.log", "simulation.log", "negative-control.log",
+                     "request-reset-negative-control.log", "response-reset-negative-control.log"):
             self.assertTrue((self.output / name).is_file())
+
+    def test_reset_negative_control_must_detect_the_omitted_reset(self):
+        for index, (code, output) in enumerate(((0, "Assertion failed: wrong or duplicate W route"),
+                                               (1, "unrelated crash"),
+                                               (1, "Assertion failed: wrong or duplicate R response"))):
+            with self.subTest(code=code, output=output):
+                self.output = self.root / f"reset-{index}"
+                with self.simulate(reset_code=code, reset_output=output):
+                    with self.assertRaisesRegex(RuntimeError, "reset negative control"):
+                        self.run_probe()
+                self.assertFalse((self.output / "simulation.json").exists())
+
+    def test_response_reset_negative_control_must_detect_the_omitted_reset(self):
+        for index, (code, output) in enumerate(((0, "Assertion failed: wrong or duplicate R response"),
+                                               (1, "unrelated crash"),
+                                               (1, "Assertion failed: wrong or duplicate W route"))):
+            with self.subTest(code=code, output=output):
+                self.output = self.root / f"response-reset-{index}"
+                with self.simulate(response_reset_code=code, response_reset_output=output):
+                    with self.assertRaisesRegex(RuntimeError, "reset negative control.*response"):
+                        self.run_probe()
+                self.assertFalse((self.output / "simulation.json").exists())
+
+    def test_old_success_marker_cannot_claim_reset_coverage(self):
+        old_marker = "PULP AXI 2x2 route simulation passed: 6 cases, 12 writes, 12 reads"
+        with self.simulate(normal_output=old_marker):
+            with self.assertRaisesRegex(RuntimeError, "simulation failed"):
+                self.run_probe()
+        self.assertFalse((self.output / "simulation.json").exists())
 
     def test_timeout_keeps_diagnostics_without_publishing_success(self):
         def timeout(command, **kwargs):

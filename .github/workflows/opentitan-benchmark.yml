@@ -104,7 +104,7 @@ jobs:
             --svlens build/svlens \
             --output "$RUNNER_TEMP/pulp-axi-report"
 
-      - name: Simulate AXI routes, contention, and backpressure
+      - name: Simulate AXI routes, contention, backpressure, and reset
         run: |
           python3 bench/pulp_axi/run_sim.py \
             --axi-root "$RUNNER_TEMP/pulp-axi" \

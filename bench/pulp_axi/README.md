@@ -37,7 +37,7 @@ python3 bench/pulp_axi/run_sim.py \
   --output /path/to/new/simulation-directory
 ```
 
-The simulation completes six cases: both manager→subordinate assignments,
+The simulation starts with six cases: both manager→subordinate assignments,
 address boundaries `0`, `127`, `128`, and `255`, and both managers contending
 for each subordinate. Each manager sends one write and one read per case,
 for 12 completed writes and 12 completed reads. The scoreboard checks AW/AR
@@ -48,11 +48,24 @@ backpressure during the run. A second execution corrupts R data and must fail
 at the response assertion, ensuring that disabled or ineffective assertions
 cannot pass the benchmark.
 
+Two further cases interrupt outstanding traffic with reset: accepted AW/AR
+addresses while W is withheld, and accepted requests whose B/R responses are
+blocked by manager backpressure. Both managers and subordinates reset with
+the crossbar and discard their old traffic. After reset release, an eight-cycle
+idle window must have no stale requests or responses. Each case then completes
+fresh traffic on the opposite routes, with distinct payloads and no additional
+startup reset. In total, eight route cases complete 16 writes and 16 reads;
+the interrupted transactions are excluded from those completion counts.
+Two separate negative executions omit each reset in turn and must fail at the
+W-route or R-response assertion, respectively.
+
 The testbench and fixture hashes are pinned. The runner refuses a nonempty
 output directory, retains `build.log`, `simulation.log`, and
-`negative-control.log`, and writes `simulation.json` only after both executions
-behave as expected. This is bounded behavioral evidence; it does not exhaust
-arbitration schedules, resets during traffic, or protocol behavior.
+`negative-control.log`, plus `request-reset-negative-control.log` and
+`response-reset-negative-control.log`. It writes `simulation.json` only after
+the positive execution and all three negative controls behave as expected.
+This is bounded behavioral evidence; it does not exhaust arbitration schedules,
+independent endpoint resets, reset release timing, or protocol behavior.
 
 The checked source-derived frame is deliberately bounded:
 

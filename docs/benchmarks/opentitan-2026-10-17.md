@@ -181,13 +181,14 @@ raising positive references to 36/36.
 The 20 sampled IDs did not change, all remain confirmed, and the new
 population hash is
 `573f0e7bad1ecb196393bc153cded0c959925dd72e5f01e00006e2c9f9fcfd6d`.
-One new approximate family is contradicted by the pinned RTL: both SPI Host
-instances have `NumCS=1`, so `test_csid_inval ? '0 : reg2hw.csid.q[0]`
-is zero for every register value. The analyzer nevertheless reports eight
-CSID-to-command-bit influence rows per instance (16 correlated false
-positives). Of the 177 added approximate rows, two are source-confirmed, 16
-are contradicted, and 159 remain individually unadjudicated. These selected
-checks are not a whole-SoC accuracy estimate.
+The initial binary-only audit classified 16 correlated SPI Host CSID rows as
+false positives because `NumCS=1` makes the guarded output zero for all binary
+register values. That unconditional classification is withdrawn: X/Z values
+can propagate X, so structural approximate paths can be valid without binary
+value influence. The [four-state patch snapshot](opentitan-2026-11-16.md)
+records the counterexample, regression, and corrected interpretation. Most
+rows remain individually unadjudicated; these checks are not a whole-SoC
+accuracy estimate.
 
 ## Follow-up: AXI fixture reachability
 

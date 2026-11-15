@@ -217,23 +217,27 @@ Constant bit/part-selects of packed fields now retain aggregate ordinal lanes
 through a whole-struct port in either field range direction, including
 constant-selected packed-struct array elements. Four new exact
 OpenTitan paths in KMAC, OTBN, Pattgen, and SPI Device gate this shape, plus
-two approximate TL-address paths in ROM Control and USB Device. The same SoC
-run exposes 16 correlated false SPI Host CSID-to-command influence rows:
-`NumCS=1` makes the guarded command bit constant zero. The other new SoC
-paths are not all source-adjudicated.
+two approximate TL-address paths in ROM Control and USB Device. The earlier
+binary-only SPI Host CSID audit incorrectly classified 16 correlated structural
+rows as unconditional false positives: `NumCS=1` makes the guarded command bit
+zero for binary inputs, but X/Z inputs can propagate X. Four-state regression
+references now preserve these approximate paths without calling them binary
+value influence. The other new SoC paths are not all source-adjudicated.
 The fixture now leaves both managers' AW/AR addresses and request data as
 independent runtime inputs, so both address-map regions are reachable from
 either manager; its subordinate responses also vary independently. The earlier
 fixed-address fixture could report structurally possible but unreachable
 cross-destination candidates.
-The optional existing-Verilator simulation now completes 16 writes and 16
-reads across eight route cases: six routing, address-boundary, and contention
-cases plus recovery after two resets during outstanding traffic. The reset
+The optional existing-Verilator simulation now completes 28 writes and 28
+reads across 14 route cases: six routing, address-boundary, and contention
+cases plus recovery after eight resets during outstanding traffic. Both reset
+scenarios run at offsets of 1, 4, 6, and 9 ns within the 10 ns clock. The reset
 cases require accepted addresses or blocked responses before interruption,
 an idle window after release, and fresh opposite-route traffic without another
 reset. Corrupted-response and two omitted-reset negative controls must fail at
-their expected assertions. These are bounded checks, not a proof of all
-arbitration, independent endpoint resets, or reset release timing.
+their expected assertions. Endpoints share reset and discard old traffic;
+independent resets need an integration flush/isolation contract. These are
+bounded functional checks, not exhaustive arbitration or physical reset timing.
 Runtime reads of bounded packed-struct arrays now carry approximate candidate
 field ranges and a separate range-free index-control dependency. The OpenTitan
 KMAC app-port probe gates both the `data` and `valid` lanes from one possible

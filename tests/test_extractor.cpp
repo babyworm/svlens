@@ -3,13 +3,64 @@
 #include "TestUtils.h"
 #include "WidthChecker.h"
 
+#include <slang/ast/symbols/InstanceSymbols.h>
+#include <slang/ast/symbols/CompilationUnitSymbols.h>
+#include <slang/ast/symbols/ParameterSymbols.h>
+
 #include <algorithm>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
 using namespace connect;
 using testutils::compileFile;
+
+TEST_CASE("Extractor: guarded binary constants retain real four-state influence", "[extractor][guard][four-state]") {
+    auto result = compileFile("sv/guarded_selector_semantics.sv");
+    REQUIRE(result);
+    const slang::ast::InstanceSymbol* top = nullptr;
+    for (const auto* instance : result.compilation->getRoot().topInstances) {
+        if (instance->name == "guarded_selector_semantics")
+            top = instance;
+    }
+    REQUIRE(top);
+    auto parameter = [&](std::string_view name) -> const slang::ConstantValue& {
+        for (const auto& member : top->body.members()) {
+            if (member.kind == slang::ast::SymbolKind::Parameter && member.name == name)
+                return member.as<slang::ast::ParameterSymbol>().getValue();
+        }
+        FAIL("missing semantic reference parameter");
+        throw std::runtime_error("missing semantic reference parameter");
+    };
+    for (const auto* name : {"BinaryZero", "BinaryOne", "BinaryMax", "UnknownHighLowZero"}) {
+        const auto& value = parameter(name);
+        REQUIRE(value.isInteger());
+        CHECK(value.integer().as<uint64_t>() == 0);
+    }
+    CHECK(parameter("MultipleOne").integer().as<uint64_t>() == 1);
+    for (const auto* name : {"UnknownLow", "HighImpedanceLow", "UnknownHighLowOne"}) {
+        const auto& value = parameter(name);
+        REQUIRE(value.isInteger());
+        CHECK(value.integer().hasUnknown());
+    }
+
+    ConnectionExtractor extractor(*result.compilation, "guarded_selector_semantics");
+    const auto graph = extractor.extract();
+    for (const auto* sink : {"u_single", "u_multiple"}) {
+        bool found = false;
+        for (const auto& connection : graph.connections) {
+            if (connection.source.fullPath() != "guarded_selector_semantics.u_source.value_o" ||
+                connection.dest.fullPath() != std::string("guarded_selector_semantics.") + sink + ".value_i")
+                continue;
+            CHECK(connection.kind == ConnectionKind::Approximate);
+            if (connection.sourceBits && connection.destBits && connection.sourceBits->low == 0 &&
+                connection.sourceBits->high == 0 && connection.destBits->low == 0 && connection.destBits->high == 0)
+                found = true;
+        }
+        CHECK(found);
+    }
+}
 
 TEST_CASE("Extractor: clean design has connections and all ports") {
     auto result = compileFile("sv/clean_design.sv");

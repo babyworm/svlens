@@ -48,14 +48,17 @@ backpressure during the run. A second execution corrupts R data and must fail
 at the response assertion, ensuring that disabled or ineffective assertions
 cannot pass the benchmark.
 
-Two further cases interrupt outstanding traffic with reset: accepted AW/AR
+Two scenarios interrupt outstanding traffic with reset: accepted AW/AR
 addresses while W is withheld, and accepted requests whose B/R responses are
 blocked by manager backpressure. Both managers and subordinates reset with
 the crossbar and discard their old traffic. After reset release, an eight-cycle
 idle window must have no stale requests or responses. Each case then completes
 fresh traffic on the opposite routes, with distinct payloads and no additional
-startup reset. In total, eight route cases complete 16 writes and 16 reads;
-the interrupted transactions are excluded from those completion counts.
+startup reset. Each scenario runs with reset assertion and release offset by
+1, 4, 6, or 9 ns from a falling edge of the 10 ns test clock, covering both
+clock levels away from the sampling edge. In total, 14 route cases complete
+28 writes and 28 reads, including eight reset recoveries; interrupted
+transactions are excluded from those completion counts.
 Two separate negative executions omit each reset in turn and must fail at the
 W-route or R-response assertion, respectively.
 
@@ -64,8 +67,13 @@ output directory, retains `build.log`, `simulation.log`, and
 `negative-control.log`, plus `request-reset-negative-control.log` and
 `response-reset-negative-control.log`. It writes `simulation.json` only after
 the positive execution and all three negative controls behave as expected.
-This is bounded behavioral evidence; it does not exhaust arbitration schedules,
-independent endpoint resets, reset release timing, or protocol behavior.
+The fixture has one shared reset. Both endpoints must discard outstanding
+traffic with the crossbar: AXI-Lite provides no reset epoch that distinguishes
+an endpoint's stale valid request from a new request after crossbar reset.
+Independent endpoint resets require a separate integration flush/isolation
+contract and are not supported by this fixture. The four timing offsets check
+functional behavior, not metastability or physical reset recovery/removal timing.
+Arbitration schedules and protocol behavior remain bounded by these cases.
 
 The checked source-derived frame is deliberately bounded:
 

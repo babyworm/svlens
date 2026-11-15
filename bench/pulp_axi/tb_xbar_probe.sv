@@ -1,4 +1,6 @@
 module tb_xbar_probe;
+  timeunit 1ns;
+  timeprecision 1ps;
   logic clk_i = 1'b0;
   always #5 clk_i = ~clk_i;
   logic rst_ni = 1'b0;
@@ -207,7 +209,7 @@ module tb_xbar_probe;
 
   // Interrupt genuinely accepted traffic, then leave the bus idle so stale
   // state cannot hide behind a new transaction or another startup reset.
-  task automatic interrupt_with_reset(input bit responses_pending);
+  task automatic interrupt_with_reset(input bit responses_pending, input int reset_offset_ns);
     bit [1:0] sent_aw, sent_ar, sent_w, accepted_aw, accepted_ar, accepted_w;
     bit [1:0] blocked_b, blocked_r;
     bit interrupted;
@@ -287,6 +289,10 @@ module tb_xbar_probe;
     assert (interrupted) else $fatal(1, "reset setup did not reach outstanding traffic");
 
     @(negedge clk_i);
+    aw_valid_i = '0;
+    ar_valid_i = '0;
+    w_valid_i = '0;
+    #(reset_offset_ns);
     if (!(responses_pending ? $test$plusargs("SVLENS_AXI_SKIP_RESPONSE_RESET") :
                               $test$plusargs("SVLENS_AXI_SKIP_REQUEST_RESET"))) rst_ni = 1'b0;
     // Managers and subordinates reset together with the crossbar. Neither
@@ -302,6 +308,7 @@ module tb_xbar_probe;
     b_ready_i = '1;
     r_ready_i = '1;
     repeat (4) @(negedge clk_i);
+    #(reset_offset_ns);
     rst_ni = 1'b1;
     repeat (8) begin
       @(posedge clk_i);
@@ -338,12 +345,21 @@ module tb_xbar_probe;
     check_routes(8'hff, 8'h7f);
     check_routes(8'h10, 8'h20);
     check_routes(8'h90, 8'ha0);
-    interrupt_with_reset(1'b0);
-    check_routes(8'h90, 8'h10, 1'b0);
-    passed_resets++;
-    interrupt_with_reset(1'b1);
-    check_routes(8'h10, 8'h90, 1'b0);
-    passed_resets++;
+    for (int phase = 0; phase < 4; phase++) begin
+      int reset_offset_ns;
+      case (phase)
+        0: reset_offset_ns = 1;
+        1: reset_offset_ns = 4;
+        2: reset_offset_ns = 6;
+        3: reset_offset_ns = 9;
+      endcase
+      interrupt_with_reset(1'b0, reset_offset_ns);
+      check_routes(8'h90, 8'h10, 1'b0);
+      passed_resets++;
+      interrupt_with_reset(1'b1, reset_offset_ns);
+      check_routes(8'h10, 8'h90, 1'b0);
+      passed_resets++;
+    end
     assert (&stalled_channels) else $fatal(1, "missing channel backpressure: %b", stalled_channels);
     $display("PULP AXI 2x2 route simulation passed: %0d cases, %0d writes, %0d reads, %0d resets",
              passed_cases, total_writes, total_reads, passed_resets);

@@ -186,13 +186,15 @@ Dependency bootstrap:
   per manager, plus independent subordinate responses. Its previous fixed
   `8'h10` addresses could not exercise the second address-map region despite
   the analyzer reporting that structural candidate route.
-  A manual-dispatch Verilator run now completes 16 writes and 16 reads across
-  eight route cases, including recovery after resets with accepted addresses
+  A manual-dispatch Verilator run now completes 28 writes and 28 reads across
+  14 route cases, including eight resets with accepted addresses
   or blocked B/R responses. Recovery requires a quiet window and fresh traffic
   without another reset. Corrupted-response and two omitted-reset negative
   controls must fail at their expected assertions. This does not exhaust
-  arbitration schedules, independent endpoint resets, or reset release timing,
-  and does not prove CDC safety.
+  arbitration schedules or prove CDC safety. Assertion/release offsets of
+  1, 4, 6, and 9 ns check both clock levels functionally; physical reset timing
+  is outside the model. Endpoints must share reset and discard old traffic;
+  independent resets require a separate flush/isolation contract.
   Direct constant slices, elaborated indexed `+:` / `-:` part-selects (including
   generated banks and modport members), constant-indexed integral unpacked-array elements,
   nested constant-indexed packed-array elements/bits (including packed fields
@@ -429,9 +431,13 @@ Dependency bootstrap:
   source-backed exact-lane references and two approximate TL-address
   references bring positive gates to 36/36. The
   sampled 20 IDs remain unchanged and confirmed under the new population
-  hash. The 177 new approximate rows include two confirmed TL-address
-  paths, 16 correlated SPI Host CSID false positives, and 159 rows not
-  individually adjudicated. The
+  hash. The earlier binary-only classification of 16 correlated SPI Host CSID
+  rows as false positives is withdrawn: the guarded binary output is zero,
+  but X/Z inputs can propagate X. These structural paths remain approximate.
+  The constant-arm promotion fix subsequently adds 333 approximate rows
+  without removing earlier rows, for 97,550 connections and 25,545 gaps.
+  The same 20 sampled IDs remain confirmed; 39/39 selected positive and 7/7
+  negative gates pass. Most report rows are not individually adjudicated. The
   lockstep buffer bit index was independently checked by summing 30 operand
   widths. The evaluator gates annotation freshness and contradictions;
   the sample is too small and correlated to estimate whole-SoC precision or

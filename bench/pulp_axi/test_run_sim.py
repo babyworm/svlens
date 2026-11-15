@@ -118,10 +118,11 @@ class PulpAxiSimulationRunnerTests(unittest.TestCase):
     def test_success_records_completed_transactions_and_negative_control(self):
         with self.simulate():
             result = self.run_probe()
-        self.assertEqual(result["route_cases_passed"], 8)
-        self.assertEqual(result["write_transactions_passed"], 16)
-        self.assertEqual(result["read_transactions_passed"], 16)
-        self.assertEqual(result["reset_cases_passed"], 2)
+        self.assertEqual(result["route_cases_passed"], 14)
+        self.assertEqual(result["write_transactions_passed"], 28)
+        self.assertEqual(result["read_transactions_passed"], 28)
+        self.assertEqual(result["reset_cases_passed"], 8)
+        self.assertEqual(result["reset_offsets_ns"], [1, 4, 6, 9])
         self.assertTrue(result["negative_control_detected"])
         self.assertTrue(result["reset_negative_control_detected"])
         self.assertEqual(result["reset_negative_controls_detected"], 2)
@@ -155,11 +156,15 @@ class PulpAxiSimulationRunnerTests(unittest.TestCase):
                 self.assertFalse((self.output / "simulation.json").exists())
 
     def test_old_success_marker_cannot_claim_reset_coverage(self):
-        old_marker = "PULP AXI 2x2 route simulation passed: 6 cases, 12 writes, 12 reads"
-        with self.simulate(normal_output=old_marker):
-            with self.assertRaisesRegex(RuntimeError, "simulation failed"):
-                self.run_probe()
-        self.assertFalse((self.output / "simulation.json").exists())
+        for index, old_marker in enumerate((
+                "PULP AXI 2x2 route simulation passed: 6 cases, 12 writes, 12 reads",
+                "PULP AXI 2x2 route simulation passed: 8 cases, 16 writes, 16 reads, 2 resets")):
+            with self.subTest(marker=old_marker):
+                self.output = self.root / f"old-marker-{index}"
+                with self.simulate(normal_output=old_marker):
+                    with self.assertRaisesRegex(RuntimeError, "simulation failed"):
+                        self.run_probe()
+                self.assertFalse((self.output / "simulation.json").exists())
 
     def test_timeout_keeps_diagnostics_without_publishing_success(self):
         def timeout(command, **kwargs):

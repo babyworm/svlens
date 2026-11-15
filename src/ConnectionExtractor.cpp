@@ -1161,6 +1161,13 @@ bool ConnectionExtractor::recordBitFlow(const slang::ast::Expression& lhs, const
                        bool sourceSide) -> bool {
         using EK = slang::ast::ExpressionKind;
         const slang::ast::Expression* current = &expr;
+        // Constants carry no signal dependency, including harmless promotion
+        // of a binary literal into a four-state ternary arm. Do not discard
+        // the other arm's real data / X propagation because of that promotion.
+        if (sourceSide && current->type && current->type->isIntegral() && isConstantOnly(current)) {
+            parts.push_back({std::nullopt, current, offset, current->type->getBitWidth(), false});
+            return true;
+        }
         while (current->kind == EK::Conversion) {
             const auto& conversion = current->as<slang::ast::ConversionExpression>();
             const auto& operand = conversion.operand();

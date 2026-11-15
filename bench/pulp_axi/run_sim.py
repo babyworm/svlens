@@ -11,8 +11,8 @@ from pathlib import Path
 from run import AXI_REV, AXI_SOURCES, COMMON_REV, COMMON_SOURCES, FIXTURE_SHA256, check_clone
 
 
-SUCCESS_MARKER = "PULP AXI 2x2 route simulation passed: 8 cases, 16 writes, 16 reads, 2 resets"
-TESTBENCH_SHA256 = "8dae388bf4ebb8632aefa5328bd036ef8a4bde08d54141741472cf5e21748ad4"
+SUCCESS_MARKER = "PULP AXI 2x2 route simulation passed: 14 cases, 28 writes, 28 reads, 8 resets"
+TESTBENCH_SHA256 = "9b30740aedc25986b6829192917b637d41052dfadcc35b72ad5a824dda5dc284"
 
 
 def execute(command: list[str], log_path: Path, timeout: int) -> tuple[int, str]:
@@ -76,8 +76,9 @@ def run(axi_root: Path, common_root: Path, output: Path, verilator: Path | None 
                                f"{log[-1600:]}")
     result = {"axi_revision": AXI_REV, "common_cells_revision": COMMON_REV,
               "fixture_sha256": fixture_hash, "testbench_sha256": tb_hash,
-              "route_cases_passed": 8, "contended_cases_passed": 2, "reset_cases_passed": 2,
-              "write_transactions_passed": 16, "read_transactions_passed": 16,
+              "route_cases_passed": 14, "contended_cases_passed": 2, "reset_cases_passed": 8,
+              "reset_offsets_ns": [1, 4, 6, 9],
+              "write_transactions_passed": 28, "read_transactions_passed": 28,
               "negative_control_detected": True, "reset_negative_control_detected": True,
               "reset_negative_controls_detected": 2,
               "stdout": SUCCESS_MARKER}

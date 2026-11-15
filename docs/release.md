@@ -35,6 +35,8 @@ This creates:
 - `docs/install.md`
 - `docs/cli-help.md`
 - `docs/schema/*.md`
+- `docs/releases/*.md`
+- `docs/benchmarks/*.md`
 
 ## 2. CI release archive exercise
 

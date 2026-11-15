@@ -95,10 +95,14 @@ Four source-backed exact-lane references in KMAC, OTBN, Pattgen, and SPI Device
 and two source-backed approximate TL-address paths in ROM Control and USB
 Device raise the positive gates to 36/36. All 20
 deterministic sample IDs remain unchanged and confirmed under the refreshed
-population hash. Sixteen correlated approximate SPI Host CSID rows are known
-false source-influence claims: with `NumCS=1`, `test_csid_inval ? '0 :
-reg2hw.csid.q[0]` is always zero. The other new rows are not individually
-adjudicated.
+population hash. The earlier classification of 16 correlated SPI Host CSID
+rows as unconditional false positives is withdrawn: with `NumCS=1` the output
+is zero for binary inputs, but X/Z inputs can propagate X through the ternary.
+These approximate structural paths do not establish binary value influence.
+The constant-arm promotion fix adds another 333 approximate rows with no
+removals, for 97,550 SoC connections and 25,545 gaps. The same 20 sampled IDs
+remain confirmed, and 39 positive / seven negative path gates pass. Most rows
+remain individually unadjudicated; see the [patch snapshot](../../docs/benchmarks/opentitan-2026-11-16.md).
 
 An independent source-derived recall probe walks Slang's elaborated AST for
 seven SoC IP scopes and enumerates single-bit or whole-width, one-dimensional

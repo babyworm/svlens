@@ -18,7 +18,7 @@ ARCHIVE_TGZ="$OUTPUT_DIR_ABS/${ARTIFACT_NAME}.tar.gz"
 ARCHIVE_ZIP="$OUTPUT_DIR_ABS/${ARTIFACT_NAME}.zip"
 
 rm -rf "$STAGE_DIR"
-mkdir -p "$STAGE_DIR/docs/schema"
+mkdir -p "$STAGE_DIR/docs/schema" "$STAGE_DIR/docs/releases" "$STAGE_DIR/docs/benchmarks"
 
 if [ ! -x "$BUILD_DIR_ABS/svlens" ]; then
     echo "ERROR: built svlens binary not found in $BUILD_DIR_ABS" >&2
@@ -31,6 +31,8 @@ cp "$ROOT_DIR/README.md" "$STAGE_DIR/"
 cp "$ROOT_DIR/docs/install.md" "$STAGE_DIR/docs/"
 cp "$ROOT_DIR/docs/cli-help.md" "$STAGE_DIR/docs/"
 cp "$ROOT_DIR/docs/schema/"*.md "$STAGE_DIR/docs/schema/"
+cp "$ROOT_DIR/docs/releases/"*.md "$STAGE_DIR/docs/releases/"
+cp "$ROOT_DIR/docs/benchmarks/"*.md "$STAGE_DIR/docs/benchmarks/"
 
 rm -f "$ARCHIVE_TGZ" "$ARCHIVE_ZIP"
 tar -C "$OUTPUT_DIR_ABS" -czf "$ARCHIVE_TGZ" "$ARTIFACT_NAME"

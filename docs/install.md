@@ -157,15 +157,24 @@ artifacts:
 Download from the [Releases page](https://github.com/babyworm/svlens/releases),
 verify against the `*.sha256` companion file, then extract and install:
 
+The archives contain the binary and documentation; system runtime libraries
+are still required. On macOS, install the Homebrew `yaml-cpp` and `fmt`
+libraries (`brew install yaml-cpp fmt`). Linux archives target the release
+workflow's Ubuntu environment and require compatible `yaml-cpp` / `fmt`
+runtime libraries; the Docker image supplies its own runtime environment.
+
 ```bash
-TAG=v0.3.2  # replace with the desired tag
+TAG=v0.3.7  # replace with the desired tag
 ARCH=linux-x86_64  # or macos-arm64
 
-curl -LO "https://github.com/babyworm/svlens/releases/download/${TAG}/svlens-${ARCH}.tar.gz"
-curl -LO "https://github.com/babyworm/svlens/releases/download/${TAG}/svlens-${ARCH}.sha256"
+# The checksum manifest lists both archive formats, so download both.
+for EXT in tar.gz zip sha256; do
+  curl -fLO "https://github.com/babyworm/svlens/releases/download/${TAG}/svlens-${ARCH}.${EXT}"
+done
 shasum -a 256 -c "svlens-${ARCH}.sha256"
 
 tar -xzf "svlens-${ARCH}.tar.gz"
+install -d "$HOME/.local/bin"
 install -m 0755 "svlens-${ARCH}/svlens" "$HOME/.local/bin/svlens"
 ```
 
@@ -173,13 +182,13 @@ install -m 0755 "svlens-${ARCH}/svlens" "$HOME/.local/bin/svlens"
 
 ## 6. Docker image
 
-Each tagged release also publishes a multi-arch image to GHCR via the
+Each tagged release also publishes an image to GHCR via the
 [`docker`](../.github/workflows/docker.yml) workflow:
 
 ```bash
 docker pull ghcr.io/babyworm/svlens:latest
 # or pin a version
-docker pull ghcr.io/babyworm/svlens:0.3.2
+docker pull ghcr.io/babyworm/svlens:0.3.7
 
 docker run --rm -v "$PWD:/work" -w /work ghcr.io/babyworm/svlens:latest \
   conn -f rtl/filelist.f --top soc_top
